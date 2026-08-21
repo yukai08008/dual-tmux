@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import threading
 
 from .config import AppConfig, load_config
 from .identity import remote_dt_root
@@ -83,9 +84,19 @@ def remove_remote(name: str, run: str = "", cfg: AppConfig | None = None) -> Non
         raise SystemExit("[err] hub rm failed")
 
 
-def push_best_effort() -> None:
-    try:
-        dest = push()
-        ui.info(f"hub push  {dest}")
-    except SystemExit as exc:
-        ui.warn(f"hub push skipped  {exc}")
+def push_best_effort(wait: bool = False) -> None:
+    def _run_push() -> None:
+        try:
+            dest = push()
+            ev.emit("hub.push.ok", dest=dest)
+        except SystemExit as exc:
+            ev.emit("hub.push.fail", error=str(exc))
+
+    if wait:
+        try:
+            dest = push()
+            ui.info(f"hub push  {dest}")
+        except SystemExit as exc:
+            ui.warn(f"hub push skipped  {exc}")
+        return
+    threading.Thread(target=_run_push, daemon=True).start()

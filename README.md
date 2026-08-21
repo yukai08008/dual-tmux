@@ -67,12 +67,11 @@ This is a **third tree**. It does not collide with tmux persist or OpenCode pers
 | OpenCode persist | `~/sessions/opencode/tm_*/` | conversation JSON |
 | **dt hub** | Server `~/<user>/dual-tmux/` | DT/DST bindings only |
 
-`dt push` / `dt pull` rsync **only** `tunnels/` and `entries/`. Never `config.toml` (this machine's `client`), `ops/`, or `events.jsonl`. `new` / `freeze` / `bind` push best-effort.
-
-On this laptop (already done after freeze):
+Hub push is **automatic**: `new` / `freeze` / `bind` / `enter` / `work` / `resume` rsync `tunnels/` + `entries/` in the background. `dt push` is only if you want it now (blocks until rsync finishes). Never copies `config.toml`, `ops/`, or `events.jsonl`.
 
 ```sh
-dt push
+# other machine — no extra dt push on this laptop
+dt pull && dt resume dt-msg
 ```
 
 On the other machine:
@@ -204,7 +203,7 @@ Freeze also records **work points** (`op_point` / `run_point`: kind, cwd, ssh, d
 | `dt ls` | col1 DT, col2 IS_DST |
 | `dt make dst <name> [--tool] [--model]` | one-shot DT + both oc + freeze |
 | `dt resume <name>` | resume DST; reconnect dropped oc |
-| `dt push` | rsync tunnels+entries → Server `~/<user>/dual-tmux` |
+| `dt push` | rsync now (otherwise freeze/new/work already push in the background) |
 | `dt pull` | rsync tunnels+entries ← hub; does not overwrite `client` |
 | `dt re <name>` | re-send ssh/docker into run_* |
 | `dt send <name> '…'` | `tmux send-keys` into run_* (bullet) |
