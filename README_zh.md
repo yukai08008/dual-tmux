@@ -67,12 +67,11 @@ workspace = "/workspace"  # 默认跳板目录；初始化不问
 | OpenCode persist | `~/sessions/opencode/tm_*/` | 对话 JSON |
 | **dt 枢纽** | Server `~/<user>/dual-tmux/` | 只存 DT/DST 绑定 |
 
-`dt push` / `dt pull` **只** rsync `tunnels/` 和 `entries/`。不推 `config.toml`（这台机的 `client`）、`ops/`、`events.jsonl`。`new` / `freeze` / `bind` 会尽力推。
-
-这台笔记本（freeze 之后已经做过）：
+枢纽推送是 **自动的**：`new` / `freeze` / `bind` / `enter` / `work` / `resume` 会后台 rsync `tunnels/` + `entries/`。`dt push` 只是立刻再推一次（会等 rsync 完）。不拷 `config.toml`、`ops/`、`events.jsonl`。
 
 ```sh
-dt push
+# 另一台 —— 这台笔记本不用再手动 dt push
+dt pull && dt resume dt-msg
 ```
 
 另一台机器：
@@ -204,7 +203,7 @@ freeze 还会记下 **工作点**（`op_point` / `run_point`：kind、cwd、ssh�
 | `dt ls` | 第 1 列 DT，第 2 列 IS_DST |
 | `dt make dst <name> [--tool] [--model]` | 一键 DT + 两侧 oc + freeze |
 | `dt resume <name>` | 接续 DST；oc 掉了自动接 |
-| `dt push` | 把 tunnels+entries 推到 Server `~/<user>/dual-tmux` |
+| `dt push` | 立刻推（平时 freeze/new/work 已后台推） |
 | `dt pull` | 从枢纽拉 tunnels+entries；不覆盖本机 `client` |
 | `dt re <name>` | 重新打入 run_* 的 ssh/docker |
 | `dt send <name> '…'` | 向 run_*（bullet）发 `tmux send-keys` |

@@ -129,7 +129,7 @@ def cmd_new(args: argparse.Namespace) -> None:
     ui.ok(f"registered {name}")
     print_inspect(data)
     ui.print_next_new(name)
-    hub.push_best_effort()
+    hub.push_best_effort(wait=True)
 
 
 def _side(data: dict, name: str) -> dict:
@@ -182,7 +182,7 @@ def cmd_bind(args: argparse.Namespace) -> None:
     ui.ok(f"dst {data['name']}")
     _print_side("trigger", trigger)
     _print_side("bullet", bullet)
-    hub.push_best_effort()
+    hub.push_best_effort(wait=True)
 
 
 def _resolve(name: str | None) -> dict:
@@ -228,6 +228,7 @@ def _touch_point(data: dict, which: str) -> None:
     if which == "run":
         wp.apply_runtime(data, point)
     save(find_dt(data["name"]), data)
+    hub.push_best_effort()
 
 
 def cmd_enter(args: argparse.Namespace) -> None:
@@ -373,7 +374,7 @@ def cmd_freeze(args: argparse.Namespace) -> None:
     if not dst:
         ui.warn("DST needs both op-oc and run-oc session ids")
     print_inspect(data)
-    hub.push_best_effort()
+    hub.push_best_effort(wait=True)
 
 
 def cmd_capture(args: argparse.Namespace) -> None:
@@ -426,7 +427,7 @@ def cmd_make(args: argparse.Namespace) -> None:
         raise SystemExit("[err] DST not ready. dt enter --oc / dt work --oc, then dt freeze")
     ui.ok(f"DST {data['name']}")
     print_inspect(data)
-    hub.push_best_effort()
+    hub.push_best_effort(wait=True)
 
 
 def cmd_resume(args: argparse.Namespace) -> None:
@@ -444,6 +445,7 @@ def cmd_resume(args: argparse.Namespace) -> None:
     data["run_point"] = wp.discover(data["run"])
     save(find_dt(data["name"]), data)
     ev.emit("dt.resume", name=data["name"])
+    hub.push_best_effort()
     ui.ok(f"resumed DST {data['name']}")
     if getattr(args, "attach", True):
         tmux_ops.attach(data["op"])
