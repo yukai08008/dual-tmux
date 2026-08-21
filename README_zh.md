@@ -1,6 +1,6 @@
 # dual-tmux
 
-[English](README.md)
+[English](README.md) · [Persist 同步](docs/persist-sync.md)
 
 双层 tmux 隧道。物理会话仍是普通 tmux；本 CLI 给它们命名，并按 1:1 绑定。
 
@@ -81,12 +81,10 @@ uv tool install git+https://github.com/yukai08008/dual-tmux.git
 dt config --init --client tm_<那台> --server tom7r --user andy
 ssh tom7r    # 必须已经能通；dt 不写 ~/.ssh
 dt pull
-# 若那台机 oc sqlite 是空的，先 oc-restore persist 里
-# trigger/bullet 的 JSON（~/sessions/opencode/tm_*/<slug>.json）
-dt resume dt-msg
+dt resume dt-msg              # import trigger JSON，再 -s；bullet 在跳板对端 -s
 ```
 
-`dt pull` 只恢复绑定。`dt resume` 在 `op_*` / `run_*` 里跑 `opencode --auto -s <id>`。没做 persist restore 时 `-s` 会 Session not found。每台 Client 的 `config.toml` 仍用自己的 `tm_*`。
+`dt pull` 只恢复绑定。`dt resume` 会把 **trigger** 的 persist JSON import 进本机 sqlite，再在 `op_*` 里 `opencode --auto -s <id>`。bullet 留在跳板对端的 sqlite：重放 `runtime.cmd` 后在那边 `-s`，不要把 bullet JSON 拉到笔记本。见 [docs/persist-sync.md](docs/persist-sync.md)。
 
 同一时刻只有一台 Client：枢纽锁 `~/<user>/dual-tmux/locks/<dt-名>`（`client@epoch`，TTL 300s）。`enter` / `work` / `resume` 占锁。
 
