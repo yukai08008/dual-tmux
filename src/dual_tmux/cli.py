@@ -3,12 +3,12 @@ from __future__ import annotations
 import argparse
 import json
 import platform
-import shutil
 import subprocess
 import sys
 
 from . import __version__
 from .config import AppConfig, init_config, load_config, write_config
+from .health import collect_checks, ensure_ready, guide_if_needed, print_checks
 from .paths import config_path, home_dir, tunnels_dir
 from .runtime import build_cmd
 from .store import (
@@ -28,11 +28,6 @@ from . import tmux as tmux_ops
 
 
 def require_config() -> AppConfig:
-    path = config_path()
-    if not path.is_file():
-        raise SystemExit(
-            "[err] missing config. Run: dt config --init --client <id> --server <ssh-host>"
-        )
     return load_config()
 
 
@@ -173,6 +168,8 @@ def cmd_config(args: argparse.Namespace) -> None:
         path = init_config(args.client, args.server, args.workspace)
         print(f"[ok] wrote {path}")
         print(f"     client={args.client}  server={args.server}")
+        print("     SSH is yours: this CLI never writes ~/.ssh or keys.")
+        print(f"     next: ssh {args.server} && dt doctor")
         return
     path = config_path()
     if not path.is_file():
@@ -196,40 +193,11 @@ def cmd_config(args: argparse.Namespace) -> None:
 
 
 def cmd_doctor(_: argparse.Namespace) -> None:
-    ok = True
-
-    def check(label: str, good: bool, detail: str) -> None:
-        nonlocal ok
-        mark = "OK " if good else "ERR"
-        if not good:
-            ok = False
-        print(f"{mark}  {label:<12} {detail}")
-
-    path = config_path()
-    if path.is_file():
-        cfg = load_config()
-        check("config", True, str(path))
-        check("client", bool(cfg.client), cfg.client)
-        check("server", bool(cfg.server), cfg.server)
-        server = cfg.server
-    else:
-        check("config", False, f"{path} missing")
-        server = ""
-    home_dir().mkdir(parents=True, exist_ok=True)
-    check("home", home_dir().is_dir(), str(home_dir()))
-    check("tmux", tmux_ops.have_tmux(), shutil.which("tmux") or "not in PATH")
-    check("ssh", shutil.which("ssh") is not None, shutil.which("ssh") or "not in PATH")
-    if server:
-        ssh = subprocess.run(
-            ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", server, "echo ok"],
-            capture_output=True,
-            text=True,
-        )
-        check("ssh server", ssh.returncode == 0, (ssh.stdout or ssh.stderr or "").strip()[:80] or "failed")
-    else:
-        check("ssh server", False, "no server in config")
-    check("tunnels", True, str(len(iter_dt_files())))
+    _, checks = collect_checks()
+    ok = print_checks(checks)
+    print(f"{'OK ' if ok else '   '}  {'tunnels':<12} {len(iter_dt_files())}")
     if not ok:
+        guide_if_needed(checks)
         raise SystemExit(1)
 
 
@@ -303,8 +271,11 @@ def main() -> None:
         return
     command = args.command
     if command is None:
+        ensure_ready()
         cmd_enter(argparse.Namespace(name=None))
         return
+    if command not in {"config", "doctor", "upgrade", "ls", "show"}:
+        ensure_ready()
     handlers = {
         "ls": cmd_ls,
         "show": cmd_show,

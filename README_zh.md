@@ -24,7 +24,9 @@ Client（本机）
 2. **Client 已安装 tmux。** `op_*` / `run_*` 都是本机会话；`run_*` 只通过 ssh 进 Server。
 3. Server 上已有工作目录（若使用 `--container`，容器内也要有）。
 
-本工具不负责配置 SSH、密钥或远端 tmux。`dt doctor` 会检查 Client 的 tmux 以及 `ssh <server>`。
+本工具**不会**配置 SSH、密钥或 `~/.ssh/config`。SSH 完全由你自己管。
+
+安装后第一次真正干活（`dt` / `dt new` / `dt work` …）会检查 Client tmux 和 `ssh <server>`。链路不通就提示你 `dt config --init`，并让你自己修好 SSH。`dt doctor` 是同一套检查。
 
 ## 安装
 
@@ -42,6 +44,7 @@ uv tool install git+https://github.com/yukai08008/dual-tmux.git
 
 ```sh
 dt config --init --client laptop --server myserver
+ssh myserver          # 必须已经能通；dual-tmux 不写任何 SSH 文件
 dt doctor
 ```
 
@@ -95,7 +98,7 @@ dt                    # 接入最近一条隧道的 op_*
 | `dt ls` / `dt show` | 查看 |
 | `dt bind` | 绑定 trigger/bullet 会话 slug |
 | `dt send` | 向 `run_*` 发送 `tmux send-keys` |
-| `dt doctor` | 检查本机环境 |
+| `dt doctor` | 检查 Client tmux 和到 Server 的 ssh（不改 SSH） |
 | `dt config --init` | 写入 Client/Server 配置 |
 | `dt upgrade` | `uv tool upgrade dual-tmux` |
 
