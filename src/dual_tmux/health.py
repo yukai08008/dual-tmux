@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from .config import AppConfig, load_config
 from .identity import SOURCE_HINT, USER_HINT, legal_source, legal_user, remote_sessions_root
 from .paths import config_path, home_dir
+from .sshutil import SshTarget
 from . import tmux as tmux_ops
 
 SSH_HINT = "fix ~/.ssh/config and keys yourself; this CLI never writes SSH files"
@@ -21,28 +22,31 @@ class Check:
     hint: str = ""
 
 
-def probe_ssh(host: str, timeout: int = 5) -> Check:
+def probe_ssh(host: str, timeout: int = 5, port: int = 22) -> Check:
     if not shutil.which("ssh"):
         return Check("ssh", False, "ssh not in PATH", "install OpenSSH on the Client")
     if not host:
         return Check("ssh server", False, "no server in config", INIT_HINT)
+    target = SshTarget(host, port)
     result = subprocess.run(
         [
             "ssh",
+            *target.extra_args,
             "-o",
             "BatchMode=yes",
             "-o",
             "ConnectTimeout=%s" % timeout,
             "-o",
             "StrictHostKeyChecking=yes",
-            host,
+            target.dest,
             "echo ok",
         ],
         capture_output=True,
         text=True,
     )
+    shown = target.dest if target.port == 22 else f"{target.dest}:{target.port}"
     if result.returncode == 0:
-        return Check("ssh server", True, host)
+        return Check("ssh server", True, shown)
     err = (result.stderr or result.stdout or "failed").strip().splitlines()
     detail = err[-1] if err else "failed"
     return Check("ssh server", False, detail[:120], SSH_HINT)
@@ -75,7 +79,7 @@ def collect_checks() -> tuple[AppConfig | None, list[Check]]:
         checks.append(Check("tmux", True, shutil.which("tmux") or "tmux"))
     else:
         checks.append(Check("tmux", False, "not in PATH", "install tmux on the Client"))
-    checks.append(probe_ssh(cfg.server if cfg else ""))
+    checks.append(probe_ssh(cfg.server if cfg else "", port=cfg.ssh_port if cfg else 22))
     return cfg, checks
 
 

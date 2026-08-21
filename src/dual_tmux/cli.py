@@ -9,6 +9,7 @@ import sys
 from . import __version__
 from .config import init_config, load_config
 from .identity import SOURCE_HINT, USER_HINT, remote_sessions_root
+from .sshutil import list_ssh_hosts, parse_ssh_target
 from .health import collect_checks, ensure_ready, guide_if_needed, print_checks
 from .paths import config_path, home_dir, tunnels_dir
 from .runtime import build_cmd
@@ -78,9 +79,15 @@ def cmd_new(args: argparse.Namespace) -> None:
     other = occupied("run", run, skip=name)
     if other:
         raise SystemExit(f"[err] {run} already used by {other}")
-    server = args.server or cfg.server
+    if args.server:
+        target = parse_ssh_target(args.server)
+        server = target.dest
+        ssh_port = target.port
+    else:
+        server = cfg.server
+        ssh_port = cfg.ssh_port
     directory = args.dir or cfg.workspace
-    cmd = args.cmd or build_cmd(server, args.container or "", directory)
+    cmd = args.cmd or build_cmd(server, args.container or "", directory, ssh_port)
     tmux_ops.ensure_session(op)
     tmux_ops.ensure_session(run)
     write_entry(run, cmd)
@@ -92,6 +99,7 @@ def cmd_new(args: argparse.Namespace) -> None:
         "user": cfg.user,
         "runtime": {
             "server": server,
+            "ssh_port": ssh_port,
             "container": args.container or "",
             "directory": directory,
             "cmd": cmd,
@@ -188,19 +196,30 @@ def prompt_init(workspace: str = "/workspace") -> None:
         )
     print("First-time setup. dual-tmux does not write SSH keys or ~/.ssh/config.")
     print(f"client: {SOURCE_HINT}")
-    print("server: Host alias that already works with `ssh <alias>`")
+    print("server: Host alias, user@host, or paste `ssh -p 22 root@IP`")
+    hosts = list_ssh_hosts()
+    if hosts:
+        shown = "  ".join(hosts[:12])
+        extra = f"  (+{len(hosts) - 12} more)" if len(hosts) > 12 else ""
+        print(f"        known aliases: {shown}{extra}")
+    else:
+        print("        no Host aliases in ~/.ssh/config; add one yourself first")
     print(f"user:   {USER_HINT}")
     print("        local persist  ~/sessions")
     print("        remote persist ~/<user>/sessions")
     print("workspace stays /workspace; override later with dt new --dir")
     client = _prompt("client (tm_*): ")
-    server = _prompt("server (ssh host): ")
+    server = _prompt("server (alias or ssh ...): ")
     user = _prompt("user: ")
     path = init_config(client, server, user, workspace or "/workspace")
+    cfg = load_config()
     print(f"[ok] wrote {path}")
-    print(f"     client={client}  server={server}  user={user}")
-    print(f"     remote persist {remote_sessions_root(user)}")
-    print(f"     next: ssh {server} && dt doctor")
+    print(f"     client={cfg.client}  server={cfg.server}  user={cfg.user}")
+    if cfg.ssh_port != 22:
+        print(f"     ssh_port={cfg.ssh_port}  (not written to ~/.ssh)")
+    print(f"     remote persist {remote_sessions_root(cfg.user)}")
+    hint = f"ssh -p {cfg.ssh_port} {cfg.server}" if cfg.ssh_port != 22 else f"ssh {cfg.server}"
+    print(f"     next: {hint} && dt doctor")
 
 
 def cmd_config(args: argparse.Namespace) -> None:
@@ -209,11 +228,15 @@ def cmd_config(args: argparse.Namespace) -> None:
             prompt_init(args.workspace)
             return
         path = init_config(args.client, args.server, args.user, args.workspace)
+        cfg = load_config()
         print(f"[ok] wrote {path}")
-        print(f"     client={args.client}  server={args.server}  user={args.user}")
-        print(f"     remote persist {remote_sessions_root(args.user)}")
+        print(f"     client={cfg.client}  server={cfg.server}  user={cfg.user}")
+        if cfg.ssh_port != 22:
+            print(f"     ssh_port={cfg.ssh_port}  (not written to ~/.ssh)")
+        print(f"     remote persist {remote_sessions_root(cfg.user)}")
         print("     SSH is yours: this CLI never writes ~/.ssh or keys.")
-        print(f"     next: ssh {args.server} && dt doctor")
+        hint = f"ssh -p {cfg.ssh_port} {cfg.server}" if cfg.ssh_port != 22 else f"ssh {cfg.server}"
+        print(f"     next: {hint} && dt doctor")
         return
     path = config_path()
     if not path.is_file():
@@ -225,6 +248,8 @@ def cmd_config(args: argparse.Namespace) -> None:
     print(f"config     {path}")
     print(f"client     {cfg.client}")
     print(f"server     {cfg.server}")
+    if cfg.ssh_port != 22:
+        print(f"ssh_port   {cfg.ssh_port}")
     print(f"user       {cfg.user}")
     print(f"remote     {remote_sessions_root(cfg.user)}")
     print(f"workspace  {cfg.workspace}")

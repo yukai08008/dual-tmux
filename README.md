@@ -21,7 +21,7 @@ Install does nothing except put `dt` on PATH. The first real command (`dt`, `dt 
 | Field | What you type | What this CLI does **not** do |
 |-------|----------------|-------------------------------|
 | `client` | Legal **local source name**: `tm_` + `[A-Za-z0-9._-]`. Example: `tm_laptop`. Not a hostname. | Does not invent a name from `hostname`. |
-| `server` | ssh **Host alias** that already works (`ssh myserver`). | Does not write `~/.ssh/config`, keys, or `known_hosts`. |
+| `server` | Host alias, `user@host`, or paste `ssh -p 22 root@IP`. Non-22 ports stored as `ssh_port` in config.toml only. | Does not write `~/.ssh/config`, keys, or `known_hosts`. |
 | `user` | Person id: `[A-Za-z][A-Za-z0-9._-]`. Example: `ouc`. Not `tm_*`. | Does not create OS accounts. |
 
 ```sh
