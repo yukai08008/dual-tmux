@@ -90,7 +90,7 @@ dt resume dt-msg
 
 同一时刻只有一台 Client：枢纽锁 `~/<user>/dual-tmux/locks/<dt-名>`（`client@epoch`，TTL 300s）。`enter` / `work` / `resume` 占锁。
 
-闲置不看 TTL。`dt tick`（cron 每分钟）把 `op_*`/`run_*` 末 10 行做成 hash，写入 `~/.dual-tmux/activity.log`，推到 `~/<user>/dual-tmux/activity/<client>.log`。另一台 `dt resume` 看持有者最近 **30 个 tick**：指纹全一样才接管；还在变就拒绝（除非 `--force`）。放手：`dt park dt-msg`。
+闲置不看 TTL。`dt tick` 每分钟打指纹。另一台 `dt resume` 在近 **30 个 tick** 冻住时接管。旧 Client 上的 `op_*`/`run_*` **直接杀掉**（不留 `__parked`）。绑定在枢纽，对话在 persist，下次 `dt resume` 再起一套很轻的 tmux。现在放手：`dt drop dt-msg`。抢：`--force`。
 
 安装 / `dt doctor` 会写这条 crontab。另一台：同一条一键安装，然后 `dt pull && dt resume`，不用再配 cron。
 
@@ -209,7 +209,7 @@ freeze 还会记下 **工作点**（`op_point` / `run_point`：kind、cwd、ssh�
 | `dt ls` | 第 1 列 DT，第 2 列 IS_DST |
 | `dt make dst <name> [--tool] [--model]` | 一键 DT + 两侧 oc + freeze |
 | `dt resume <name> [--force]` | 接续 DST；`--force` 抢枢纽锁 |
-| `dt park <name>` | 本机 park op_*/run_* 并释放枢纽锁 |
+| `dt drop <name>` | 杀掉本机 op_*/run_* 并放锁；枢纽绑定保留 |
 | `dt tick` | 每分钟任务（安装 / doctor 会加 crontab） |
 | `dt cron [--remove]` | 安装或去掉 tick crontab |
 | `dt push` | 立刻推（平时 freeze/new/work 已后台推） |

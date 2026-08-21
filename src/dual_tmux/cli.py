@@ -553,7 +553,7 @@ def cmd_tick(_: argparse.Namespace) -> None:
         except SystemExit:
             holder = ""
         if holder and holder != cfg.client:
-            hub.park_local(data)
+            hub.drop_local(data)
             continue
         activity.append_sample(data)
         try:
@@ -565,14 +565,18 @@ def cmd_tick(_: argparse.Namespace) -> None:
     ui.ok(f"tick  {n} live DT  log={activity.activity_path()}")
 
 
-def cmd_park(args: argparse.Namespace) -> None:
+def cmd_drop(args: argparse.Namespace) -> None:
     data = _resolve(args.name)
-    hub.park_local(data)
+    hub.drop_local(data)
     try:
         hub.release(data["name"])
-        ui.ok(f"released {data['name']}")
+        ui.ok(f"released {data['name']}  (hub binding kept)")
     except SystemExit as exc:
         ui.warn(str(exc))
+
+
+def cmd_park(args: argparse.Namespace) -> None:
+    cmd_drop(args)
 
 
 def cmd_doctor(_: argparse.Namespace) -> None:
@@ -750,7 +754,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_resume.add_argument("name", nargs="?", help="defaults to latest tunnel")
     p_resume.add_argument("--force", action="store_true", help="steal hub lock from another Client")
 
-    p_park = sub.add_parser("park", help="detach/rename local op_*/run_* and release hub lock")
+    p_drop = sub.add_parser("drop", help="kill local op_*/run_* and release hub lock; binding stays")
+    p_drop.add_argument("name", nargs="?", help="defaults to latest tunnel")
+    p_park = sub.add_parser("park", help="alias of dt drop")
     p_park.add_argument("name", nargs="?", help="defaults to latest tunnel")
 
     p_send = sub.add_parser("send", help="send-keys into run_*")
@@ -809,6 +815,7 @@ def main() -> None:
         "capture": cmd_capture,
         "make": cmd_make,
         "resume": cmd_resume,
+        "drop": cmd_drop,
         "park": cmd_park,
         "enter": cmd_enter,
         "work": cmd_work,
