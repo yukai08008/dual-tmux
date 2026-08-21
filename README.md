@@ -97,25 +97,54 @@ Or with uv:
 uv tool install git+https://github.com/yukai08008/dual-tmux.git
 ```
 
-## Usage
+## Command flow
 
-```sh
-dt --version
-dt doctor
-
-dt new myapp                  # DT only: op_* + run_*
-dt enter myapp                # op session
-dt work  myapp                # run session
-dt enter myapp --oc --model glm-5.1
-dt work  myapp --oc --model glm-5.1
-dt freeze myapp               # DST only if both oc sessions exist
-dt ls                         # DT | IS_DST | ...
-
-dt make dst myapp --model glm-5.1    # DT + both oc + freeze
-dt resume myapp                      # reconnect missing op/run oc, then attach
+```
+DT  = op tmux + run tmux
+DST = DT + op-oc + run-oc   (both oc sessions frozen)
 ```
 
-`dt new NAME` is **DT** (`op_*` + `run_*`). **DST** exists only after both sides have an oc session (`tool` + `model` + `session_id`). `dt ls` column 1 is DT, column 2 is IS_DST.
+```
+dt new myapp
+        │
+        ├─ dt enter myapp              op tmux
+        │       └─ --oc [--model M]    start trigger OpenCode
+        │
+        ├─ dt work myapp               run tmux
+        │       └─ --oc [--model M]    start bullet OpenCode
+        │
+        ├─ dt freeze myapp             record both oc (tool/model/session_id)
+        │                              IS_DST=yes only if both sides have oc
+        │
+        ├─ dt ls                       col1=DT  col2=IS_DST
+        │
+        ├─ dt make dst myapp [--tool opencode] [--model M]
+        │                              one-shot: new + both oc + freeze
+        │
+        └─ dt resume myapp             reconnect dropped op-oc / run-oc, then attach
+```
+
+Step by step:
+
+```sh
+dt doctor
+
+dt new myapp                          # DT only
+dt enter myapp                        # attach op_*
+dt work  myapp                        # attach run_*
+dt enter myapp --oc --model glm-5.1   # start oc in op
+dt work  myapp --oc --model glm-5.1   # start oc in run
+dt freeze myapp                       # freeze both; DST iff both exist
+dt ls                                 # DT | IS_DST | OP | RUN | TRIGGER | BULLET
+
+dt make dst myapp --model glm-5.1     # same result in one command
+dt resume myapp                       # oc dropped out → auto --auto -s <id>
+dt send myapp 'task for bullet'
+```
+
+`dt new` never creates DST. `--oc` may omit `--model` (harness default). `dt freeze` is required after manual `--oc`. `dt resume` is the DST continue command (not a typo for `dsh`).
+
+Each frozen side stores `tool` (default `opencode`), `model`, `session_id`. Resume uses `opencode --auto -s <id>`, never `-c`.
 
 `run_*` is a **local jump session**. The pane SSHes (and optionally `docker exec`) into the Server workspace. Do not nest another tmux on the Server by default.
 
@@ -123,19 +152,21 @@ dt resume myapp                      # reconnect missing op/run oc, then attach
 
 | Command | What |
 |---------|------|
-| `dt` / `dt enter` | attach the line-head session |
-| `dt work` | attach the workspace jump |
-| `dt re` | reconnect the jump command |
-| `dt new` | create sessions + registry |
-| `dt ls` | DT name + IS_DST |
-| `dt freeze` | freeze op-oc and run-oc; DST iff both exist |
-| `dt make dst` | create DT, start both oc, freeze |
-| `dt resume` | resume DST; reconnects dropped oc |
-| `dt enter --oc --model` | start trigger oc |
-| `dt work --oc --model` | start bullet oc |
-| `dt send` | `tmux send-keys` into `run_*` |
-| `dt doctor` | check Client tmux + ssh to Server (does not change SSH) |
-| `dt config --init` | write `tm_*` client + ssh Host + user |
+| `dt new <name>` | create **DT** only (`op_*` + `run_*`) |
+| `dt enter <name>` | attach op tmux |
+| `dt work <name>` | attach run tmux |
+| `dt enter --oc [--model M]` | start trigger oc in op |
+| `dt work --oc [--model M]` | start bullet oc in run |
+| `dt freeze <name>` | freeze both oc; **DST** only if both exist |
+| `dt ls` | col1 DT, col2 IS_DST |
+| `dt make dst <name> [--tool] [--model]` | one-shot DT + both oc + freeze |
+| `dt resume <name>` | resume DST; reconnect dropped oc |
+| `dt re <name>` | re-send ssh/docker into run_* |
+| `dt send <name> '…'` | `tmux send-keys` into run_* (bullet) |
+| `dt show <name>` | tunnel JSON |
+| `dt` | attach latest op_* |
+| `dt doctor` | check Client tmux + ssh (does not change SSH) |
+| `dt config --init` | write client + server + user |
 | `dt upgrade` | `uv tool upgrade dual-tmux` |
 
 ## Uninstall

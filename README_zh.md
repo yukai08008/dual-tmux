@@ -97,25 +97,54 @@ curl -fsSL https://raw.githubusercontent.com/yukai08008/dual-tmux/main/install.s
 uv tool install git+https://github.com/yukai08008/dual-tmux.git
 ```
 
-## 用法
+## 命令流
 
-```sh
-dt --version
-dt doctor
-
-dt new myapp                  # 只有 DT：op_* + run_*
-dt enter myapp                # op 会话
-dt work  myapp                # run 会话
-dt enter myapp --oc --model glm-5.1
-dt work  myapp --oc --model glm-5.1
-dt freeze myapp               # 两侧都有 oc 才算 DST
-dt ls                         # DT | IS_DST | ...
-
-dt make dst myapp --model glm-5.1    # 一键 DT + 两侧 oc + freeze
-dt resume myapp                      # 掉了的 oc 自动接上
+```
+DT  = op tmux + run tmux
+DST = DT + op-oc + run-oc   （两侧 oc 都 freeze 才算）
 ```
 
-`dt new` 只建 **DT**。**DST** 要等 op 和 run 下面都有 oc 会话（`tool` + `model` + `session_id`）。`dt ls` 第一列 DT，第二列 IS_DST。
+```
+dt new myapp
+        │
+        ├─ dt enter myapp              op tmux
+        │       └─ --oc [--model M]    起 trigger OpenCode
+        │
+        ├─ dt work myapp               run tmux
+        │       └─ --oc [--model M]    起 bullet OpenCode
+        │
+        ├─ dt freeze myapp             记下两侧 oc（tool/model/session_id）
+        │                              两边都有 oc 才 IS_DST=yes
+        │
+        ├─ dt ls                       第 1 列 DT，第 2 列 IS_DST
+        │
+        ├─ dt make dst myapp [--tool opencode] [--model M]
+        │                              一键：new + 两侧 oc + freeze
+        │
+        └─ dt resume myapp             掉了的 op-oc / run-oc 自动接上，再 attach
+```
+
+逐步：
+
+```sh
+dt doctor
+
+dt new myapp                          # 只有 DT
+dt enter myapp                        # 进 op_*
+dt work  myapp                        # 进 run_*
+dt enter myapp --oc --model glm-5.1   # 在 op 里起 oc
+dt work  myapp --oc --model glm-5.1   # 在 run 里起 oc
+dt freeze myapp                       # 冻结两侧；两边都有才是 DST
+dt ls                                 # DT | IS_DST | OP | RUN | TRIGGER | BULLET
+
+dt make dst myapp --model glm-5.1     # 一条命令得到同样结果
+dt resume myapp                       # oc 掉了 → 自动 --auto -s <id>
+dt send myapp '发给 bullet 的任务'
+```
+
+`dt new` 不会创建 DST。`--oc` 可以不带 `--model`（用 harness 默认模型）。手工 `--oc` 之后必须 `dt freeze`。接续 DST 用 `dt resume`。
+
+每侧冻结后记下 `tool`（默认 `opencode`）、`model`、`session_id`。接续用 `opencode --auto -s <id>`，禁用 `-c`。
 
 `run_*` 是**本机跳板会话**。pane 里 ssh（可选再 `docker exec`）进入 Server 工作目录。默认不要在 Server 上再套一层 tmux。
 
@@ -123,19 +152,21 @@ dt resume myapp                      # 掉了的 oc 自动接上
 
 | 命令 | 作用 |
 |------|------|
-| `dt` / `dt enter` | 接入线头会话 op_* |
-| `dt work` | 接入工作区跳板 run_* |
-| `dt re` | 重新打入跳板命令 |
-| `dt new` | 创建会话并登记 |
-| `dt ls` | DT 名 + IS_DST |
-| `dt freeze` | 冻结两侧 oc；两边都有才是 DST |
-| `dt make dst` | 建 DT、起两侧 oc、freeze |
-| `dt resume` | 接续 DST；oc 掉了会自动接 |
-| `dt enter --oc --model` | 起 trigger oc |
-| `dt work --oc --model` | 起 bullet oc |
-| `dt send` | 向 `run_*` 发送 `tmux send-keys` |
-| `dt doctor` | 检查 Client tmux 和到 Server 的 ssh（不改 SSH） |
-| `dt config --init` | 写入 `tm_*` 本机源名 + ssh Host + user |
+| `dt new <name>` | 只建 **DT**（`op_*` + `run_*`） |
+| `dt enter <name>` | 接入 op tmux |
+| `dt work <name>` | 接入 run tmux |
+| `dt enter --oc [--model M]` | 在 op 里起 trigger oc |
+| `dt work --oc [--model M]` | 在 run 里起 bullet oc |
+| `dt freeze <name>` | 冻结两侧 oc；两边都有才是 **DST** |
+| `dt ls` | 第 1 列 DT，第 2 列 IS_DST |
+| `dt make dst <name> [--tool] [--model]` | 一键 DT + 两侧 oc + freeze |
+| `dt resume <name>` | 接续 DST；oc 掉了自动接 |
+| `dt re <name>` | 重新打入 run_* 的 ssh/docker |
+| `dt send <name> '…'` | 向 run_*（bullet）发 `tmux send-keys` |
+| `dt show <name>` | 隧道 JSON |
+| `dt` | 接入最近一条 op_* |
+| `dt doctor` | 检查 Client tmux 和 ssh（不改 SSH） |
+| `dt config --init` | 写入 client + server + user |
 | `dt upgrade` | `uv tool upgrade dual-tmux` |
 
 ## 卸载
