@@ -158,6 +158,7 @@ Freeze also records **work points** (`op_point` / `run_point`: kind, cwd, ssh, d
 | Command | What |
 |---------|------|
 | `dt new <name>` | create **DT** only (`op_*` + `run_*`) |
+| `dt rm <name> [-y] [--kill]` | unregister DT; `--kill` also destroys op_*/run_* tmux |
 | `dt enter <name>` | attach op tmux |
 | `dt work <name>` | attach run tmux |
 | `dt enter --oc [--model M]` | start trigger oc in op |

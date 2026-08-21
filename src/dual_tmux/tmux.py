@@ -14,6 +14,13 @@ def has_session(name: str) -> bool:
     return r.returncode == 0
 
 
+def kill_session(name: str) -> bool:
+    if not name or not has_session(name):
+        return False
+    subprocess.run(["tmux", "kill-session", "-t", name], check=False)
+    return True
+
+
 def ensure_session(name: str) -> None:
     if not have_tmux():
         raise SystemExit("[err] 未找到 tmux")
