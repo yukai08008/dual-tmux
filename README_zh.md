@@ -163,6 +163,7 @@ dt send myapp '发给 bullet 的任务'
 | `dt resume <name>` | 接续 DST；oc 掉了自动接 |
 | `dt re <name>` | 重新打入 run_* 的 ssh/docker |
 | `dt send <name> '…'` | 向 run_*（bullet）发 `tmux send-keys` |
+| `dt inspect <name>` | 查看 DT 以及 op/run 的 tool、model、session_id（可空） |
 | `dt show <name>` | 隧道 JSON |
 | `dt` | 接入最近一条 op_* |
 | `dt doctor` | 检查 Client tmux 和 ssh（不改 SSH） |
