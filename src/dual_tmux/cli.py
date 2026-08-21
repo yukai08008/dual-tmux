@@ -140,7 +140,18 @@ def _resolve(name: str | None) -> dict:
     return load(path)
 
 
+def print_next_after_init() -> None:
+    print()
+    print("Config is ready. Next:")
+    print("  dt doctor              # check tmux + ssh")
+    print("  dt new <name>          # create the first tunnel (op_* + run_*)")
+    print("  dt                     # attach latest op_* once a tunnel exists")
+
+
 def cmd_enter(args: argparse.Namespace) -> None:
+    if not args.name and not iter_dt_files():
+        print_next_after_init()
+        return
     data = _resolve(args.name)
     tmux_ops.attach(data["op"])
 

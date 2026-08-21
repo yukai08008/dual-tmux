@@ -69,7 +69,7 @@ def occupied(field: str, value: str, skip: str = "") -> str:
 def latest_dt() -> Path:
     files = iter_dt_files()
     if not files:
-        raise SystemExit("[err] no tunnels yet. Run: dt new <name> --dir /workspace/...")
+        raise SystemExit("[err] no tunnels yet. Run: dt new <name>")
     files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     return files[0]
 
