@@ -146,6 +146,8 @@ dt send myapp 'task for bullet'
 
 Each frozen side stores `tool` (default `opencode`), `model`, `session_id`. Resume uses `opencode --auto -s <id>`, never `-c`.
 
+Freeze also records **work points** (`op_point` / `run_point`: kind, cwd, ssh, docker, resume_cmd) and **timestamps** (`created_at`, `enter_at`, `work_at`, `freeze_at`, `resume_at`). One side failing does not throw away the other. `dt inspect` shows all of this.
+
 `run_*` is a **local jump session**. The pane SSHes (and optionally `docker exec`) into the Server workspace. Do not nest another tmux on the Server by default.
 
 ## Commands

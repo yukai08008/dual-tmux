@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+
+SES_RE = re.compile(r"ses_[A-Za-z0-9]+")
 
 
 def db_path() -> Path:
@@ -47,27 +50,7 @@ def parse_model(raw: str) -> str:
     return str(data)
 
 
-def latest_local(limit: int = 1) -> list[OcSession]:
-    db = db_path()
-    if not db.is_file():
-        return []
-    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
-    try:
-        rows = conn.execute(
-            """
-            SELECT id, slug, IFNULL(title,''), directory,
-                   IFNULL(model,''), IFNULL(agent,'')
-            FROM session
-            WHERE time_archived IS NULL
-            ORDER BY time_updated DESC
-            LIMIT ?
-            """,
-            (limit,),
-        ).fetchall()
-    except sqlite3.Error:
-        return []
-    finally:
-        conn.close()
+def _rows_to_sessions(rows) -> list[OcSession]:
     out: list[OcSession] = []
     for row in rows:
         out.append(
@@ -82,6 +65,72 @@ def latest_local(limit: int = 1) -> list[OcSession]:
             )
         )
     return out
+
+
+def _query(sql: str, args: tuple = ()) -> list[OcSession]:
+    db = db_path()
+    if not db.is_file():
+        return []
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        rows = conn.execute(sql, args).fetchall()
+    except sqlite3.Error:
+        return []
+    finally:
+        conn.close()
+    return _rows_to_sessions(rows)
+
+
+_SELECT = """
+SELECT id, slug, IFNULL(title,''), directory,
+       IFNULL(model,''), IFNULL(agent,'')
+FROM session
+WHERE time_archived IS NULL
+"""
+
+
+def latest_local(limit: int = 1) -> list[OcSession]:
+    return _query(_SELECT + " ORDER BY time_updated DESC LIMIT ?", (limit,))
+
+
+def by_id(session_id: str) -> OcSession | None:
+    rows = _query(_SELECT + " AND id = ? LIMIT 1", (session_id,))
+    return rows[0] if rows else None
+
+
+def by_directory(directory: str) -> OcSession | None:
+    if not directory:
+        return None
+    rows = _query(_SELECT + " AND directory = ? ORDER BY time_updated DESC LIMIT 1", (directory,))
+    return rows[0] if rows else None
+
+
+def id_from_pid(pid: str) -> str:
+    if not pid:
+        return ""
+    result = subprocess.run(["ps", "-p", pid, "-o", "command="], capture_output=True, text=True)
+    text = result.stdout or ""
+    found = SES_RE.findall(text)
+    return found[-1] if found else ""
+
+
+def from_pane(pid: str, cwd: str, exclude: str = "", fallback: bool = False) -> OcSession | None:
+    sid = id_from_pid(pid)
+    if sid:
+        session = by_id(sid)
+        if session:
+            return session
+    if cwd:
+        session = by_directory(cwd)
+        if session and session.session_id != exclude:
+            return session
+    if not fallback:
+        return None
+    rows = latest_local(8)
+    for session in rows:
+        if session.session_id != exclude:
+            return session
+    return None
 
 
 def remote_query_cmd(container: str = "") -> str:
@@ -152,12 +201,16 @@ def empty_side(tool: str = "opencode") -> dict[str, str]:
 
 
 def as_bind(session: OcSession, tool: str = "") -> dict[str, str]:
+    from .workpoint import now_iso
+
     return {
         "tool": tool or session.tool or "opencode",
         "model": session.model,
         "session_id": session.session_id,
         "slug": session.slug,
         "agent": session.agent,
+        "directory": session.directory,
+        "frozen_at": now_iso(),
     }
 
 

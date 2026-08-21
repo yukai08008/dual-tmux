@@ -6,6 +6,7 @@ from dual_tmux.runtime import build_cmd
 from dual_tmux.sshutil import list_ssh_hosts, parse_ssh_target
 from dual_tmux.oc import as_bind, empty_side, is_dst, parse_model, resume_cmd, start_cmd, OcSession
 from dual_tmux.store import default_names, normalize_dt
+from dual_tmux.workpoint import empty_point, empty_times
 
 
 def test_names():
@@ -72,6 +73,14 @@ def test_dst_bind():
     assert empty_side()["tool"] == "opencode"
     assert is_dst({"trigger": bind, "bullet": bind})
     assert not is_dst({"trigger": bind, "bullet": empty_side()})
+
+
+def test_workpoint_empty():
+    point = empty_point()
+    assert point["kind"] == "local"
+    assert point["cwd"] == ""
+    times = empty_times()
+    assert "freeze_at" in times
 
 
 def test_user():

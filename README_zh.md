@@ -146,6 +146,8 @@ dt send myapp '发给 bullet 的任务'
 
 每侧冻结后记下 `tool`（默认 `opencode`）、`model`、`session_id`。接续用 `opencode --auto -s <id>`，禁用 `-c`。
 
+freeze 还会记下 **工作点**（`op_point` / `run_point`：kind、cwd、ssh、docker、resume_cmd）和 **时间**（`created_at`、`enter_at`、`work_at`、`freeze_at`、`resume_at`）。一侧失败不会丢掉另一侧。`dt inspect` 能看到这些。
+
 `run_*` 是**本机跳板会话**。pane 里 ssh（可选再 `docker exec`）进入 Server 工作目录。默认不要在 Server 上再套一层 tmux。
 
 ## 命令
