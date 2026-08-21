@@ -52,8 +52,12 @@ This CLI only owns `~/.dual-tmux/` (`DUAL_TMUX_HOME` overrides). It does not wri
 ├── config.toml               # client + server + workspace
 ├── tunnels/dt-<name>.json    # 1:1 op/run binding
 ├── entries/run_<name>.cmd    # reconnect command for run_*
-└── events.jsonl              # CLI event / operation log
+├── events.jsonl              # CLI event / operation log
+├── skills/                   # trigger skills copied from the installed package
+└── ops/op_<name>/AGENTS.md   # launch dir for trigger OpenCode
 ```
+
+Trigger OpenCode starts in `ops/op_*` so it always reads `AGENTS.md`, which points at packaged `dual-tmux` + `tmux-trigger` skills. Same layout after `uv tool install` on any machine.
 
 Treat `dt` like a small server: every command appends JSON lines to `events.jsonl` (`cmd.start` / `cmd.ok` / `cmd.fail`, plus `freeze.start` / `freeze.side.ok` / `freeze.side.fail` / `freeze.ok`). `dt log` is the audit view. Freeze failures are events, not only a one-line stderr.
 

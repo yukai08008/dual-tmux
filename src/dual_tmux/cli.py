@@ -29,6 +29,7 @@ from .store import (
     remove_dt,
 )
 from . import log as ev
+from . import opsdir
 from . import tmux as tmux_ops
 from . import ui
 from . import workpoint as wp
@@ -92,7 +93,6 @@ def cmd_new(args: argparse.Namespace) -> None:
         ssh_port = cfg.ssh_port
     directory = args.dir or cfg.workspace
     cmd = args.cmd or build_cmd(server, args.container or "", directory, ssh_port)
-    tmux_ops.ensure_session(op)
     tmux_ops.ensure_session(run)
     write_entry(run, cmd)
     data = {
@@ -124,6 +124,8 @@ def cmd_new(args: argparse.Namespace) -> None:
         data["trigger"] = old.get("trigger") or data["trigger"]
         data["bullet"] = old.get("bullet") or data["bullet"]
     save(path, data)
+    launch = opsdir.prepare(data)
+    tmux_ops.ensure_session(op, cwd=str(launch))
     ev.emit("dt.new", name=name, op=op, run=run, server=server)
     ui.ok(f"registered {name}")
     print_inspect(data)
@@ -200,9 +202,12 @@ def _start_side(data: dict, tmux_name: str, side: str, model: str = "", resume: 
         cmd = oc_ops.resume_cmd(info)
     else:
         cmd = oc_ops.start_cmd(info, model)
-    sent = tmux_ops.ensure_agent(tmux_name, cmd)
+    cwd = ""
+    if side == "trigger":
+        cwd = str(opsdir.prepare(data))
+    sent = tmux_ops.ensure_agent(tmux_name, cmd, cwd=cwd)
     if sent:
-        ui.ok(f"{side} {cmd} -> {tmux_name}")
+        ui.ok(f"{side} {cmd} -> {tmux_name}" + (f"  cwd={cwd}" if cwd else ""))
     else:
         ui.skip(f"{tmux_name} already running opencode")
 
@@ -221,6 +226,7 @@ def cmd_enter(args: argparse.Namespace) -> None:
         print_next_after_init()
         return
     data = _resolve(args.name)
+    opsdir.prepare(data)
     ev.emit("dt.enter", name=data["name"], oc=bool(getattr(args, "oc", False)))
     wp.stamp(data, "enter_at")
     if getattr(args, "oc", False) or getattr(args, "resume", False):
@@ -414,6 +420,7 @@ def cmd_make(args: argparse.Namespace) -> None:
 
 def cmd_resume(args: argparse.Namespace) -> None:
     data = _resolve(args.name)
+    opsdir.prepare(data)
     if not oc_ops.is_dst(data):
         raise SystemExit("[err] not a DST. Freeze both oc sessions first: dt freeze")
     jump = (data.get("runtime") or {}).get("cmd") or ""
@@ -535,6 +542,7 @@ def cmd_rm(args: argparse.Namespace) -> None:
             ui.skip("cancelled")
             return
     data = remove_dt(name)
+    opsdir.remove_ops(op)
     killed = []
     if args.kill:
         if tmux_ops.kill_session(op):

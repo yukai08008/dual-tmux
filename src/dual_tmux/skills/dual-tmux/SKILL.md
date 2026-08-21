@@ -1,0 +1,22 @@
+---
+name: dual-tmux
+description: Dual tmux tunnels. You are the trigger OpenCode in op_*. Bullet lives in run_*. Use dt inspect / dt work / tmux send-keys. Never ssh the task yourself.
+trigger: When this session is a DT trigger, or the user mentions dt-, op_*, run_*, DST, trigger/bullet.
+---
+
+# dual-tmux (trigger)
+
+This launch directory is `~/.dual-tmux/ops/<op_*>/`. You are the **trigger**.
+
+- DT = local tmux pair `op_*` (this pane) + `run_*` (jump to Server).
+- DST = that pair plus frozen OpenCode session ids on both sides.
+- Work is dispatched with `tmux send-keys -t <run_*>`, then you detach and poll. See `tmux-trigger`.
+
+```sh
+dt inspect                 # this tunnel
+dt work                    # attach run_* (do not stay there to run the task)
+dt re                      # re-send ssh/docker into run_*
+tmux send-keys -t <run_*> -- 'task...' Enter
+```
+
+Resume uses `opencode --auto -s <id>`, never `-c`.

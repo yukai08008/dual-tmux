@@ -89,6 +89,28 @@ def test_event_log(monkeypatch, tmp_path):
     assert "kind" in rows[2] and rows[2]["kind"] == "freeze.side.ok"
 
 
+def test_ops_launch(monkeypatch, tmp_path):
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
+    from dual_tmux.opsdir import prepare, packaged_skills, skills_dir
+
+    assert (packaged_skills() / "tmux-trigger" / "SKILL.md").is_file()
+    data = {
+        "name": "dt-msg",
+        "op": "op_msg",
+        "run": "run_msg",
+        "runtime": {"server": "tom7r", "container": "box"},
+        "trigger": {"session_id": "ses_a", "model": "xs-grok/grok-4.6"},
+        "bullet": {"session_id": "ses_b", "model": "cli-proxy/glm-5.1"},
+    }
+    dest = prepare(data)
+    agents = (dest / "AGENTS.md").read_text()
+    assert "op_msg" in agents
+    assert "run_msg" in agents
+    assert "ses_b" in agents
+    assert (skills_dir() / "dual-tmux" / "SKILL.md").is_file()
+    assert "tmux send-keys -t run_msg" in agents
+
+
 def test_remove_dt(monkeypatch, tmp_path):
     monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
     path = tunnels_dir() / "dt-msg.json"

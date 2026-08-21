@@ -22,3 +22,11 @@ def entries_dir() -> Path:
 
 def events_path() -> Path:
     return home_dir() / "events.jsonl"
+
+
+def skills_dir() -> Path:
+    return home_dir() / "skills"
+
+
+def ops_root() -> Path:
+    return home_dir() / "ops"
