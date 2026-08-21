@@ -66,6 +66,37 @@ def cmd_show(args: argparse.Namespace) -> None:
     print(json.dumps(load(path), ensure_ascii=False, indent=2))
 
 
+def _blank(value: str | None) -> str:
+    return value if value else "-"
+
+
+def print_inspect(data: dict) -> None:
+    runtime = data.get("runtime") or {}
+    trigger = data.get("trigger") or oc_ops.empty_side()
+    bullet = data.get("bullet") or oc_ops.empty_side()
+    print(f"DT         {data.get('name', '-')}")
+    print(f"IS_DST     {'yes' if oc_ops.is_dst(data) else 'no'}")
+    print(f"op         {data.get('op', '-')}")
+    print(f"run        {data.get('run', '-')}")
+    print(f"server     {_blank(runtime.get('server'))}")
+    print(f"cmd        {_blank(runtime.get('cmd'))}")
+    print("op / trigger")
+    print(f"  tool     {_blank(trigger.get('tool'))}")
+    print(f"  model    {_blank(trigger.get('model'))}")
+    print(f"  session  {_blank(trigger.get('session_id'))}")
+    print(f"  slug     {_blank(trigger.get('slug'))}")
+    print("run / bullet")
+    print(f"  tool     {_blank(bullet.get('tool'))}")
+    print(f"  model    {_blank(bullet.get('model'))}")
+    print(f"  session  {_blank(bullet.get('session_id'))}")
+    print(f"  slug     {_blank(bullet.get('slug'))}")
+
+
+def cmd_inspect(args: argparse.Namespace) -> None:
+    path = find_dt(args.name) if args.name else latest_dt()
+    print_inspect(load(path))
+
+
 def cmd_new(args: argparse.Namespace) -> None:
     cfg = require_config()
     name, default_op, default_run = default_names(args.name)
@@ -117,10 +148,9 @@ def cmd_new(args: argparse.Namespace) -> None:
         data["bullet"] = old.get("bullet") or data["bullet"]
     save(path, data)
     print(f"[ok] registered {name}")
-    print(f"     op={op}  run={run}")
-    print(f"     server={server}  cmd={cmd}")
-    print(f"     DT only. enter/work then --oc, then dt freeze {name}")
-    print(f"     or: dt make dst {name}")
+    print_inspect(data)
+    print(f"next: dt enter {name} --oc / dt work {name} --oc / dt freeze {name}")
+    print(f"  or: dt make dst {name}")
 
 
 def _oc_label(info: dict) -> str:
@@ -468,6 +498,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("ls", help="list DT; second column is IS_DST")
     p_show = sub.add_parser("show", help="show one tunnel JSON")
     p_show.add_argument("name")
+    p_ins = sub.add_parser("inspect", help="show DT/DST fields including empty tool/model/session")
+    p_ins.add_argument("name", nargs="?", help="defaults to latest tunnel")
 
     p_new = sub.add_parser("new", help="create op/run sessions and register a tunnel")
     p_new.add_argument("name", help="dt-app or app")
@@ -554,13 +586,14 @@ def main() -> None:
         ensure_ready()
         cmd_enter(argparse.Namespace(name=None))
         return
-    if command not in {"config", "doctor", "upgrade", "ls", "show"}:
+    if command not in {"config", "doctor", "upgrade", "ls", "show", "inspect"}:
         if not config_path().is_file():
             prompt_init()
         ensure_ready()
     handlers = {
         "ls": cmd_ls,
         "show": cmd_show,
+        "inspect": cmd_inspect,
         "new": cmd_new,
         "bind": cmd_bind,
         "freeze": cmd_freeze,

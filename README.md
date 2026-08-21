@@ -163,7 +163,8 @@ Each frozen side stores `tool` (default `opencode`), `model`, `session_id`. Resu
 | `dt resume <name>` | resume DST; reconnect dropped oc |
 | `dt re <name>` | re-send ssh/docker into run_* |
 | `dt send <name> '…'` | `tmux send-keys` into run_* (bullet) |
-| `dt show <name>` | tunnel JSON |
+| `dt inspect <name>` | DT + op/run tool, model, session_id (empty allowed) |
+| `dt show <name>` | raw tunnel JSON |
 | `dt` | attach latest op_* |
 | `dt doctor` | check Client tmux + ssh (does not change SSH) |
 | `dt config --init` | write client + server + user |
