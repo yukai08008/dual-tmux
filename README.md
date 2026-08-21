@@ -57,6 +57,8 @@ This CLI only owns `~/.dual-tmux/` (`DUAL_TMUX_HOME` overrides). It does not wri
 └── ops/op_<name>/AGENTS.md   # launch dir for trigger OpenCode
 ```
 
+Hub (third tree, not persist): `dt push` / `dt pull` rsync **only** `tunnels/` and `entries/` to `~/<user>/dual-tmux/` on Server. `config.toml` (this machine's `client`), `ops/`, `events.jsonl` stay local. `new` / `freeze` / `bind` push best-effort. Other Client: `dt config --init --client tm_<that-box>`, `dt pull`, restore oc JSON if needed, `dt resume`.
+
 Trigger OpenCode starts in `ops/op_*` so it always reads `AGENTS.md`, which points at packaged `dual-tmux` + `tmux-trigger` skills. Same layout after `uv tool install` on any machine.
 
 Treat `dt` like a small server: every command appends JSON lines to `events.jsonl` (`cmd.start` / `cmd.ok` / `cmd.fail`, plus `freeze.start` / `freeze.side.ok` / `freeze.side.fail` / `freeze.ok`). `dt log` is the audit view. Freeze failures are events, not only a one-line stderr.
@@ -171,6 +173,8 @@ Freeze also records **work points** (`op_point` / `run_point`: kind, cwd, ssh, d
 | `dt ls` | col1 DT, col2 IS_DST |
 | `dt make dst <name> [--tool] [--model]` | one-shot DT + both oc + freeze |
 | `dt resume <name>` | resume DST; reconnect dropped oc |
+| `dt push` | rsync tunnels+entries → Server `~/<user>/dual-tmux` |
+| `dt pull` | rsync tunnels+entries ← hub; does not overwrite `client` |
 | `dt re <name>` | re-send ssh/docker into run_* |
 | `dt send <name> '…'` | `tmux send-keys` into run_* (bullet) |
 | `dt inspect <name>` | DT + op/run tool, model, session_id (empty allowed) |

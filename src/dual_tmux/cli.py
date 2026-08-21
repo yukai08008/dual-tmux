@@ -9,7 +9,8 @@ import sys
 from . import __version__
 from .config import AppConfig, init_config, load_config
 from . import oc as oc_ops
-from .identity import SOURCE_HINT, USER_HINT, remote_sessions_root
+from .identity import SOURCE_HINT, USER_HINT, remote_dt_root, remote_sessions_root
+from . import hub
 from .sshutil import list_ssh_hosts, parse_ssh_target
 from .health import collect_checks, ensure_ready, guide_if_needed, print_checks
 from .paths import config_path, home_dir, tunnels_dir
@@ -56,8 +57,7 @@ def cmd_ls(_: argparse.Namespace) -> None:
 
 
 def cmd_show(args: argparse.Namespace) -> None:
-    path = find_dt(args.name)
-    print(json.dumps(load(path), ensure_ascii=False, indent=2))
+    print(json.dumps(_resolve(args.name), ensure_ascii=False, indent=2))
 
 
 def print_inspect(data: dict) -> None:
@@ -65,8 +65,7 @@ def print_inspect(data: dict) -> None:
 
 
 def cmd_inspect(args: argparse.Namespace) -> None:
-    path = find_dt(args.name) if args.name else latest_dt()
-    print_inspect(load(path))
+    print_inspect(_resolve(args.name))
 
 
 def cmd_new(args: argparse.Namespace) -> None:
@@ -130,6 +129,7 @@ def cmd_new(args: argparse.Namespace) -> None:
     ui.ok(f"registered {name}")
     print_inspect(data)
     ui.print_next_new(name)
+    hub.push_best_effort()
 
 
 def _side(data: dict, name: str) -> dict:
@@ -182,11 +182,20 @@ def cmd_bind(args: argparse.Namespace) -> None:
     ui.ok(f"dst {data['name']}")
     _print_side("trigger", trigger)
     _print_side("bullet", bullet)
+    hub.push_best_effort()
 
 
 def _resolve(name: str | None) -> dict:
-    path = find_dt(name) if name else latest_dt()
-    return load(path)
+    try:
+        path = find_dt(name) if name else latest_dt()
+        return load(path)
+    except SystemExit:
+        if not name:
+            raise
+        ui.info("tunnel missing locally; pulling hub")
+        hub.pull()
+        path = find_dt(name)
+        return load(path)
 
 
 def print_next_after_init() -> None:
@@ -343,8 +352,8 @@ def freeze_sides(data: dict, sides: list[str], tool: str = "opencode", wait: boo
 
 
 def cmd_freeze(args: argparse.Namespace) -> None:
-    path = find_dt(args.name) if args.name else latest_dt()
-    data = load(path)
+    data = _resolve(args.name)
+    path = find_dt(data["name"])
     sides: list[str] = []
     if args.trigger or (not args.trigger and not args.bullet):
         sides.append("trigger")
@@ -364,6 +373,7 @@ def cmd_freeze(args: argparse.Namespace) -> None:
     if not dst:
         ui.warn("DST needs both op-oc and run-oc session ids")
     print_inspect(data)
+    hub.push_best_effort()
 
 
 def cmd_capture(args: argparse.Namespace) -> None:
@@ -416,6 +426,7 @@ def cmd_make(args: argparse.Namespace) -> None:
         raise SystemExit("[err] DST not ready. dt enter --oc / dt work --oc, then dt freeze")
     ui.ok(f"DST {data['name']}")
     print_inspect(data)
+    hub.push_best_effort()
 
 
 def cmd_resume(args: argparse.Namespace) -> None:
@@ -508,6 +519,7 @@ def cmd_config(args: argparse.Namespace) -> None:
         ui.info(f"ssh_port   {cfg.ssh_port}")
     ui.info(f"user       {cfg.user}")
     ui.info(f"remote     {remote_sessions_root(cfg.user)}")
+    ui.info(f"hub        {remote_dt_root(cfg.user)}")
     ui.info(f"workspace  {cfg.workspace}")
     if args.client or args.server or args.user or args.workspace != "/workspace":
         path = init_config(
@@ -556,6 +568,23 @@ def cmd_rm(args: argparse.Namespace) -> None:
     else:
         ui.info("tmux sessions kept (pass --kill to destroy op_*/run_*)")
     ui.info("OpenCode sqlite untouched")
+    try:
+        hub.remove_remote(name, run)
+        ui.info("hub removed tunnel json")
+    except SystemExit as exc:
+        ui.warn(f"hub rm skipped  {exc}")
+
+
+def cmd_push(_: argparse.Namespace) -> None:
+    dest = hub.push()
+    ui.ok(f"pushed tunnels+entries → {dest}")
+    ui.info("config.toml / ops / events stay on this Client")
+
+
+def cmd_pull(_: argparse.Namespace) -> None:
+    dest = hub.pull()
+    ui.ok(f"pulled tunnels+entries ← {dest}")
+    ui.info(f"this Client stays {require_config().client}")
 
 
 def cmd_log(args: argparse.Namespace) -> None:
@@ -660,6 +689,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_config.add_argument("--user", default="", help="person id; remote persist ~/<user>/sessions")
     p_config.add_argument("--workspace", default="/workspace")
 
+    sub.add_parser("push", help="rsync tunnels+entries to Server ~/<user>/dual-tmux")
+    sub.add_parser("pull", help="rsync tunnels+entries from Server; keeps this Client config.toml")
+
     p_log = sub.add_parser("log", help="show CLI event log (~/.dual-tmux/events.jsonl)")
     p_log.add_argument("-n", "--limit", type=int, default=40)
     p_log.add_argument("--kind", default="", help="prefix filter, e.g. freeze")
@@ -703,6 +735,8 @@ def main() -> None:
         "re": cmd_re,
         "send": cmd_send,
         "config": cmd_config,
+        "push": cmd_push,
+        "pull": cmd_pull,
         "log": cmd_log,
         "doctor": cmd_doctor,
         "upgrade": cmd_upgrade,

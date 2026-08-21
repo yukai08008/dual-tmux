@@ -20,3 +20,5 @@ tmux send-keys -t <run_*> -- 'task...' Enter
 ```
 
 Resume uses `opencode --auto -s <id>`, never `-c`.
+
+Bindings live in `dt inspect`. Another Client: `dt pull` then `dt resume` (oc JSON still needs persist restore). `dt push` does not copy `config.toml`.

@@ -20,3 +20,7 @@ def legal_user(name: str) -> bool:
 
 def remote_sessions_root(user: str) -> str:
     return f"~/{user}/sessions"
+
+
+def remote_dt_root(user: str) -> str:
+    return f"~/{user}/dual-tmux"
