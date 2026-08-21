@@ -16,7 +16,7 @@ Client（本机）
 
 ## 第一次启动
 
-安装只是把 `dt` 放到 PATH。第一次真正干活（`dt` / `dt new` / `dt work` / `dt config --init`）只收 **两个字段**：
+安装只是把 `dt` 放到 PATH。第一次真正干活（`dt` / `dt new` / `dt work` / `dt config --init`）只收 **两个字段**。跳板目录默认 `/workspace`，某条隧道要用别的路径再 `dt new --dir`。
 
 | 字段 | 你填什么 | 本 CLI **不会**做的 |
 |------|----------|---------------------|
@@ -34,7 +34,7 @@ dt doctor
 ```toml
 client = "tm_laptop"   # 本机源名
 server = "myserver"    # ~/.ssh/config 里的 Host
-workspace = "/workspace"
+workspace = "/workspace"  # 默认跳板目录；初始化不问
 ```
 
 没有配置时，`dt` 会在 TTY 里问这两项，然后检查 Client tmux 和 `ssh <server>`。SSH 始终由你自己管。
