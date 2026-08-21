@@ -15,6 +15,13 @@ def db_path() -> Path:
     return Path(os.environ.get("OPENCODE_DB", Path.home() / ".local/share/opencode/opencode.db"))
 
 
+def persist_root() -> Path:
+    raw = os.environ.get("OPENCODE_SESSIONS", "")
+    if raw:
+        return Path(raw).expanduser()
+    return (Path.home() / "sessions" / "opencode").expanduser()
+
+
 @dataclass
 class OcSession:
     session_id: str
@@ -241,3 +248,69 @@ def side_ready(info: dict | None) -> bool:
 
 def is_dst(data: dict) -> bool:
     return side_ready(data.get("trigger")) and side_ready(data.get("bullet"))
+
+
+def persist_snapshot(info: dict, root: Path | None = None) -> Path | None:
+    """Find trigger JSON under ~/sessions/opencode/tm_*/. Never keyed by container."""
+    from .identity import legal_source
+
+    slug = (info.get("slug") or "").strip()
+    sid = (info.get("session_id") or "").strip()
+    if not slug and not sid:
+        return None
+    base = root or persist_root()
+    if not base.is_dir():
+        return None
+    hits: list[Path] = []
+    for source in sorted(base.iterdir()):
+        if not source.is_dir() or not legal_source(source.name):
+            continue
+        if slug:
+            candidate = source / f"{slug}.json"
+            if candidate.is_file():
+                hits.append(candidate)
+                continue
+        if not sid:
+            continue
+        for path in source.glob("*.json"):
+            try:
+                data = json.loads(path.read_text())
+            except (OSError, json.JSONDecodeError):
+                continue
+            if (data.get("info") or {}).get("id") == sid:
+                hits.append(path)
+                break
+    if not hits:
+        return None
+    return max(hits, key=lambda p: p.stat().st_mtime)
+
+
+def import_snapshot(path: Path) -> None:
+    result = subprocess.run(["opencode", "import", str(path)], capture_output=True, text=True)
+    if result.returncode != 0:
+        err = (result.stderr or result.stdout or "opencode import failed").strip().splitlines()
+        raise SystemExit(f"[err] opencode import {path.name}: {err[-1] if err else 'failed'}")
+
+
+def ensure_local(info: dict, *, importer=None) -> bool:
+    """Import persist JSON if this Client sqlite lacks the trigger session.
+
+    Returns True if import ran. Bullet must not call this: that sqlite is
+    at the jump target, not on this laptop.
+    """
+    sid = (info.get("session_id") or "").strip()
+    if not sid:
+        return False
+    if by_id(sid):
+        return False
+    path = persist_snapshot(info)
+    if path is None:
+        slug = info.get("slug") or "—"
+        raise SystemExit(
+            f"[err] trigger session {sid} ({slug}) not in local sqlite and no persist JSON "
+            f"under {persist_root()}/tm_*/. Pull persist, then dt resume."
+        )
+    (importer or import_snapshot)(path)
+    if not by_id(sid):
+        raise SystemExit(f"[err] imported {path.name} but session {sid} still missing")
+    return True

@@ -1,6 +1,6 @@
 # dual-tmux
 
-[中文文档](README_zh.md)
+[中文文档](README_zh.md) · [Persist sync](docs/persist-sync.md)
 
 Dual tmux tunnels. Physical sessions stay ordinary tmux; this CLI names them and binds them 1:1.
 
@@ -81,12 +81,10 @@ uv tool install git+https://github.com/yukai08008/dual-tmux.git
 dt config --init --client tm_<that-box> --server tom7r --user andy
 ssh tom7r    # must already work; dt does not write ~/.ssh
 dt pull
-# if the oc sqlite on that box is empty, oc-restore the trigger/bullet JSON
-# from persist (~/sessions/opencode/tm_*/<slug>.json) first
-dt resume dt-msg
+dt resume dt-msg              # imports trigger JSON, then -s; bullet -s on the jump host
 ```
 
-`dt pull` restores the binding. `dt resume` starts `opencode --auto -s <id>` in `op_*` / `run_*`. Without persist restore, `-s` will say session not found. Each Client keeps its own `tm_*` in `config.toml`.
+`dt pull` restores the binding only. `dt resume` imports **trigger** JSON from persist into this Client sqlite, then `opencode --auto -s <id>` in `op_*`. Bullet stays at the jump target sqlite — replay `runtime.cmd`, then `-s` there. Do not import bullet JSON onto the laptop. See [docs/persist-sync.md](docs/persist-sync.md).
 
 One Client at a time: hub lock `~/<user>/dual-tmux/locks/<dt-name>` (`client@epoch`, TTL 300s). `enter` / `work` / `resume` claim it.
 

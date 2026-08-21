@@ -535,6 +535,8 @@ def cmd_resume(args: argparse.Namespace) -> None:
     jump = (data.get("runtime") or {}).get("cmd") or ""
     if jump and tmux_ops.pane_command(data["run"]) not in {"ssh", "docker", "tmux", "opencode"}:
         tmux_ops.reconnect(data["run"], jump)
+    if oc_ops.ensure_local(_side(data, "trigger")):
+        ui.ok("imported trigger persist JSON")
     _start_side(data, data["op"], "trigger", "", True)
     _start_side(data, data["run"], "bullet", "", True)
     wp.stamp(data, "resume_at")

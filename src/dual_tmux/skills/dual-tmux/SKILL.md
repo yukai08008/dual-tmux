@@ -21,4 +21,4 @@ tmux send-keys -t <run_*> -- 'task...' Enter
 
 Resume uses `opencode --auto -s <id>`, never `-c`.
 
-Bindings live in `dt inspect`. Another Client: `dt pull` then `dt resume` (oc JSON still needs persist restore). Hub lock: only one Client active; `dt drop` kills local tmux and releases. `dt push` does not copy `config.toml`.
+Bindings live in `dt inspect`. Another Client: `dt pull` then `dt resume` (imports trigger persist JSON locally; bullet `-s` at the jump sqlite). Hub lock: only one Client active; `dt drop` kills local tmux and releases. `dt push` does not copy `config.toml`. Container names are not persist sources.
