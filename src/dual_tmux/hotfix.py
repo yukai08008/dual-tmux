@@ -50,7 +50,12 @@ def sessions_home() -> Path:
 
 
 def crontab_text() -> str:
-    result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+    try:
+        result = subprocess.run(
+            ["crontab", "-l"], capture_output=True, text=True, timeout=8
+        )
+    except subprocess.TimeoutExpired:
+        return ""
     return result.stdout or ""
 
 
@@ -94,14 +99,29 @@ def ensure_local_trees(cfg: AppConfig) -> Step:
 
 def _ssh_argv(cfg: AppConfig) -> list[str]:
     target = SshTarget(cfg.server, cfg.ssh_port)
-    return ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", *target.extra_args, target.dest]
+    return [
+        "ssh",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=8",
+        "-o",
+        "ControlMaster=no",
+        *target.extra_args,
+        target.dest,
+    ]
 
 
 def ensure_hub_trees(cfg: AppConfig) -> Step:
     rel_tmux = persist_rsync_rel(cfg.user, "tmux")
     rel_oc = persist_rsync_rel(cfg.user, "opencode")
     cmd = f"mkdir -p ~/{rel_tmux} ~/{rel_oc}"
-    result = subprocess.run(_ssh_argv(cfg) + [cmd], capture_output=True, text=True)
+    try:
+        result = subprocess.run(
+            _ssh_argv(cfg) + [cmd], capture_output=True, text=True, timeout=12
+        )
+    except subprocess.TimeoutExpired:
+        return Step("hub-trees", False, "ssh mkdir timed out", False)
     if result.returncode != 0:
         err = (result.stderr or result.stdout or "ssh mkdir failed").strip().splitlines()
         return Step("hub-trees", False, err[-1] if err else "ssh mkdir failed", False)
@@ -117,7 +137,12 @@ def _install_cron_line(line: str, marker: str) -> bool:
         return False
     body = crontab_text().rstrip()
     text = f"{body}\n{line}\n" if body else f"{line}\n"
-    result = subprocess.run(["crontab", "-"], input=text, capture_output=True, text=True)
+    try:
+        result = subprocess.run(
+            ["crontab", "-"], input=text, capture_output=True, text=True, timeout=8
+        )
+    except subprocess.TimeoutExpired:
+        raise SystemExit("[err] crontab timed out")
     if result.returncode != 0:
         err = (result.stderr or "crontab failed").strip().splitlines()
         raise SystemExit(f"[err] crontab: {err[-1] if err else 'failed'}")
@@ -181,8 +206,11 @@ def install_persist_sync(cfg: AppConfig) -> Step:
             changed = True
         marker = f"dt-persist-{kind}"
         line = f"* * * * * {path} >/dev/null 2>&1"
-        if _install_cron_line(line, marker):
-            changed = True
+        try:
+            if _install_cron_line(line, marker):
+                changed = True
+        except SystemExit as exc:
+            return Step("persist-cron", False, str(exc), changed)
     return Step("persist-cron", True, f"{persist_bin('tmux')} + {persist_bin('opencode')}", changed)
 
 

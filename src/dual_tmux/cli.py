@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
+import shutil
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 from . import __version__
 from .config import AppConfig, init_config, load_config
@@ -786,6 +789,14 @@ def cmd_cron(args: argparse.Namespace) -> None:
         ui.skip(f"already  {cron_ops.line()}")
 
 
+def cmd_hotfix(_: argparse.Namespace) -> None:
+    if not config_path().is_file():
+        ui.warn("no config; dt config --init first")
+        return
+    _run_hotfix(load_config(), ssh=True)
+    ui.ok(f"hotfix {hotfix_ops.HOTFIX_ID}")
+
+
 def cmd_upgrade(_: argparse.Namespace) -> None:
     ui.info(f"Current version: {__version__}")
     result = subprocess.run(
@@ -795,9 +806,8 @@ def cmd_upgrade(_: argparse.Namespace) -> None:
     )
     if result.returncode != 0:
         raise SystemExit(result.returncode)
-    if config_path().is_file():
-        _run_hotfix(load_config(), ssh=True)
-        ui.ok("hotfix persist-tenant-v1 applied")
+    dt = shutil.which("dt") or str(Path.home() / ".local" / "bin" / "dt")
+    os.execv(dt, [dt, "hotfix"])
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -917,7 +927,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_log.add_argument("--name", default="", help="filter by DT name")
 
     sub.add_parser("doctor", help="check config, tmux, ssh; apply persist tenant hotfix")
-    sub.add_parser("upgrade", help="upgrade via uv tool, then apply persist tenant hotfix")
+    sub.add_parser("hotfix", help="apply persist tenant hotfix without upgrading")
+    sub.add_parser("upgrade", help="upgrade via uv tool, then exec dt hotfix")
     return parser
 
 
@@ -934,7 +945,7 @@ def main() -> None:
         ensure_ready()
         cmd_enter(argparse.Namespace(name=None))
         return
-    if command not in {"config", "doctor", "upgrade", "ls", "show", "inspect", "log", "tick", "cron"}:
+    if command not in {"config", "doctor", "hotfix", "upgrade", "ls", "show", "inspect", "log", "tick", "cron"}:
         if not config_path().is_file():
             prompt_init()
         ensure_ready()
@@ -964,6 +975,7 @@ def main() -> None:
         "cron": cmd_cron,
         "log": cmd_log,
         "doctor": cmd_doctor,
+        "hotfix": cmd_hotfix,
         "upgrade": cmd_upgrade,
     }
     ev.emit("cmd.start", cmd=command)
