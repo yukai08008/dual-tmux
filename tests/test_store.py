@@ -119,6 +119,9 @@ def test_ops_launch(monkeypatch, tmp_path):
     assert "ses_b" in agents
     assert (skills_dir() / "dual-tmux" / "SKILL.md").is_file()
     assert "tmux send-keys -t run_msg" in agents
+    assert "rebuild/replace the workspace container" in agents
+    trigger_skill = (skills_dir() / "tmux-trigger" / "SKILL.md").read_text()
+    assert "Container rebuild is trigger work" in trigger_skill
 
 
 def test_remove_dt(monkeypatch, tmp_path):
