@@ -92,7 +92,13 @@ One Client at a time: hub lock `~/<user>/dual-tmux/locks/<dt-name>` (`client@epo
 
 Idle is **not** the lock TTL. `dt tick` hashes pane tails every minute. Another Client `dt resume` takes over if the last **30 ticks** are frozen. The old Client's local `op_*`/`run_*` are **killed** (not renamed `__parked`). Binding stays on the hub; oc JSON stays in persist. Next `dt resume` recreates the light tmux pair. Leave now: `dt drop dt-msg`. Steal: `--force`.
 
-To **branch** (two tunnels at once, not steal): `dt branch dt-msg dt-msg-v2`. That is a new DT (`op_msg_v2` / `run_msg_v2`), copies `runtime` / hops, **does not** copy `session_id`. Source lock stays. Then `dt enter dt-msg-v2 --oc` / `dt work --oc` / `dt freeze`. Same container is OK; two OpenCode sessions are not.
+To **branch** (two live tunnels, not steal the lock):
+
+```sh
+dt branch dt-msg dt-msg-v2
+```
+
+This **replays** the recorded jump (`runtime.cmd` or hops: ssh → docker → cwd), starts **new** OpenCode on both sides (same models, **new** `session_id`), and freezes the branch as its own DST. Source `dt-msg` stays locked and running. Same container is fine; do not reuse the parent oc sessions.
 
 Install / `dt doctor` writes that crontab. Other machine: same one-liner install, then `dt pull && dt resume`. No extra cron step.
 
@@ -202,7 +208,7 @@ Freeze also records **work points** (`op_point` / `run_point`: kind, cwd, ssh, d
 | Command | What |
 |---------|------|
 | `dt new <name>` | create **DT** only (`op_*` + `run_*`) |
-| `dt branch <src> <dest>` | fork: new op_*/run_*, copy jump, **empty** oc ids |
+| `dt branch <src> <dest>` | replay jump, start **new** oc both sides, freeze DST |
 | `dt rm <name> [-y] [--kill]` | unregister DT; `--kill` also destroys op_*/run_* tmux |
 | `dt enter <name>` | attach op tmux |
 | `dt work <name>` | attach run tmux |
