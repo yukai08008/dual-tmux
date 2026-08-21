@@ -28,6 +28,7 @@ from .store import (
     now_iso,
 )
 from . import tmux as tmux_ops
+from . import ui
 
 
 def require_config() -> AppConfig:
@@ -36,29 +37,18 @@ def require_config() -> AppConfig:
 
 def cmd_version(_: argparse.Namespace) -> None:
     if sys.stdout.isatty():
-        print(f"dual-tmux {__version__}")
-        print(f"Python    {sys.version.split()[0]}")
-        print(f"System    {platform.system()} {platform.release()} ({platform.machine()})")
-        print(f"Home      {home_dir()}")
+        ui.print_version(
+            __version__,
+            sys.version.split()[0],
+            f"{platform.system()} {platform.release()} ({platform.machine()})",
+            str(home_dir()),
+        )
     else:
         print(f"dt {__version__}")
 
 
 def cmd_ls(_: argparse.Namespace) -> None:
-    files = iter_dt_files()
-    if not files:
-        print("(no tunnels)")
-        return
-    print(f"{'DT':<24} {'IS_DST':<8} {'OP':<16} {'RUN':<16} TRIGGER              BULLET")
-    for path in files:
-        data = load(path)
-        trigger = _oc_label(data.get("trigger") or {})
-        bullet = _oc_label(data.get("bullet") or {})
-        flag = "yes" if oc_ops.is_dst(data) else "no"
-        print(
-            f"{data.get('name','?'):<24} {flag:<8} {data.get('op','?'):<16} "
-            f"{data.get('run','?'):<16} {trigger:<20} {bullet}"
-        )
+    ui.print_ls([load(path) for path in iter_dt_files()])
 
 
 def cmd_show(args: argparse.Namespace) -> None:
@@ -66,30 +56,8 @@ def cmd_show(args: argparse.Namespace) -> None:
     print(json.dumps(load(path), ensure_ascii=False, indent=2))
 
 
-def _blank(value: str | None) -> str:
-    return value if value else "-"
-
-
 def print_inspect(data: dict) -> None:
-    runtime = data.get("runtime") or {}
-    trigger = data.get("trigger") or oc_ops.empty_side()
-    bullet = data.get("bullet") or oc_ops.empty_side()
-    print(f"DT         {data.get('name', '-')}")
-    print(f"IS_DST     {'yes' if oc_ops.is_dst(data) else 'no'}")
-    print(f"op         {data.get('op', '-')}")
-    print(f"run        {data.get('run', '-')}")
-    print(f"server     {_blank(runtime.get('server'))}")
-    print(f"cmd        {_blank(runtime.get('cmd'))}")
-    print("op / trigger")
-    print(f"  tool     {_blank(trigger.get('tool'))}")
-    print(f"  model    {_blank(trigger.get('model'))}")
-    print(f"  session  {_blank(trigger.get('session_id'))}")
-    print(f"  slug     {_blank(trigger.get('slug'))}")
-    print("run / bullet")
-    print(f"  tool     {_blank(bullet.get('tool'))}")
-    print(f"  model    {_blank(bullet.get('model'))}")
-    print(f"  session  {_blank(bullet.get('session_id'))}")
-    print(f"  slug     {_blank(bullet.get('slug'))}")
+    ui.print_inspect(data)
 
 
 def cmd_inspect(args: argparse.Namespace) -> None:
@@ -147,18 +115,9 @@ def cmd_new(args: argparse.Namespace) -> None:
         data["trigger"] = old.get("trigger") or data["trigger"]
         data["bullet"] = old.get("bullet") or data["bullet"]
     save(path, data)
-    print(f"[ok] registered {name}")
+    ui.ok(f"registered {name}")
     print_inspect(data)
-    print(f"next: dt enter {name} --oc / dt work {name} --oc / dt freeze {name}")
-    print(f"  or: dt make dst {name}")
-
-
-def _oc_label(info: dict) -> str:
-    tool = info.get("tool") or "opencode"
-    model = info.get("model") or "-"
-    sid = info.get("session_id") or ""
-    short = sid[:10] if sid else "-"
-    return f"{tool}:{model}:{short}"
+    ui.print_next_new(name)
 
 
 def _side(data: dict, name: str) -> dict:
@@ -177,10 +136,10 @@ def _bind_oc(data: dict, side: str, session: oc_ops.OcSession, tool: str = "") -
 
 
 def _print_side(label: str, info: dict) -> None:
-    print(
-        f"     {label:<8} tool={info.get('tool') or '-'}  "
-        f"model={info.get('model') or '-'}  "
-        f"session={info.get('session_id') or '-'}"
+    ui.info(
+        f"{label}  tool={info.get('tool') or '—'}  "
+        f"model={info.get('model') or '—'}  "
+        f"session={info.get('session_id') or '—'}"
     )
 
 
@@ -208,7 +167,7 @@ def cmd_bind(args: argparse.Namespace) -> None:
         bullet["session_id"] = args.bullet_id
     data["updated_at"] = now_iso()
     save(path, data)
-    print(f"[ok] dst {data['name']}")
+    ui.ok(f"dst {data['name']}")
     _print_side("trigger", trigger)
     _print_side("bullet", bullet)
 
@@ -219,11 +178,7 @@ def _resolve(name: str | None) -> dict:
 
 
 def print_next_after_init() -> None:
-    print()
-    print("Config is ready. Next:")
-    print("  dt doctor              # check tmux + ssh")
-    print("  dt new <name>          # create the first tunnel (op_* + run_*)")
-    print("  dt                     # attach latest op_* once a tunnel exists")
+    ui.print_next_init()
 
 
 def _start_side(data: dict, tmux_name: str, side: str, model: str = "", resume: bool = False) -> None:
@@ -237,9 +192,9 @@ def _start_side(data: dict, tmux_name: str, side: str, model: str = "", resume: 
         cmd = oc_ops.start_cmd(info, model)
     sent = tmux_ops.ensure_agent(tmux_name, cmd)
     if sent:
-        print(f"[ok] {side} {cmd} -> {tmux_name}")
+        ui.ok(f"{side} {cmd} -> {tmux_name}")
     else:
-        print(f"[skip] {tmux_name} already running opencode")
+        ui.skip(f"{tmux_name} already running opencode")
 
 
 def cmd_enter(args: argparse.Namespace) -> None:
@@ -316,9 +271,10 @@ def cmd_freeze(args: argparse.Namespace) -> None:
         sides.append("bullet")
     freeze_sides(data, sides, getattr(args, "tool", "") or "opencode")
     save(path, data)
-    print(f"[ok] freeze {data['name']}  IS_DST={'yes' if oc_ops.is_dst(data) else 'no'}")
+    ui.ok(f"freeze {data['name']}  IS_DST={'yes' if oc_ops.is_dst(data) else 'no'}")
     if not oc_ops.is_dst(data):
-        print("     DST needs both op-oc and run-oc session ids")
+        ui.warn("DST needs both op-oc and run-oc session ids")
+    print_inspect(data)
 
 
 def cmd_capture(args: argparse.Namespace) -> None:
@@ -364,12 +320,13 @@ def cmd_make(args: argparse.Namespace) -> None:
     _start_side(data, data["op"], "trigger", trigger.get("model") or "", False)
     _start_side(data, data["run"], "bullet", bullet.get("model") or "", False)
     save(path, data)
-    print("[..] waiting for both opencode sessions")
+    ui.info("waiting for both opencode sessions")
     freeze_sides(data, ["trigger", "bullet"], tool, wait=True)
     save(path, data)
     if not oc_ops.is_dst(data):
         raise SystemExit("[err] DST not ready. dt enter --oc / dt work --oc, then dt freeze")
-    print(f"[ok] DST {data['name']}")
+    ui.ok(f"DST {data['name']}")
+    print_inspect(data)
 
 
 def cmd_resume(args: argparse.Namespace) -> None:
@@ -381,7 +338,7 @@ def cmd_resume(args: argparse.Namespace) -> None:
         tmux_ops.reconnect(data["run"], jump)
     _start_side(data, data["op"], "trigger", "", True)
     _start_side(data, data["run"], "bullet", "", True)
-    print(f"[ok] resumed DST {data['name']}")
+    ui.ok(f"resumed DST {data['name']}")
     if getattr(args, "attach", True):
         tmux_ops.attach(data["op"])
 
@@ -417,13 +374,14 @@ def prompt_init(workspace: str = "/workspace") -> None:
     user = _prompt("user: ")
     path = init_config(client, server, user, workspace or "/workspace")
     cfg = load_config()
-    print(f"[ok] wrote {path}")
-    print(f"     client={cfg.client}  server={cfg.server}  user={cfg.user}")
+    ui.ok(f"wrote {path}")
+    ui.info(f"client={cfg.client}  server={cfg.server}  user={cfg.user}")
     if cfg.ssh_port != 22:
-        print(f"     ssh_port={cfg.ssh_port}  (not written to ~/.ssh)")
-    print(f"     remote persist {remote_sessions_root(cfg.user)}")
+        ui.info(f"ssh_port={cfg.ssh_port}  (not written to ~/.ssh)")
+    ui.info(f"remote persist {remote_sessions_root(cfg.user)}")
     hint = f"ssh -p {cfg.ssh_port} {cfg.server}" if cfg.ssh_port != 22 else f"ssh {cfg.server}"
-    print(f"     next: {hint} && dt doctor")
+    ui.print_next_init()
+    ui.info(f"then: {hint} && dt doctor")
 
 
 def cmd_config(args: argparse.Namespace) -> None:
@@ -433,30 +391,29 @@ def cmd_config(args: argparse.Namespace) -> None:
             return
         path = init_config(args.client, args.server, args.user, args.workspace)
         cfg = load_config()
-        print(f"[ok] wrote {path}")
-        print(f"     client={cfg.client}  server={cfg.server}  user={cfg.user}")
+        ui.ok(f"wrote {path}")
+        ui.info(f"client={cfg.client}  server={cfg.server}  user={cfg.user}")
         if cfg.ssh_port != 22:
-            print(f"     ssh_port={cfg.ssh_port}  (not written to ~/.ssh)")
-        print(f"     remote persist {remote_sessions_root(cfg.user)}")
-        print("     SSH is yours: this CLI never writes ~/.ssh or keys.")
+            ui.info(f"ssh_port={cfg.ssh_port}  (not written to ~/.ssh)")
+        ui.info(f"remote persist {remote_sessions_root(cfg.user)}")
         hint = f"ssh -p {cfg.ssh_port} {cfg.server}" if cfg.ssh_port != 22 else f"ssh {cfg.server}"
-        print(f"     next: {hint} && dt doctor")
+        ui.info(f"next: {hint} && dt doctor")
         return
     path = config_path()
     if not path.is_file():
-        print(f"config     {path} (missing)")
-        print("fix: dt config --init --client tm_laptop --server myserver --user ouc")
+        ui.warn(f"config {path} missing")
+        ui.info("dt config --init --client tm_laptop --server myserver --user ouc")
         return
     cfg = load_config()
-    print(f"home       {home_dir()}")
-    print(f"config     {path}")
-    print(f"client     {cfg.client}")
-    print(f"server     {cfg.server}")
+    ui.info(f"home       {home_dir()}")
+    ui.info(f"config     {path}")
+    ui.info(f"client     {cfg.client}")
+    ui.info(f"server     {cfg.server}")
     if cfg.ssh_port != 22:
-        print(f"ssh_port   {cfg.ssh_port}")
-    print(f"user       {cfg.user}")
-    print(f"remote     {remote_sessions_root(cfg.user)}")
-    print(f"workspace  {cfg.workspace}")
+        ui.info(f"ssh_port   {cfg.ssh_port}")
+    ui.info(f"user       {cfg.user}")
+    ui.info(f"remote     {remote_sessions_root(cfg.user)}")
+    ui.info(f"workspace  {cfg.workspace}")
     if args.client or args.server or args.user or args.workspace != "/workspace":
         path = init_config(
             args.client or cfg.client,
@@ -464,20 +421,20 @@ def cmd_config(args: argparse.Namespace) -> None:
             args.user or cfg.user,
             args.workspace if args.workspace != "/workspace" else cfg.workspace,
         )
-        print(f"[ok] updated {path}")
+        ui.ok(f"updated {path}")
 
 
 def cmd_doctor(_: argparse.Namespace) -> None:
     _, checks = collect_checks()
     ok = print_checks(checks)
-    print(f"{'OK ' if ok else '   '}  {'tunnels':<12} {len(iter_dt_files())}")
+    ui.info(f"tunnels  {len(iter_dt_files())}")
     if not ok:
         guide_if_needed(checks)
         raise SystemExit(1)
 
 
 def cmd_upgrade(_: argparse.Namespace) -> None:
-    print(f"Current version: {__version__}")
+    ui.info(f"Current version: {__version__}")
     result = subprocess.run(
         ["uv", "tool", "upgrade", "dual-tmux"],
         text=True,
