@@ -29,6 +29,7 @@ from .store import (
     now_iso,
     remove_dt,
 )
+from . import activity
 from . import log as ev
 from . import opsdir
 from . import tmux as tmux_ops
@@ -536,6 +537,33 @@ def cmd_config(args: argparse.Namespace) -> None:
         ui.ok(f"updated {path}")
 
 
+def cmd_tick(_: argparse.Namespace) -> None:
+    cfg = require_config()
+    hub.enforce_local()
+    n = 0
+    for path in iter_dt_files():
+        data = load(path)
+        name = data.get("name") or path.stem
+        live = tmux_ops.has_session(data.get("op") or "") or tmux_ops.has_session(data.get("run") or "")
+        if not live:
+            continue
+        try:
+            holder, _age = hub.read_lock(name)
+        except SystemExit:
+            holder = ""
+        if holder and holder != cfg.client:
+            hub.park_local(data)
+            continue
+        activity.append_sample(data)
+        try:
+            hub.claim(name)
+        except SystemExit:
+            continue
+        n += 1
+    hub.push_best_effort(wait=True)
+    ui.ok(f"tick  {n} live DT  log={activity.activity_path()}")
+
+
 def cmd_park(args: argparse.Namespace) -> None:
     data = _resolve(args.name)
     hub.park_local(data)
@@ -719,6 +747,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("push", help="rsync tunnels+entries to Server ~/<user>/dual-tmux")
     sub.add_parser("pull", help="rsync tunnels+entries from Server; keeps this Client config.toml")
+    sub.add_parser("tick", help="sample pane fingerprints; renew lock; push activity.log")
 
     p_log = sub.add_parser("log", help="show CLI event log (~/.dual-tmux/events.jsonl)")
     p_log.add_argument("-n", "--limit", type=int, default=40)
@@ -743,7 +772,7 @@ def main() -> None:
         ensure_ready()
         cmd_enter(argparse.Namespace(name=None))
         return
-    if command not in {"config", "doctor", "upgrade", "ls", "show", "inspect", "log"}:
+    if command not in {"config", "doctor", "upgrade", "ls", "show", "inspect", "log", "tick"}:
         if not config_path().is_file():
             prompt_init()
         ensure_ready()
@@ -766,6 +795,7 @@ def main() -> None:
         "config": cmd_config,
         "push": cmd_push,
         "pull": cmd_pull,
+        "tick": cmd_tick,
         "log": cmd_log,
         "doctor": cmd_doctor,
         "upgrade": cmd_upgrade,

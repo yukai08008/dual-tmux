@@ -89,6 +89,16 @@ def test_event_log(monkeypatch, tmp_path):
     assert "kind" in rows[2] and rows[2]["kind"] == "freeze.side.ok"
 
 
+def test_frozen_ticks():
+    from dual_tmux.activity import frozen_last_ticks
+
+    lines = [f"{1000 + i} t dt-msg zsh ssh {'aaaa' if i < 5 else 'bbbb'}" for i in range(30)]
+    assert not frozen_last_ticks("\n".join(lines), "dt-msg", 30)
+    lines = [f"{1000 + i} t dt-msg zsh ssh samehash" for i in range(30)]
+    assert frozen_last_ticks("\n".join(lines), "dt-msg", 30)
+    assert not frozen_last_ticks("\n".join(lines[:10]), "dt-msg", 30)
+
+
 def test_ops_launch(monkeypatch, tmp_path):
     monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
     from dual_tmux.opsdir import prepare, packaged_skills, skills_dir

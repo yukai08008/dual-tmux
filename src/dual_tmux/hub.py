@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import subprocess
 import threading
+from pathlib import Path
 
 from .config import AppConfig, load_config
 from .identity import remote_dt_root
+from .activity import TICKS, activity_path, frozen_last_ticks
 from .paths import entries_dir, tunnels_dir
 from .sshutil import SshTarget
 from . import log as ev
@@ -39,7 +41,8 @@ def _run(argv: list[str], input: str | None = None) -> subprocess.CompletedProce
 
 def _ensure_remote(cfg: AppConfig) -> None:
     dest = ssh_argv(cfg) + [
-        f"mkdir -p {remote_root(cfg)}/tunnels {remote_root(cfg)}/entries {remote_root(cfg)}/locks"
+        f"mkdir -p {remote_root(cfg)}/tunnels {remote_root(cfg)}/entries "
+        f"{remote_root(cfg)}/locks {remote_root(cfg)}/activity"
     ]
     result = _run(dest)
     if result.returncode != 0:
@@ -63,6 +66,9 @@ def push(cfg: AppConfig | None = None) -> str:
     host = SshTarget(cfg.server, cfg.ssh_port).dest
     _rsync(f"{tunnels_dir()}/", f"{host}:{root}/tunnels/", cfg)
     _rsync(f"{entries_dir()}/", f"{host}:{root}/entries/", cfg)
+    log = activity_path()
+    if log.is_file():
+        _rsync(str(log), f"{host}:{root}/activity/{cfg.client}.log", cfg)
     ev.emit("hub.push", host=host, root=root)
     return f"{host}:{root}"
 
@@ -153,8 +159,39 @@ def read_lock(name: str) -> tuple[str, int]:
     return "", 0
 
 
+def holder_activity(holder: str, cfg: AppConfig | None = None) -> str:
+    import tempfile
+
+    cfg = cfg or load_config()
+    host = SshTarget(cfg.server, cfg.ssh_port).dest
+    tmp = Path(tempfile.mkdtemp()) / f"{holder}.log"
+    result = _run(
+        ["rsync", "-a", "-e", rsync_ssh(cfg), f"{host}:{remote_root(cfg)}/activity/{holder}.log", str(tmp)]
+    )
+    if result.returncode != 0 or not tmp.is_file():
+        return ""
+    return tmp.read_text(encoding="utf-8", errors="replace")
+
+
+def idle_enough(name: str, holder: str) -> bool:
+    text = holder_activity(holder)
+    return frozen_last_ticks(text, name, TICKS)
+
+
 def claim(name: str, force: bool = False) -> str:
-    kind, holder, age = _lock_remote("claim", name, force=force)
+    kind, holder, age = _lock_remote("read", name)
+    if kind == "HELD" and holder and holder != load_config().client:
+        if not force and not idle_enough(name, holder):
+            raise SystemExit(
+                f"[err] {name} active on {holder} ({age}s ago). "
+                f"last {TICKS} ticks still changing. "
+                f"dt park there, or: dt resume {name} --force"
+            )
+        if not force:
+            ui.info(f"idle  {name} on {holder}: last {TICKS} ticks frozen, taking over")
+        kind, holder, age = _lock_remote("claim", name, force=True)
+    else:
+        kind, holder, age = _lock_remote("claim", name, force=force)
     if kind == "HELD":
         raise SystemExit(
             f"[err] {name} active on {holder} ({age}s ago, TTL {LOCK_TTL}s). "
