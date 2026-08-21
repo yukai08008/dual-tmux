@@ -300,7 +300,7 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
             tmux=tmux_name,
             cmd=point.get("cmd"),
             cwd=point.get("cwd"),
-            kind=point.get("kind"),
+            point_kind=point.get("kind"),
             error=error,
         )
         ui.warn(f"{error}. dt {'enter' if side == 'trigger' else 'work'} --oc first")
@@ -314,7 +314,7 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
         session=session.session_id,
         model=session.model,
         cwd=point.get("cwd"),
-        kind=point.get("kind"),
+        point_kind=point.get("kind"),
     )
     _print_side(side, data[side])
     return True
