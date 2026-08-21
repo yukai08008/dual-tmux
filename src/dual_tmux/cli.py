@@ -5,6 +5,7 @@ import json
 import platform
 import subprocess
 import sys
+import time
 
 from . import __version__
 from .config import AppConfig, init_config, load_config
@@ -141,7 +142,7 @@ def cmd_branch(args: argparse.Namespace) -> None:
         raise SystemExit(f"[err] {name} already exists")
     cfg = require_config()
     runtime = dict(src.get("runtime") or {})
-    cmd = runtime.get("cmd") or ""
+    run_point = dict(src.get("run_point") or wp.empty_point())
     data = {
         "name": name,
         "op": op,
@@ -150,26 +151,44 @@ def cmd_branch(args: argparse.Namespace) -> None:
         "user": cfg.user,
         "branched_from": src.get("name"),
         "runtime": runtime,
-        "trigger": oc_ops.empty_side(src.get("trigger", {}).get("tool") or "opencode"),
-        "bullet": oc_ops.empty_side(src.get("bullet", {}).get("tool") or "opencode"),
+        "trigger": oc_ops.empty_side((src.get("trigger") or {}).get("tool") or "opencode"),
+        "bullet": oc_ops.empty_side((src.get("bullet") or {}).get("tool") or "opencode"),
         "op_point": dict(src.get("op_point") or wp.empty_point()),
-        "run_point": dict(src.get("run_point") or wp.empty_point()),
+        "run_point": run_point,
         "times": wp.empty_times(),
         "updated_at": now_iso(),
     }
     data["trigger"]["model"] = (src.get("trigger") or {}).get("model") or ""
     data["bullet"]["model"] = (src.get("bullet") or {}).get("model") or ""
     data["times"]["created_at"] = data["updated_at"]
+    wp.apply_runtime(data, run_point)
+    cmd = (data.get("runtime") or {}).get("cmd") or runtime.get("cmd") or ""
+    hops = run_point.get("hops") or []
     if cmd:
         write_entry(run, cmd)
-        tmux_ops.ensure_session(run)
-        tmux_ops.reconnect(run, cmd)
     save(tunnels_dir() / f"{name}.json", data)
     launch = opsdir.prepare(data)
     tmux_ops.ensure_session(op, cwd=str(launch))
-    ev.emit("dt.branch", src=src.get("name"), name=name, op=op, run=run)
-    ui.ok(f"branched {src.get('name')} → {name}")
-    ui.info("new DT has its own op_*/run_*; oc session ids are empty — dt enter --oc / dt work --oc / dt freeze")
+    tmux_ops.ensure_session(run)
+    if cmd:
+        tmux_ops.reconnect(run, cmd)
+    elif hops:
+        tmux_ops.replay_hops(run, hops)
+    landed = tmux_ops.wait_command(run, {"ssh", "docker", "bash", "sh"}, timeout=25)
+    if landed in {"zsh", "", "tmux"}:
+        ui.warn(f"{run} jump not landed (cmd={landed or '—'}); still starting oc")
+    else:
+        ui.ok(f"{run} jump cmd={landed}")
+    hub.require_active(data)
+    _start_side(data, op, "trigger", data["trigger"].get("model") or "", False)
+    time.sleep(0.8)
+    _start_side(data, run, "bullet", data["bullet"].get("model") or "", False)
+    ui.info("waiting for both opencode sessions")
+    freeze_sides(data, ["trigger", "bullet"], "opencode", wait=True)
+    wp.stamp(data, "freeze_at")
+    save(find_dt(name), data)
+    ev.emit("dt.branch", src=src.get("name"), name=name, op=op, run=run, is_dst=oc_ops.is_dst(data))
+    ui.ok(f"branched {src.get('name')} → {name}  IS_DST={'yes' if oc_ops.is_dst(data) else 'no'}")
     print_inspect(data)
     hub.push_best_effort(wait=True)
 
@@ -736,7 +755,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_rm.add_argument("--yes", "-y", action="store_true", help="do not prompt")
     p_rm.add_argument("--kill", action="store_true", help="tmux kill-session op_* and run_*")
 
-    p_branch = sub.add_parser("branch", help="fork a DT: new op_*/run_* , copy jump, empty oc ids")
+    p_branch = sub.add_parser("branch", help="replay jump + new oc on both sides; freeze as its own DST")
     p_branch.add_argument("src")
     p_branch.add_argument("dest")
 

@@ -75,6 +75,27 @@ def pane_command(name: str) -> str:
     return pane_info(name).get("cmd") or ""
 
 
+def wait_command(name: str, wanted: set[str], timeout: float = 20) -> str:
+    deadline = time.time() + timeout
+    current = pane_command(name)
+    while time.time() < deadline:
+        current = pane_command(name)
+        if current in wanted:
+            return current
+        time.sleep(0.4)
+    return current
+
+
+def replay_hops(name: str, hops: list[dict]) -> None:
+    ensure_session(name)
+    for hop in hops:
+        cmd = (hop.get("command") or "").strip()
+        if not cmd:
+            continue
+        subprocess.run(["tmux", "send-keys", "-t", name, "--", cmd, "Enter"], check=False)
+        time.sleep(1.2)
+
+
 def reconnect(name: str, cmd: str) -> None:
     ensure_session(name)
     current = pane_command(name)
