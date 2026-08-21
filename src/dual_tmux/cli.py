@@ -134,6 +134,46 @@ def cmd_new(args: argparse.Namespace) -> None:
     hub.push_best_effort(wait=True)
 
 
+def cmd_branch(args: argparse.Namespace) -> None:
+    src = _resolve(args.src)
+    name, op, run = default_names(args.dest)
+    if occupied("op", op) or occupied("run", run) or (tunnels_dir() / f"{name}.json").exists():
+        raise SystemExit(f"[err] {name} already exists")
+    cfg = require_config()
+    runtime = dict(src.get("runtime") or {})
+    cmd = runtime.get("cmd") or ""
+    data = {
+        "name": name,
+        "op": op,
+        "run": run,
+        "client": cfg.client,
+        "user": cfg.user,
+        "branched_from": src.get("name"),
+        "runtime": runtime,
+        "trigger": oc_ops.empty_side(src.get("trigger", {}).get("tool") or "opencode"),
+        "bullet": oc_ops.empty_side(src.get("bullet", {}).get("tool") or "opencode"),
+        "op_point": dict(src.get("op_point") or wp.empty_point()),
+        "run_point": dict(src.get("run_point") or wp.empty_point()),
+        "times": wp.empty_times(),
+        "updated_at": now_iso(),
+    }
+    data["trigger"]["model"] = (src.get("trigger") or {}).get("model") or ""
+    data["bullet"]["model"] = (src.get("bullet") or {}).get("model") or ""
+    data["times"]["created_at"] = data["updated_at"]
+    if cmd:
+        write_entry(run, cmd)
+        tmux_ops.ensure_session(run)
+        tmux_ops.reconnect(run, cmd)
+    save(tunnels_dir() / f"{name}.json", data)
+    launch = opsdir.prepare(data)
+    tmux_ops.ensure_session(op, cwd=str(launch))
+    ev.emit("dt.branch", src=src.get("name"), name=name, op=op, run=run)
+    ui.ok(f"branched {src.get('name')} → {name}")
+    ui.info("new DT has its own op_*/run_*; oc session ids are empty — dt enter --oc / dt work --oc / dt freeze")
+    print_inspect(data)
+    hub.push_best_effort(wait=True)
+
+
 def _side(data: dict, name: str) -> dict:
     side = data.setdefault(name, oc_ops.empty_side())
     side.setdefault("tool", "opencode")
@@ -696,6 +736,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_rm.add_argument("--yes", "-y", action="store_true", help="do not prompt")
     p_rm.add_argument("--kill", action="store_true", help="tmux kill-session op_* and run_*")
 
+    p_branch = sub.add_parser("branch", help="fork a DT: new op_*/run_* , copy jump, empty oc ids")
+    p_branch.add_argument("src")
+    p_branch.add_argument("dest")
+
     p_new = sub.add_parser("new", help="create op/run sessions and register a tunnel")
     p_new.add_argument("name", help="dt-app or app")
     p_new.add_argument("--op", help="defaults to op_<name>")
@@ -809,6 +853,7 @@ def main() -> None:
         "show": cmd_show,
         "inspect": cmd_inspect,
         "new": cmd_new,
+        "branch": cmd_branch,
         "rm": cmd_rm,
         "bind": cmd_bind,
         "freeze": cmd_freeze,

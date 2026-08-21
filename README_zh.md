@@ -92,6 +92,8 @@ dt resume dt-msg
 
 闲置不看 TTL。`dt tick` 每分钟打指纹。另一台 `dt resume` 在近 **30 个 tick** 冻住时接管。旧 Client 上的 `op_*`/`run_*` **直接杀掉**（不留 `__parked`）。绑定在枢纽，对话在 persist，下次 `dt resume` 再起一套很轻的 tmux。现在放手：`dt drop dt-msg`。抢：`--force`。
 
+要 **分叉**（两条隧道同时活，不是抢锁）：`dt branch dt-msg dt-msg-v2`。新 DT（`op_msg_v2` / `run_msg_v2`），复制 `runtime` / hops，**不**拷 `session_id`。源隧道的锁不动。然后 `dt enter dt-msg-v2 --oc` / `dt work --oc` / `dt freeze`。同一容器可以；两条 oc 会话不要共用。
+
 安装 / `dt doctor` 会写这条 crontab。另一台：同一条一键安装，然后 `dt pull && dt resume`，不用再配 cron。
 
 trigger oc 从 `ops/op_*` 启动，必读 `AGENTS.md`，里面指向包内的 `dual-tmux` + `tmux-trigger`。任意机器 `uv tool install` 后布局相同。
@@ -200,6 +202,7 @@ freeze 还会记下 **工作点**（`op_point` / `run_point`：kind、cwd、ssh�
 | 命令 | 作用 |
 |------|------|
 | `dt new <name>` | 只建 **DT**（`op_*` + `run_*`） |
+| `dt branch <src> <dest>` | 分叉：新 op_*/run_*，复制跳板，**不**拷贝 oc id |
 | `dt rm <name> [-y] [--kill]` | 注销 DT；`--kill` 同时杀掉 op_*/run_* tmux |
 | `dt enter <name>` | 接入 op tmux |
 | `dt work <name>` | 接入 run tmux |
