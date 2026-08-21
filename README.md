@@ -16,7 +16,7 @@ Client (this machine)
 
 ## First start
 
-Install does nothing except put `dt` on PATH. The first real command (`dt`, `dt new`, `dt work`, or `dt config --init`) asks for **exactly two fields**:
+Install does nothing except put `dt` on PATH. The first real command (`dt`, `dt new`, `dt work`, or `dt config --init`) asks for **exactly two fields**. Jump directory is always `/workspace` until you override a tunnel with `dt new --dir`.
 
 | Field | What you type | What this CLI does **not** do |
 |-------|----------------|-------------------------------|
@@ -34,7 +34,7 @@ dt doctor
 ```toml
 client = "tm_laptop"   # this machine's source name
 server = "myserver"    # ssh Host alias in ~/.ssh/config
-workspace = "/workspace"
+workspace = "/workspace"  # default jump dir; not asked at init
 ```
 
 If config is missing, `dt` prompts for those two fields (TTY only). Then it checks Client tmux + `ssh <server>`. SSH stays yours.
