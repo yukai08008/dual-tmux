@@ -103,35 +103,19 @@ uv tool install git+https://github.com/yukai08008/dual-tmux.git
 dt --version
 dt doctor
 
-dt new myapp --container appbox --dir /workspace/myapp
-dt ls
-dt show dt-myapp
+dt new myapp                  # DT only: op_* + run_*
+dt enter myapp                # op session
+dt work  myapp                # run session
+dt enter myapp --oc --model glm-5.1
+dt work  myapp --oc --model glm-5.1
+dt freeze myapp               # DST only if both oc sessions exist
+dt ls                         # DT | IS_DST | ...
 
-dt enter dt-myapp     # attach op_*
-dt work  dt-myapp     # attach run_*
-dt re    dt-myapp     # re-send ssh/docker if the jump dropped to local shell
-
-dt enter dt-myapp --oc    # start trigger OpenCode in op_*
-dt work  dt-myapp --oc    # start bullet OpenCode in run_*
-dt capture dt-myapp       # record tool + model + session_id on both sides
-dt ls                     # DST list
-dt enter dt-myapp --resume
-dt send dt-myapp 'task for the bullet agent'
-
-dt                    # attach latest op_*
+dt make dst myapp --model glm-5.1    # DT + both oc + freeze
+dt resume myapp                      # reconnect missing op/run oc, then attach
 ```
 
-`dt new NAME` expands to `dt-NAME` / `op_NAME` / `run_NAME`. That is **DT**.
-
-**DST** is DT plus one agent on each tmux: trigger on `op_*`, bullet on `run_*`. Each side stores:
-
-| Field | Why |
-|-------|-----|
-| `tool` | harness, default `opencode` (swap later without changing tmux) |
-| `model` | which model that harness should use |
-| `session_id` | resume with `opencode --auto -s <id>` (never `-c`) |
-
-`dt ls` is the DST list. Capture after both OpenCode sessions exist; resume uses the recorded id.
+`dt new NAME` is **DT** (`op_*` + `run_*`). **DST** exists only after both sides have an oc session (`tool` + `model` + `session_id`). `dt ls` column 1 is DT, column 2 is IS_DST.
 
 `run_*` is a **local jump session**. The pane SSHes (and optionally `docker exec`) into the Server workspace. Do not nest another tmux on the Server by default.
 
@@ -143,11 +127,12 @@ dt                    # attach latest op_*
 | `dt work` | attach the workspace jump |
 | `dt re` | reconnect the jump command |
 | `dt new` | create sessions + registry |
-| `dt ls` / `dt show` | DST list / one tunnel JSON |
-| `dt capture` | record tool/model/session_id from live OpenCode |
-| `dt bind` | set tool/model/session_id by hand |
-| `dt enter --oc` / `--resume` | start or resume trigger |
-| `dt work --oc` / `--resume` | start or resume bullet |
+| `dt ls` | DT name + IS_DST |
+| `dt freeze` | freeze op-oc and run-oc; DST iff both exist |
+| `dt make dst` | create DT, start both oc, freeze |
+| `dt resume` | resume DST; reconnects dropped oc |
+| `dt enter --oc --model` | start trigger oc |
+| `dt work --oc --model` | start bullet oc |
 | `dt send` | `tmux send-keys` into `run_*` |
 | `dt doctor` | check Client tmux + ssh to Server (does not change SSH) |
 | `dt config --init` | write `tm_*` client + ssh Host + user |

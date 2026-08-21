@@ -49,14 +49,15 @@ def cmd_ls(_: argparse.Namespace) -> None:
     if not files:
         print("(no tunnels)")
         return
-    print(f"{'DST':<24} {'OP':<18} {'RUN':<18} TRIGGER              BULLET")
+    print(f"{'DT':<24} {'IS_DST':<8} {'OP':<16} {'RUN':<16} TRIGGER              BULLET")
     for path in files:
         data = load(path)
         trigger = _oc_label(data.get("trigger") or {})
         bullet = _oc_label(data.get("bullet") or {})
+        flag = "yes" if oc_ops.is_dst(data) else "no"
         print(
-            f"{data.get('name','?'):<24} {data.get('op','?'):<18} "
-            f"{data.get('run','?'):<18} {trigger:<20} {bullet}"
+            f"{data.get('name','?'):<24} {flag:<8} {data.get('op','?'):<16} "
+            f"{data.get('run','?'):<16} {trigger:<20} {bullet}"
         )
 
 
@@ -118,8 +119,8 @@ def cmd_new(args: argparse.Namespace) -> None:
     print(f"[ok] registered {name}")
     print(f"     op={op}  run={run}")
     print(f"     server={server}  cmd={cmd}")
-    print(f"     enter: dt enter {name}")
-    print(f"     work:  dt work {name}")
+    print(f"     DT only. enter/work then --oc, then dt freeze {name}")
+    print(f"     or: dt make dst {name}")
 
 
 def _oc_label(info: dict) -> str:
@@ -195,34 +196,40 @@ def print_next_after_init() -> None:
     print("  dt                     # attach latest op_* once a tunnel exists")
 
 
+def _start_side(data: dict, tmux_name: str, side: str, model: str = "", resume: bool = False) -> None:
+    info = _side(data, side)
+    if model:
+        info["model"] = model
+        info["tool"] = info.get("tool") or "opencode"
+    if resume or info.get("session_id"):
+        cmd = oc_ops.resume_cmd(info)
+    else:
+        cmd = oc_ops.start_cmd(info, model)
+    sent = tmux_ops.ensure_agent(tmux_name, cmd)
+    if sent:
+        print(f"[ok] {side} {cmd} -> {tmux_name}")
+    else:
+        print(f"[skip] {tmux_name} already running opencode")
+
+
 def cmd_enter(args: argparse.Namespace) -> None:
     if not args.name and not iter_dt_files():
         print_next_after_init()
         return
     data = _resolve(args.name)
     if getattr(args, "oc", False) or getattr(args, "resume", False):
-        info = _side(data, "trigger")
-        resume = getattr(args, "resume", False) or bool(info.get("session_id"))
-        cmd = oc_ops.resume_cmd(info) if resume else "opencode"
-        tmux_ops.start_opencode(data["op"], cmd if cmd != "opencode" else "")
-        if info.get("session_id"):
-            print(f"[ok] resume trigger {info.get('tool')} {info.get('model')} {info.get('session_id')}")
-        else:
-            print(f"[ok] start trigger opencode in {data['op']}. Then: dt capture {data['name']} --trigger")
+        _start_side(data, data["op"], "trigger", getattr(args, "model", "") or "", getattr(args, "resume", False))
+        path = find_dt(data["name"])
+        save(path, data)
     tmux_ops.attach(data["op"])
 
 
 def cmd_work(args: argparse.Namespace) -> None:
     data = _resolve(args.name)
     if getattr(args, "oc", False) or getattr(args, "resume", False):
-        info = _side(data, "bullet")
-        resume = getattr(args, "resume", False) or bool(info.get("session_id"))
-        cmd = oc_ops.resume_cmd(info) if resume else "opencode"
-        tmux_ops.start_opencode(data["run"], cmd if cmd != "opencode" else "")
-        if info.get("session_id"):
-            print(f"[ok] resume bullet {info.get('tool')} {info.get('model')} {info.get('session_id')}")
-        else:
-            print(f"[ok] start bullet opencode in {data['run']}. Then: dt capture {data['name']} --bullet")
+        _start_side(data, data["run"], "bullet", getattr(args, "model", "") or "", getattr(args, "resume", False))
+        path = find_dt(data["name"])
+        save(path, data)
     tmux_ops.attach(data["run"])
 
 
@@ -239,35 +246,114 @@ def cmd_send(args: argparse.Namespace) -> None:
     tmux_ops.send_keys(data["run"], args.text)
 
 
-def cmd_capture(args: argparse.Namespace) -> None:
-    path = find_dt(args.name) if args.name else latest_dt()
-    data = load(path)
+def _ssh_argv(data: dict) -> list[str]:
+    from .sshutil import SshTarget
+
     cfg = require_config()
     runtime = data.get("runtime") or {}
+    server = runtime.get("server") or cfg.server
+    port = int(runtime.get("ssh_port") or cfg.ssh_port or 22)
+    target = SshTarget(server, port)
+    return ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", *target.extra_args, target.dest]
+
+
+def freeze_sides(data: dict, sides: list[str], tool: str = "opencode", wait: bool = False) -> None:
+    runtime = data.get("runtime") or {}
+    if "trigger" in sides:
+        latest = oc_ops.wait_latest_local() if wait else oc_ops.latest_local(1)
+        session = latest[0] if isinstance(latest, list) else latest
+        if not session:
+            raise SystemExit("[err] no local opencode session. dt enter --oc first")
+        _bind_oc(data, "trigger", session, tool)
+        _print_side("trigger", data["trigger"])
+    if "bullet" in sides:
+        argv = _ssh_argv(data)
+        container = runtime.get("container") or ""
+        session = oc_ops.wait_latest_remote(argv, container) if wait else oc_ops.latest_remote(argv, container)
+        if not session:
+            raise SystemExit("[err] no remote opencode session. dt work --oc first")
+        _bind_oc(data, "bullet", session, tool)
+        _print_side("bullet", data["bullet"])
+
+
+def cmd_freeze(args: argparse.Namespace) -> None:
+    path = find_dt(args.name) if args.name else latest_dt()
+    data = load(path)
     sides: list[str] = []
     if args.trigger or (not args.trigger and not args.bullet):
         sides.append("trigger")
     if args.bullet or (not args.trigger and not args.bullet):
         sides.append("bullet")
-    if "trigger" in sides:
-        latest = oc_ops.latest_local(1)
-        if not latest:
-            raise SystemExit("[err] no local opencode session. dt enter --oc, start oc, then capture")
-        _bind_oc(data, "trigger", latest[0], getattr(args, "tool", "") or "opencode")
-        _print_side("trigger", data["trigger"])
-    if "bullet" in sides:
-        from .sshutil import SshTarget
-
-        server = runtime.get("server") or cfg.server
-        port = int(runtime.get("ssh_port") or cfg.ssh_port or 22)
-        target = SshTarget(server, port)
-        argv = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", *target.extra_args, target.dest]
-        session = oc_ops.latest_remote(argv, runtime.get("container") or "")
-        if not session:
-            raise SystemExit("[err] no remote opencode session. dt work --oc, start oc, then capture")
-        _bind_oc(data, "bullet", session, getattr(args, "tool", "") or "opencode")
-        _print_side("bullet", data["bullet"])
+    freeze_sides(data, sides, getattr(args, "tool", "") or "opencode")
     save(path, data)
+    print(f"[ok] freeze {data['name']}  IS_DST={'yes' if oc_ops.is_dst(data) else 'no'}")
+    if not oc_ops.is_dst(data):
+        print("     DST needs both op-oc and run-oc session ids")
+
+
+def cmd_capture(args: argparse.Namespace) -> None:
+    cmd_freeze(args)
+
+
+def cmd_make(args: argparse.Namespace) -> None:
+    if args.target != "dst":
+        raise SystemExit("usage: dt make dst <name> [--tool opencode] [--model ...]")
+    name = args.name
+    if not name:
+        raise SystemExit("usage: dt make dst <name>")
+    try:
+        find_dt(name)
+    except SystemExit:
+        cmd_new(
+            argparse.Namespace(
+                name=name,
+                op=None,
+                run=None,
+                server="",
+                container=getattr(args, "container", "") or "",
+                dir=getattr(args, "dir", "") or "",
+                cmd="",
+            )
+        )
+    path = find_dt(name)
+    data = load(path)
+    trigger = _side(data, "trigger")
+    bullet = _side(data, "bullet")
+    tool = args.tool or "opencode"
+    model = args.model or ""
+    trigger["tool"] = tool
+    bullet["tool"] = tool
+    if model:
+        trigger["model"] = model
+        bullet["model"] = model
+    if args.trigger_model:
+        trigger["model"] = args.trigger_model
+    if args.bullet_model:
+        bullet["model"] = args.bullet_model
+    save(path, data)
+    _start_side(data, data["op"], "trigger", trigger.get("model") or "", False)
+    _start_side(data, data["run"], "bullet", bullet.get("model") or "", False)
+    save(path, data)
+    print("[..] waiting for both opencode sessions")
+    freeze_sides(data, ["trigger", "bullet"], tool, wait=True)
+    save(path, data)
+    if not oc_ops.is_dst(data):
+        raise SystemExit("[err] DST not ready. dt enter --oc / dt work --oc, then dt freeze")
+    print(f"[ok] DST {data['name']}")
+
+
+def cmd_resume(args: argparse.Namespace) -> None:
+    data = _resolve(args.name)
+    if not oc_ops.is_dst(data):
+        raise SystemExit("[err] not a DST. Freeze both oc sessions first: dt freeze")
+    jump = (data.get("runtime") or {}).get("cmd") or ""
+    if jump and tmux_ops.pane_command(data["run"]) not in {"ssh", "docker", "tmux", "opencode"}:
+        tmux_ops.reconnect(data["run"], jump)
+    _start_side(data, data["op"], "trigger", "", True)
+    _start_side(data, data["run"], "bullet", "", True)
+    print(f"[ok] resumed DST {data['name']}")
+    if getattr(args, "attach", True):
+        tmux_ops.attach(data["op"])
 
 
 def _prompt(label: str) -> str:
@@ -379,7 +465,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="store_true", help="show version")
     sub = parser.add_subparsers(dest="command")
 
-    sub.add_parser("ls", help="list tunnels")
+    sub.add_parser("ls", help="list DT; second column is IS_DST")
     p_show = sub.add_parser("show", help="show one tunnel JSON")
     p_show.add_argument("name")
 
@@ -411,14 +497,33 @@ def build_parser() -> argparse.ArgumentParser:
         p = sub.add_parser(name, help=help_text)
         p.add_argument("name", nargs="?", help="defaults to latest tunnel")
         if name in {"enter", "work"}:
-            p.add_argument("--oc", action="store_true", help="start or resume the bound agent in that tmux")
+            p.add_argument("--oc", action="store_true", help="start OpenCode in that tmux")
+            p.add_argument("--model", default="", help="model for --oc")
             p.add_argument("--resume", action="store_true", help="resume by recorded session_id")
 
-    p_cap = sub.add_parser("capture", help="record tool/model/session_id from live OpenCode")
+    p_freeze = sub.add_parser("freeze", help="freeze op-oc and run-oc; DST only if both exist")
+    p_freeze.add_argument("name", nargs="?", help="defaults to latest tunnel")
+    p_freeze.add_argument("--trigger", action="store_true")
+    p_freeze.add_argument("--bullet", action="store_true")
+    p_freeze.add_argument("--tool", default="opencode")
+    p_cap = sub.add_parser("capture", help="alias of freeze")
     p_cap.add_argument("name", nargs="?", help="defaults to latest tunnel")
-    p_cap.add_argument("--trigger", action="store_true", help="capture local opencode as trigger")
-    p_cap.add_argument("--bullet", action="store_true", help="capture remote opencode as bullet")
-    p_cap.add_argument("--tool", default="opencode", help="agent tool name, default opencode")
+    p_cap.add_argument("--trigger", action="store_true")
+    p_cap.add_argument("--bullet", action="store_true")
+    p_cap.add_argument("--tool", default="opencode")
+
+    p_make = sub.add_parser("make", help="dt make dst <name> — create DT + both oc and freeze")
+    p_make.add_argument("target", choices=["dst"])
+    p_make.add_argument("name")
+    p_make.add_argument("--tool", default="opencode")
+    p_make.add_argument("--model", default="", help="model for both sides")
+    p_make.add_argument("--trigger-model", default="")
+    p_make.add_argument("--bullet-model", default="")
+    p_make.add_argument("--container", default="")
+    p_make.add_argument("--dir", default="")
+
+    p_resume = sub.add_parser("resume", help="resume a DST; reconnects missing op/run oc")
+    p_resume.add_argument("name", nargs="?", help="defaults to latest tunnel")
 
     p_send = sub.add_parser("send", help="send-keys into run_*")
     p_send.add_argument("name")
@@ -458,7 +563,10 @@ def main() -> None:
         "show": cmd_show,
         "new": cmd_new,
         "bind": cmd_bind,
+        "freeze": cmd_freeze,
         "capture": cmd_capture,
+        "make": cmd_make,
+        "resume": cmd_resume,
         "enter": cmd_enter,
         "work": cmd_work,
         "re": cmd_re,

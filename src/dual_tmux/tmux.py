@@ -60,3 +60,12 @@ def start_opencode(name: str, extra: str = "") -> None:
         return
     cmd = "opencode" if not extra else extra
     subprocess.run(["tmux", "send-keys", "-t", name, "--", cmd, "Enter"], check=False)
+
+
+def ensure_agent(name: str, cmd: str) -> bool:
+    """Start cmd if pane is not already opencode. Return True if a command was sent."""
+    ensure_session(name)
+    if pane_command(name) == "opencode":
+        return False
+    subprocess.run(["tmux", "send-keys", "-t", name, "--", cmd, "Enter"], check=False)
+    return True

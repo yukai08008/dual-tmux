@@ -95,6 +95,30 @@ def remote_query_cmd(container: str = "") -> str:
     return inner
 
 
+def wait_latest_local(timeout: int = 20) -> OcSession | None:
+    import time
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        rows = latest_local(1)
+        if rows:
+            return rows[0]
+        time.sleep(1)
+    return None
+
+
+def wait_latest_remote(ssh_argv: list[str], container: str = "", timeout: int = 20) -> OcSession | None:
+    import time
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        session = latest_remote(ssh_argv, container)
+        if session:
+            return session
+        time.sleep(1)
+    return None
+
+
 def latest_remote(ssh_argv: list[str], container: str = "") -> OcSession | None:
     cmd = ssh_argv + [remote_query_cmd(container)]
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -143,5 +167,24 @@ def resume_cmd(info: dict) -> str:
     if tool != "opencode":
         raise SystemExit(f"[err] resume for tool={tool} is not implemented")
     if not sid:
-        return "opencode"
+        return start_cmd(info)
     return f"opencode --auto -s {sid}"
+
+
+def start_cmd(info: dict, model: str = "") -> str:
+    tool = info.get("tool") or "opencode"
+    if tool != "opencode":
+        raise SystemExit(f"[err] start for tool={tool} is not implemented")
+    chosen = model or info.get("model") or ""
+    if chosen:
+        return f"opencode --model {chosen}"
+    return "opencode"
+
+
+def side_ready(info: dict | None) -> bool:
+    info = info or {}
+    return bool(info.get("session_id"))
+
+
+def is_dst(data: dict) -> bool:
+    return side_ready(data.get("trigger")) and side_ready(data.get("bullet"))
