@@ -7,7 +7,8 @@ import subprocess
 import sys
 
 from . import __version__
-from .config import init_config, load_config
+from .config import AppConfig, init_config, load_config
+from . import oc as oc_ops
 from .identity import SOURCE_HINT, USER_HINT, remote_sessions_root
 from .sshutil import list_ssh_hosts, parse_ssh_target
 from .health import collect_checks, ensure_ready, guide_if_needed, print_checks
@@ -48,14 +49,14 @@ def cmd_ls(_: argparse.Namespace) -> None:
     if not files:
         print("(no tunnels)")
         return
-    print(f"{'NAME':<24} {'OP':<22} {'RUN':<22} TRIGGER          BULLET")
+    print(f"{'DST':<24} {'OP':<18} {'RUN':<18} TRIGGER              BULLET")
     for path in files:
         data = load(path)
-        trigger = (data.get("trigger") or {}).get("slug") or "-"
-        bullet = (data.get("bullet") or {}).get("slug") or "-"
+        trigger = _oc_label(data.get("trigger") or {})
+        bullet = _oc_label(data.get("bullet") or {})
         print(
-            f"{data.get('name','?'):<24} {data.get('op','?'):<22} "
-            f"{data.get('run','?'):<22} {trigger:<16} {bullet}"
+            f"{data.get('name','?'):<24} {data.get('op','?'):<18} "
+            f"{data.get('run','?'):<18} {trigger:<20} {bullet}"
         )
 
 
@@ -104,8 +105,8 @@ def cmd_new(args: argparse.Namespace) -> None:
             "directory": directory,
             "cmd": cmd,
         },
-        "trigger": {"slug": "", "session_id": ""},
-        "bullet": {"slug": "", "session_id": ""},
+        "trigger": oc_ops.empty_side(),
+        "bullet": oc_ops.empty_side(),
         "updated_at": now_iso(),
     }
     path = tunnels_dir() / f"{name}.json"
@@ -121,26 +122,64 @@ def cmd_new(args: argparse.Namespace) -> None:
     print(f"     work:  dt work {name}")
 
 
+def _oc_label(info: dict) -> str:
+    tool = info.get("tool") or "opencode"
+    model = info.get("model") or "-"
+    sid = info.get("session_id") or ""
+    short = sid[:10] if sid else "-"
+    return f"{tool}:{model}:{short}"
+
+
+def _side(data: dict, name: str) -> dict:
+    side = data.setdefault(name, oc_ops.empty_side())
+    side.setdefault("tool", "opencode")
+    side.setdefault("model", "")
+    side.setdefault("session_id", "")
+    side.setdefault("slug", "")
+    side.setdefault("agent", "")
+    return side
+
+
+def _bind_oc(data: dict, side: str, session: oc_ops.OcSession, tool: str = "") -> None:
+    data[side] = oc_ops.as_bind(session, tool)
+    data["updated_at"] = now_iso()
+
+
+def _print_side(label: str, info: dict) -> None:
+    print(
+        f"     {label:<8} tool={info.get('tool') or '-'}  "
+        f"model={info.get('model') or '-'}  "
+        f"session={info.get('session_id') or '-'}"
+    )
+
+
 def cmd_bind(args: argparse.Namespace) -> None:
     require_config()
     path = find_dt(args.name)
     data = load(path)
-    trigger = data.setdefault("trigger", {"slug": "", "session_id": ""})
-    bullet = data.setdefault("bullet", {"slug": "", "session_id": ""})
+    trigger = _side(data, "trigger")
+    bullet = _side(data, "bullet")
+    if args.trigger_tool:
+        trigger["tool"] = args.trigger_tool
+    if args.trigger_model:
+        trigger["model"] = args.trigger_model
     if args.trigger:
         trigger["slug"] = args.trigger
     if args.trigger_id:
         trigger["session_id"] = args.trigger_id
+    if args.bullet_tool:
+        bullet["tool"] = args.bullet_tool
+    if args.bullet_model:
+        bullet["model"] = args.bullet_model
     if args.bullet:
         bullet["slug"] = args.bullet
     if args.bullet_id:
         bullet["session_id"] = args.bullet_id
     data["updated_at"] = now_iso()
     save(path, data)
-    print(
-        f"[ok] {data['name']}  trigger={trigger.get('slug') or '-'}  "
-        f"bullet={bullet.get('slug') or '-'}"
-    )
+    print(f"[ok] dst {data['name']}")
+    _print_side("trigger", trigger)
+    _print_side("bullet", bullet)
 
 
 def _resolve(name: str | None) -> dict:
@@ -161,11 +200,29 @@ def cmd_enter(args: argparse.Namespace) -> None:
         print_next_after_init()
         return
     data = _resolve(args.name)
+    if getattr(args, "oc", False) or getattr(args, "resume", False):
+        info = _side(data, "trigger")
+        resume = getattr(args, "resume", False) or bool(info.get("session_id"))
+        cmd = oc_ops.resume_cmd(info) if resume else "opencode"
+        tmux_ops.start_opencode(data["op"], cmd if cmd != "opencode" else "")
+        if info.get("session_id"):
+            print(f"[ok] resume trigger {info.get('tool')} {info.get('model')} {info.get('session_id')}")
+        else:
+            print(f"[ok] start trigger opencode in {data['op']}. Then: dt capture {data['name']} --trigger")
     tmux_ops.attach(data["op"])
 
 
 def cmd_work(args: argparse.Namespace) -> None:
     data = _resolve(args.name)
+    if getattr(args, "oc", False) or getattr(args, "resume", False):
+        info = _side(data, "bullet")
+        resume = getattr(args, "resume", False) or bool(info.get("session_id"))
+        cmd = oc_ops.resume_cmd(info) if resume else "opencode"
+        tmux_ops.start_opencode(data["run"], cmd if cmd != "opencode" else "")
+        if info.get("session_id"):
+            print(f"[ok] resume bullet {info.get('tool')} {info.get('model')} {info.get('session_id')}")
+        else:
+            print(f"[ok] start bullet opencode in {data['run']}. Then: dt capture {data['name']} --bullet")
     tmux_ops.attach(data["run"])
 
 
@@ -180,6 +237,37 @@ def cmd_re(args: argparse.Namespace) -> None:
 def cmd_send(args: argparse.Namespace) -> None:
     data = _resolve(args.name)
     tmux_ops.send_keys(data["run"], args.text)
+
+
+def cmd_capture(args: argparse.Namespace) -> None:
+    path = find_dt(args.name) if args.name else latest_dt()
+    data = load(path)
+    cfg = require_config()
+    runtime = data.get("runtime") or {}
+    sides: list[str] = []
+    if args.trigger or (not args.trigger and not args.bullet):
+        sides.append("trigger")
+    if args.bullet or (not args.trigger and not args.bullet):
+        sides.append("bullet")
+    if "trigger" in sides:
+        latest = oc_ops.latest_local(1)
+        if not latest:
+            raise SystemExit("[err] no local opencode session. dt enter --oc, start oc, then capture")
+        _bind_oc(data, "trigger", latest[0], getattr(args, "tool", "") or "opencode")
+        _print_side("trigger", data["trigger"])
+    if "bullet" in sides:
+        from .sshutil import SshTarget
+
+        server = runtime.get("server") or cfg.server
+        port = int(runtime.get("ssh_port") or cfg.ssh_port or 22)
+        target = SshTarget(server, port)
+        argv = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", *target.extra_args, target.dest]
+        session = oc_ops.latest_remote(argv, runtime.get("container") or "")
+        if not session:
+            raise SystemExit("[err] no remote opencode session. dt work --oc, start oc, then capture")
+        _bind_oc(data, "bullet", session, getattr(args, "tool", "") or "opencode")
+        _print_side("bullet", data["bullet"])
+    save(path, data)
 
 
 def _prompt(label: str) -> str:
@@ -286,7 +374,7 @@ def cmd_upgrade(_: argparse.Namespace) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="dt",
-        description="Dual tmux tunnels: Client op_* + Server jump run_*, 1:1 dt-* binding",
+        description="DT = op_*/run_* tmux pair. DST = that pair plus trigger/bullet OpenCode sessions.",
     )
     parser.add_argument("--version", action="store_true", help="show version")
     sub = parser.add_subparsers(dest="command")
@@ -304,12 +392,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_new.add_argument("--dir", default="", help="remote working directory")
     p_new.add_argument("--cmd", default="", help="override reconnect command")
 
-    p_bind = sub.add_parser("bind", help="bind trigger/bullet agent sessions")
+    p_bind = sub.add_parser("bind", help="set DST tool/model/session_id on trigger and bullet")
     p_bind.add_argument("name")
-    p_bind.add_argument("--trigger", default="")
-    p_bind.add_argument("--bullet", default="")
-    p_bind.add_argument("--trigger-id", default="")
-    p_bind.add_argument("--bullet-id", default="")
+    p_bind.add_argument("--trigger", default="", help="trigger slug")
+    p_bind.add_argument("--bullet", default="", help="bullet slug")
+    p_bind.add_argument("--trigger-id", default="", help="trigger session id")
+    p_bind.add_argument("--bullet-id", default="", help="bullet session id")
+    p_bind.add_argument("--trigger-tool", default="", help="default opencode")
+    p_bind.add_argument("--bullet-tool", default="", help="default opencode")
+    p_bind.add_argument("--trigger-model", default="")
+    p_bind.add_argument("--bullet-model", default="")
 
     for name, help_text in (
         ("enter", "attach op_* (line head on Client)"),
@@ -318,6 +410,15 @@ def build_parser() -> argparse.ArgumentParser:
     ):
         p = sub.add_parser(name, help=help_text)
         p.add_argument("name", nargs="?", help="defaults to latest tunnel")
+        if name in {"enter", "work"}:
+            p.add_argument("--oc", action="store_true", help="start or resume the bound agent in that tmux")
+            p.add_argument("--resume", action="store_true", help="resume by recorded session_id")
+
+    p_cap = sub.add_parser("capture", help="record tool/model/session_id from live OpenCode")
+    p_cap.add_argument("name", nargs="?", help="defaults to latest tunnel")
+    p_cap.add_argument("--trigger", action="store_true", help="capture local opencode as trigger")
+    p_cap.add_argument("--bullet", action="store_true", help="capture remote opencode as bullet")
+    p_cap.add_argument("--tool", default="opencode", help="agent tool name, default opencode")
 
     p_send = sub.add_parser("send", help="send-keys into run_*")
     p_send.add_argument("name")
@@ -357,6 +458,7 @@ def main() -> None:
         "show": cmd_show,
         "new": cmd_new,
         "bind": cmd_bind,
+        "capture": cmd_capture,
         "enter": cmd_enter,
         "work": cmd_work,
         "re": cmd_re,

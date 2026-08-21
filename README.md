@@ -111,13 +111,27 @@ dt enter dt-myapp     # attach op_*
 dt work  dt-myapp     # attach run_*
 dt re    dt-myapp     # re-send ssh/docker if the jump dropped to local shell
 
-dt bind dt-myapp --trigger trigger-slug --bullet bullet-slug
+dt enter dt-myapp --oc    # start trigger OpenCode in op_*
+dt work  dt-myapp --oc    # start bullet OpenCode in run_*
+dt capture dt-myapp       # record tool + model + session_id on both sides
+dt ls                     # DST list
+dt enter dt-myapp --resume
 dt send dt-myapp 'task for the bullet agent'
 
 dt                    # attach latest op_*
 ```
 
-`dt new NAME` expands to `dt-NAME` / `op_NAME` / `run_NAME`. One tunnel binds exactly one op and one run.
+`dt new NAME` expands to `dt-NAME` / `op_NAME` / `run_NAME`. That is **DT**.
+
+**DST** is DT plus one agent on each tmux: trigger on `op_*`, bullet on `run_*`. Each side stores:
+
+| Field | Why |
+|-------|-----|
+| `tool` | harness, default `opencode` (swap later without changing tmux) |
+| `model` | which model that harness should use |
+| `session_id` | resume with `opencode --auto -s <id>` (never `-c`) |
+
+`dt ls` is the DST list. Capture after both OpenCode sessions exist; resume uses the recorded id.
 
 `run_*` is a **local jump session**. The pane SSHes (and optionally `docker exec`) into the Server workspace. Do not nest another tmux on the Server by default.
 
@@ -129,8 +143,11 @@ dt                    # attach latest op_*
 | `dt work` | attach the workspace jump |
 | `dt re` | reconnect the jump command |
 | `dt new` | create sessions + registry |
-| `dt ls` / `dt show` | inspect |
-| `dt bind` | bind trigger/bullet session slugs |
+| `dt ls` / `dt show` | DST list / one tunnel JSON |
+| `dt capture` | record tool/model/session_id from live OpenCode |
+| `dt bind` | set tool/model/session_id by hand |
+| `dt enter --oc` / `--resume` | start or resume trigger |
+| `dt work --oc` / `--resume` | start or resume bullet |
 | `dt send` | `tmux send-keys` into `run_*` |
 | `dt doctor` | check Client tmux + ssh to Server (does not change SSH) |
 | `dt config --init` | write `tm_*` client + ssh Host + user |

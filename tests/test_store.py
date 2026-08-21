@@ -4,6 +4,7 @@ from dual_tmux.config import AppConfig, _parse_toml, init_config
 from dual_tmux.identity import legal_source, legal_user, remote_sessions_root
 from dual_tmux.runtime import build_cmd
 from dual_tmux.sshutil import list_ssh_hosts, parse_ssh_target
+from dual_tmux.oc import as_bind, empty_side, parse_model, resume_cmd, OcSession
 from dual_tmux.store import default_names, normalize_dt
 
 
@@ -57,6 +58,17 @@ def test_list_ssh_hosts(tmp_path):
     assert t.stored == "tom7r"
     t2 = parse_ssh_target("ssh -p 22 root@9.9.9.9", cfg)
     assert t2.stored == "root@9.9.9.9"
+
+
+def test_dst_bind():
+    assert parse_model('{"id":"glm-5.1","providerID":"opencode-go"}') == "opencode-go/glm-5.1"
+    session = OcSession("ses_1", "brave-knight", model="opencode-go/glm-5.1", agent="build")
+    bind = as_bind(session)
+    assert bind["tool"] == "opencode"
+    assert bind["model"] == "opencode-go/glm-5.1"
+    assert bind["session_id"] == "ses_1"
+    assert resume_cmd(bind) == "opencode --auto -s ses_1"
+    assert empty_side()["tool"] == "opencode"
 
 
 def test_user():
