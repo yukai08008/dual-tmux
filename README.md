@@ -16,7 +16,7 @@ Client (this machine)
 
 ## First start
 
-Install does nothing except put `dt` on PATH. The first real command (`dt`, `dt new`, `dt work`, or `dt config --init`) asks for **three fields**. Jump directory is always `/workspace` until you override a tunnel with `dt new --dir`.
+Install puts `dt` on PATH **and** a minute crontab (`dt tick`). The first real command asks for **three fields**. Jump directory is always `/workspace` until you override a tunnel with `dt new --dir`.
 
 | Field | What you type | What this CLI does **not** do |
 |-------|----------------|-------------------------------|
@@ -92,9 +92,7 @@ One Client at a time: hub lock `~/<user>/dual-tmux/locks/<dt-name>` (`client@epo
 
 Idle is **not** the lock TTL. `dt tick` (cron, every minute) hashes the last 10 lines of `op_*` and `run_*` into `~/.dual-tmux/activity.log` and pushes it to `~/<user>/dual-tmux/activity/<client>.log`. `dt resume` on another machine reads the holder's last **30 ticks**. Same fingerprint for all 30 → take over. Still changing → refuse unless `--force`. Leave: `dt park dt-msg`.
 
-```cron
-* * * * * /Users/<you>/.local/bin/dt tick >/dev/null 2>&1
-```
+Install / `dt doctor` writes that crontab. Other machine: same one-liner install, then `dt pull && dt resume`. No extra cron step.
 
 Trigger OpenCode starts in `ops/op_*` so it always reads `AGENTS.md`, which points at packaged `dual-tmux` + `tmux-trigger` skills. Same layout after `uv tool install` on any machine.
 
@@ -212,7 +210,8 @@ Freeze also records **work points** (`op_point` / `run_point`: kind, cwd, ssh, d
 | `dt make dst <name> [--tool] [--model]` | one-shot DT + both oc + freeze |
 | `dt resume <name> [--force]` | resume DST; `--force` steals hub lock |
 | `dt park <name>` | park local op_*/run_* and release hub lock |
-| `dt tick` | minute job: pane fingerprint + renew lock + push activity |
+| `dt tick` | minute job (install/doctor adds crontab) |
+| `dt cron [--remove]` | install or remove the tick crontab |
 | `dt push` | rsync now (otherwise freeze/new/work already push in the background) |
 | `dt pull` | rsync tunnels+entries ← hub; does not overwrite `client` |
 | `dt re <name>` | re-send ssh/docker into run_* |

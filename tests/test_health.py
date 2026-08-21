@@ -6,6 +6,7 @@ from dual_tmux.health import collect_checks, probe_ssh
 
 def test_missing_config(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr("dual_tmux.cron.installed", lambda: False)
     cfg, checks = collect_checks()
     assert cfg is None
     labels = {c.label: c for c in checks}
@@ -27,6 +28,7 @@ def test_config_without_ssh(monkeypatch, tmp_path: Path):
         return R()
 
     monkeypatch.setattr("dual_tmux.health.subprocess.run", fake_run)
+    monkeypatch.setattr("dual_tmux.cron.installed", lambda: False)
     _, checks = collect_checks()
     ssh = next(c for c in checks if c.label == "ssh server")
     assert ssh.ok is False

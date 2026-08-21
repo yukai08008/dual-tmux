@@ -30,6 +30,7 @@ from .store import (
     remove_dt,
 )
 from . import activity
+from . import cron as cron_ops
 from . import log as ev
 from . import opsdir
 from . import tmux as tmux_ops
@@ -575,6 +576,11 @@ def cmd_park(args: argparse.Namespace) -> None:
 
 
 def cmd_doctor(_: argparse.Namespace) -> None:
+    try:
+        if cron_ops.install():
+            ui.ok(f"crontab  {cron_ops.line()}")
+    except SystemExit as exc:
+        ui.warn(str(exc))
     _, checks = collect_checks()
     ok = print_checks(checks)
     ui.info(f"tunnels  {len(iter_dt_files())}")
@@ -641,6 +647,19 @@ def cmd_pull(_: argparse.Namespace) -> None:
 def cmd_log(args: argparse.Namespace) -> None:
     rows = ev.read_events(limit=args.limit, kind=args.kind, name=args.name or "")
     ui.print_log(rows)
+
+
+def cmd_cron(args: argparse.Namespace) -> None:
+    if args.remove:
+        if cron_ops.uninstall():
+            ui.ok("removed dt tick from crontab")
+        else:
+            ui.skip("no dt tick crontab")
+        return
+    if cron_ops.install():
+        ui.ok(f"crontab  {cron_ops.line()}")
+    else:
+        ui.skip(f"already  {cron_ops.line()}")
 
 
 def cmd_upgrade(_: argparse.Namespace) -> None:
@@ -748,6 +767,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("push", help="rsync tunnels+entries to Server ~/<user>/dual-tmux")
     sub.add_parser("pull", help="rsync tunnels+entries from Server; keeps this Client config.toml")
     sub.add_parser("tick", help="sample pane fingerprints; renew lock; push activity.log")
+    p_cron = sub.add_parser("cron", help="install/remove the minute dt tick crontab")
+    p_cron.add_argument("--install", action="store_true", default=True)
+    p_cron.add_argument("--remove", action="store_true")
 
     p_log = sub.add_parser("log", help="show CLI event log (~/.dual-tmux/events.jsonl)")
     p_log.add_argument("-n", "--limit", type=int, default=40)
@@ -772,7 +794,7 @@ def main() -> None:
         ensure_ready()
         cmd_enter(argparse.Namespace(name=None))
         return
-    if command not in {"config", "doctor", "upgrade", "ls", "show", "inspect", "log", "tick"}:
+    if command not in {"config", "doctor", "upgrade", "ls", "show", "inspect", "log", "tick", "cron"}:
         if not config_path().is_file():
             prompt_init()
         ensure_ready()
@@ -796,6 +818,7 @@ def main() -> None:
         "push": cmd_push,
         "pull": cmd_pull,
         "tick": cmd_tick,
+        "cron": cmd_cron,
         "log": cmd_log,
         "doctor": cmd_doctor,
         "upgrade": cmd_upgrade,

@@ -44,7 +44,9 @@ install_or_update() {
     uv tool install --force "$PACKAGE_SPEC"
     if command -v "$BIN_NAME" >/dev/null 2>&1; then
         info "Ready: $($BIN_NAME --version | sed -n '1p')"
+        "$BIN_NAME" cron --install >/dev/null 2>&1 || true
         info "Next: dt config --init --client tm_<id> --server <ssh-host> --user <name> && dt doctor"
+        info "Minute job: dt tick (crontab). Cross-machine idle takeover needs this."
     elif [ -x "${INSTALL_DIR}/${BIN_NAME}" ]; then
         warn "Installed. Restart the terminal so ${INSTALL_DIR} is in PATH."
     else
@@ -57,6 +59,11 @@ uninstall() {
         uv tool uninstall "$TOOL_NAME" 2>/dev/null || true
     fi
     rm -f "${INSTALL_DIR}/${BIN_NAME}"
+    if command -v dt >/dev/null 2>&1; then
+        dt cron --remove >/dev/null 2>&1 || true
+    else
+        crontab -l 2>/dev/null | grep -v 'dt tick' | crontab - 2>/dev/null || true
+    fi
     info "Uninstalled. Data under ~/.dual-tmux was preserved."
 }
 

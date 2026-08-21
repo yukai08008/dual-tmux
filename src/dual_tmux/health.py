@@ -20,6 +20,7 @@ class Check:
     ok: bool
     detail: str
     hint: str = ""
+    required: bool = True
 
 
 def probe_ssh(host: str, timeout: int = 5, port: int = 22) -> Check:
@@ -80,6 +81,20 @@ def collect_checks() -> tuple[AppConfig | None, list[Check]]:
     else:
         checks.append(Check("tmux", False, "not in PATH", "install tmux on the Client"))
     checks.append(probe_ssh(cfg.server if cfg else "", port=cfg.ssh_port if cfg else 22))
+    from .cron import dt_bin, installed
+
+    if installed():
+        checks.append(Check("tick cron", True, f"* * * * * {dt_bin()} tick"))
+    else:
+        checks.append(
+            Check(
+                "tick cron",
+                False,
+                "missing",
+                "dt cron --install   (needed so another Client can see idle fingerprints)",
+                required=False,
+            )
+        )
     return cfg, checks
 
 
@@ -98,7 +113,7 @@ def guide_if_needed(checks: list[Check]) -> None:
 
 
 def all_ok(checks: list[Check]) -> bool:
-    return all(c.ok for c in checks)
+    return all(c.ok for c in checks if c.required)
 
 
 def ensure_ready(*, verbose: bool = False) -> AppConfig:

@@ -16,7 +16,7 @@ Client（本机）
 
 ## 第一次启动
 
-安装只是把 `dt` 放到 PATH。第一次真正干活（`dt` / `dt new` / `dt work` / `dt config --init`）收 **三个字段**。跳板目录默认 `/workspace`，某条隧道要用别的路径再 `dt new --dir`。
+安装会把 `dt` 放进 PATH，并加上每分钟 crontab（`dt tick`）。第一次真正干活会问 **三个字段**。跳板目录默认 `/workspace`，某条隧道要用别的路径再 `dt new --dir`。
 
 | 字段 | 你填什么 | 本 CLI **不会**做的 |
 |------|----------|---------------------|
@@ -92,9 +92,7 @@ dt resume dt-msg
 
 闲置不看 TTL。`dt tick`（cron 每分钟）把 `op_*`/`run_*` 末 10 行做成 hash，写入 `~/.dual-tmux/activity.log`，推到 `~/<user>/dual-tmux/activity/<client>.log`。另一台 `dt resume` 看持有者最近 **30 个 tick**：指纹全一样才接管；还在变就拒绝（除非 `--force`）。放手：`dt park dt-msg`。
 
-```cron
-* * * * * /Users/<you>/.local/bin/dt tick >/dev/null 2>&1
-```
+安装 / `dt doctor` 会写这条 crontab。另一台：同一条一键安装，然后 `dt pull && dt resume`，不用再配 cron。
 
 trigger oc 从 `ops/op_*` 启动，必读 `AGENTS.md`，里面指向包内的 `dual-tmux` + `tmux-trigger`。任意机器 `uv tool install` 后布局相同。
 
@@ -212,7 +210,8 @@ freeze 还会记下 **工作点**（`op_point` / `run_point`：kind、cwd、ssh�
 | `dt make dst <name> [--tool] [--model]` | 一键 DT + 两侧 oc + freeze |
 | `dt resume <name> [--force]` | 接续 DST；`--force` 抢枢纽锁 |
 | `dt park <name>` | 本机 park op_*/run_* 并释放枢纽锁 |
-| `dt tick` | 每分钟：pane 指纹 + 续租 + 推 activity |
+| `dt tick` | 每分钟任务（安装 / doctor 会加 crontab） |
+| `dt cron [--remove]` | 安装或去掉 tick crontab |
 | `dt push` | 立刻推（平时 freeze/new/work 已后台推） |
 | `dt pull` | 从枢纽拉 tunnels+entries；不覆盖本机 `client` |
 | `dt re <name>` | 重新打入 run_* 的 ssh/docker |
