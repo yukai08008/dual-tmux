@@ -5,14 +5,16 @@
 Dual tmux tunnels. Physical sessions stay ordinary tmux; this CLI names them and binds them 1:1.
 
 ```
-source host (your laptop)
-  op_<name>          trigger opencode
+Client (this machine)
+  op_<name>          trigger agent
        │  dt-<name>
-  run_<name>         ssh / docker exec → /workspace
-                          └─ bullet opencode
+  run_<name>         ssh / docker exec → Server workspace
+                          └─ bullet agent
 ```
 
-SSH to the target host must already work. dual-tmux never stores keys.
+**Client** is the laptop you sit at. **Server** is the ssh host where work happens (optional container). SSH to Server must already work. dual-tmux never stores keys.
+
+Machine-local data lives in `~/.dual-tmux/` (`DUAL_TMUX_HOME` overrides).
 
 ## Install
 
@@ -29,11 +31,19 @@ uv tool install git+https://github.com/yukai08008/dual-tmux.git
 ## Setup
 
 ```sh
-dt config --init tm_andy_ouc   # source name must start with tm_
-dt doctor                      # tmux, ssh tom7r, persist cron
+dt config --init --client laptop --server myserver
+dt doctor
 ```
 
-`run_*` is a **local jump session**. The pane command SSHes (and optionally `docker exec`) into the workspace. Do not nest another tmux on the remote by default.
+`~/.dual-tmux/config.toml`:
+
+```toml
+client = "laptop"      # this machine
+server = "myserver"    # ssh Host alias in ~/.ssh/config
+workspace = "/workspace"
+```
+
+`run_*` is a **local jump session**. The pane SSHes (and optionally `docker exec`) into the Server workspace. Do not nest another tmux on the Server by default.
 
 ## Usage
 
@@ -41,27 +51,27 @@ dt doctor                      # tmux, ssh tom7r, persist cron
 dt --version
 dt doctor
 
-dt new cp-gateway --host tom7r --container tmux_general_sessions --dir /workspace/cp-gateway
+dt new myapp --container appbox --dir /workspace/myapp
 dt ls
-dt show dt-cp-gateway
+dt show dt-myapp
 
-dt enter dt-cp-gateway     # attach op_*
-dt work  dt-cp-gateway     # attach run_*
-dt re    dt-cp-gateway     # re-send ssh/docker if the jump dropped to local shell
+dt enter dt-myapp     # attach op_*
+dt work  dt-myapp     # attach run_*
+dt re    dt-myapp     # re-send ssh/docker if the jump dropped to local shell
 
-dt bind dt-cp-gateway --trigger stellar-island --bullet mighty-circuit
-dt send dt-cp-gateway 'task for the bullet agent'
+dt bind dt-myapp --trigger trigger-slug --bullet bullet-slug
+dt send dt-myapp 'task for the bullet agent'
 
-dt                         # attach latest op_*
+dt                    # attach latest op_*
 ```
 
 `dt new NAME` expands to `dt-NAME` / `op_NAME` / `run_NAME`. One tunnel binds exactly one op and one run.
 
-Registry files live with tmux persist and sync to the hub:
-
 ```
-~/sessions/tmux/<tm_source>/dt/dt-<name>.json
-~/sessions/tmux/<tm_source>/entry/run_<name>.cmd
+~/.dual-tmux/
+├── config.toml
+├── tunnels/dt-<name>.json
+└── entries/run_<name>.cmd
 ```
 
 ## Commands
@@ -73,10 +83,10 @@ Registry files live with tmux persist and sync to the hub:
 | `dt re` | reconnect the jump command |
 | `dt new` | create sessions + registry |
 | `dt ls` / `dt show` | inspect |
-| `dt bind` | bind trigger/bullet opencode slugs |
+| `dt bind` | bind trigger/bullet session slugs |
 | `dt send` | `tmux send-keys` into `run_*` |
 | `dt doctor` | check local setup |
-| `dt config --init` | write `tm_` source name |
+| `dt config --init` | write Client/Server config |
 | `dt upgrade` | `uv tool upgrade dual-tmux` |
 
 ## Uninstall

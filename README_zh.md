@@ -5,14 +5,16 @@
 双层 tmux 隧道。物理会话仍是普通 tmux；本 CLI 给它们命名，并按 1:1 绑定。
 
 ```
-源主机（你的笔记本）
-  op_<name>          trigger opencode
+Client（本机）
+  op_<name>          trigger agent
        │  dt-<name>
-  run_<name>         ssh / docker exec → /workspace
-                          └─ bullet opencode
+  run_<name>         ssh / docker exec → Server 工作目录
+                          └─ bullet agent
 ```
 
-目标主机的 SSH 必须已经能通。dual-tmux 不保存任何密钥。
+**Client** 是你坐的那台机器。**Server** 是干活的 ssh 主机（容器可选）。到 Server 的 SSH 必须已经能通。dual-tmux 不保存任何密钥。
+
+本机数据在 `~/.dual-tmux/`（可用 `DUAL_TMUX_HOME` 覆盖）。
 
 ## 安装
 
@@ -29,11 +31,19 @@ uv tool install git+https://github.com/yukai08008/dual-tmux.git
 ## 初始化
 
 ```sh
-dt config --init tm_andy_ouc   # 来源名必须以 tm_ 开头
-dt doctor                      # 检查 tmux、ssh tom7r、persist cron
+dt config --init --client laptop --server myserver
+dt doctor
 ```
 
-`run_*` 是**本机跳板会话**。pane 里执行 ssh（可选再 `docker exec`）进入工作目录。默认不要在远端再套一层 tmux。
+`~/.dual-tmux/config.toml`：
+
+```toml
+client = "laptop"      # 本机身份
+server = "myserver"    # ~/.ssh/config 里的 Host
+workspace = "/workspace"
+```
+
+`run_*` 是**本机跳板会话**。pane 里 ssh（可选再 `docker exec`）进入 Server 工作目录。默认不要在 Server 上再套一层 tmux。
 
 ## 用法
 
@@ -41,27 +51,27 @@ dt doctor                      # 检查 tmux、ssh tom7r、persist cron
 dt --version
 dt doctor
 
-dt new cp-gateway --host tom7r --container tmux_general_sessions --dir /workspace/cp-gateway
+dt new myapp --container appbox --dir /workspace/myapp
 dt ls
-dt show dt-cp-gateway
+dt show dt-myapp
 
-dt enter dt-cp-gateway     # 接入 op_*
-dt work  dt-cp-gateway     # 接入 run_*
-dt re    dt-cp-gateway     # 跳板掉回本机 shell 时，重新打入 ssh/docker
+dt enter dt-myapp     # 接入 op_*
+dt work  dt-myapp     # 接入 run_*
+dt re    dt-myapp     # 跳板掉回本机 shell 时，重新打入 ssh/docker
 
-dt bind dt-cp-gateway --trigger stellar-island --bullet mighty-circuit
-dt send dt-cp-gateway '发给 bullet agent 的任务'
+dt bind dt-myapp --trigger trigger-slug --bullet bullet-slug
+dt send dt-myapp '发给 bullet agent 的任务'
 
-dt                         # 接入最近一条隧道的 op_*
+dt                    # 接入最近一条隧道的 op_*
 ```
 
 `dt new NAME` 会展开成 `dt-NAME` / `op_NAME` / `run_NAME`。一条隧道只绑一对 op 和 run。
 
-登记文件跟着 tmux persist 同步到枢纽：
-
 ```
-~/sessions/tmux/<tm_来源>/dt/dt-<name>.json
-~/sessions/tmux/<tm_来源>/entry/run_<name>.cmd
+~/.dual-tmux/
+├── config.toml
+├── tunnels/dt-<name>.json
+└── entries/run_<name>.cmd
 ```
 
 ## 命令
@@ -73,10 +83,10 @@ dt                         # 接入最近一条隧道的 op_*
 | `dt re` | 重新打入跳板命令 |
 | `dt new` | 创建会话并登记 |
 | `dt ls` / `dt show` | 查看 |
-| `dt bind` | 绑定 trigger/bullet 的 opencode slug |
+| `dt bind` | 绑定 trigger/bullet 会话 slug |
 | `dt send` | 向 `run_*` 发送 `tmux send-keys` |
 | `dt doctor` | 检查本机环境 |
-| `dt config --init` | 写入 `tm_` 来源名 |
+| `dt config --init` | 写入 Client/Server 配置 |
 | `dt upgrade` | `uv tool upgrade dual-tmux` |
 
 ## 卸载

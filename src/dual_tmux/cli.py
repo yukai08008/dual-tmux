@@ -2,26 +2,23 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import platform
 import shutil
 import subprocess
 import sys
-from pathlib import Path
 
 from . import __version__
-from .identity import init_name, name_file, require_me
+from .config import AppConfig, init_config, load_config, write_config
+from .paths import config_path, home_dir, tunnels_dir
 from .runtime import build_cmd
 from .store import (
     default_names,
-    dt_dir,
     find_dt,
     iter_dt_files,
     latest_dt,
     legal_op,
     legal_run,
     load,
-    normalize_dt,
     occupied,
     save,
     write_entry,
@@ -30,11 +27,21 @@ from .store import (
 from . import tmux as tmux_ops
 
 
+def require_config() -> AppConfig:
+    path = config_path()
+    if not path.is_file():
+        raise SystemExit(
+            "[err] missing config. Run: dt config --init --client <id> --server <ssh-host>"
+        )
+    return load_config()
+
+
 def cmd_version(_: argparse.Namespace) -> None:
     if sys.stdout.isatty():
         print(f"dual-tmux {__version__}")
         print(f"Python    {sys.version.split()[0]}")
         print(f"System    {platform.system()} {platform.release()} ({platform.machine()})")
+        print(f"Home      {home_dir()}")
     else:
         print(f"dt {__version__}")
 
@@ -42,7 +49,7 @@ def cmd_version(_: argparse.Namespace) -> None:
 def cmd_ls(_: argparse.Namespace) -> None:
     files = iter_dt_files()
     if not files:
-        print("(无 dt 登记)")
+        print("(no tunnels)")
         return
     print(f"{'NAME':<24} {'OP':<22} {'RUN':<22} TRIGGER          BULLET")
     for path in files:
@@ -61,54 +68,56 @@ def cmd_show(args: argparse.Namespace) -> None:
 
 
 def cmd_new(args: argparse.Namespace) -> None:
-    me = require_me()
+    cfg = require_config()
     name, default_op, default_run = default_names(args.name)
     op = args.op or default_op
     run = args.run or default_run
     if not legal_op(op):
-        raise SystemExit("[err] --op 必须 op_ 开头")
+        raise SystemExit("[err] --op must start with op_")
     if not legal_run(run):
-        raise SystemExit("[err] --run 必须 run_ 开头")
+        raise SystemExit("[err] --run must start with run_")
     other = occupied("op", op, skip=name)
     if other:
-        raise SystemExit(f"[err] {op} 已被 {other} 占用")
+        raise SystemExit(f"[err] {op} already used by {other}")
     other = occupied("run", run, skip=name)
     if other:
-        raise SystemExit(f"[err] {run} 已被 {other} 占用")
-    cmd = args.cmd or build_cmd(args.host, args.container or "", args.dir)
+        raise SystemExit(f"[err] {run} already used by {other}")
+    server = args.server or cfg.server
+    directory = args.dir or cfg.workspace
+    cmd = args.cmd or build_cmd(server, args.container or "", directory)
     tmux_ops.ensure_session(op)
     tmux_ops.ensure_session(run)
-    write_entry(me, run, cmd)
+    write_entry(run, cmd)
     data = {
         "name": name,
         "op": op,
         "run": run,
+        "client": cfg.client,
         "runtime": {
-            "host": args.host,
+            "server": server,
             "container": args.container or "",
-            "directory": args.dir,
+            "directory": directory,
             "cmd": cmd,
         },
         "trigger": {"slug": "", "session_id": ""},
         "bullet": {"slug": "", "session_id": ""},
-        "holder": me,
         "updated_at": now_iso(),
     }
-    path = dt_dir(me) / f"{name}.json"
+    path = tunnels_dir() / f"{name}.json"
     if path.exists():
         old = load(path)
         data["trigger"] = old.get("trigger") or data["trigger"]
         data["bullet"] = old.get("bullet") or data["bullet"]
     save(path, data)
-    print(f"[ok] 已登记 {name}")
+    print(f"[ok] registered {name}")
     print(f"     op={op}  run={run}")
-    print(f"     cmd={cmd}")
-    print(f"     进线头: dt enter {name}")
-    print(f"     进现场: dt work {name}")
+    print(f"     server={server}  cmd={cmd}")
+    print(f"     enter: dt enter {name}")
+    print(f"     work:  dt work {name}")
 
 
 def cmd_bind(args: argparse.Namespace) -> None:
-    me = require_me()
+    require_config()
     path = find_dt(args.name)
     data = load(path)
     trigger = data.setdefault("trigger", {"slug": "", "session_id": ""})
@@ -121,7 +130,6 @@ def cmd_bind(args: argparse.Namespace) -> None:
         bullet["slug"] = args.bullet
     if args.bullet_id:
         bullet["session_id"] = args.bullet_id
-    data["holder"] = me
     data["updated_at"] = now_iso()
     save(path, data)
     print(
@@ -149,7 +157,7 @@ def cmd_re(args: argparse.Namespace) -> None:
     data = _resolve(args.name)
     cmd = (data.get("runtime") or {}).get("cmd") or ""
     if not cmd:
-        raise SystemExit("[err] 隧道没有 runtime.cmd")
+        raise SystemExit("[err] tunnel has no runtime.cmd")
     tmux_ops.reconnect(data["run"], cmd)
 
 
@@ -160,19 +168,31 @@ def cmd_send(args: argparse.Namespace) -> None:
 
 def cmd_config(args: argparse.Namespace) -> None:
     if args.init:
-        name = args.name or os.environ.get("SYNC_NAME") or ""
-        if not name:
-            raise SystemExit("用法: dt config --init tm_andy_ouc")
-        path = init_name(name)
-        print(f"[ok] 来源名 {name} -> {path}")
+        if not args.client or not args.server:
+            raise SystemExit("usage: dt config --init --client <id> --server <ssh-host>")
+        path = init_config(args.client, args.server, args.workspace)
+        print(f"[ok] wrote {path}")
+        print(f"     client={args.client}  server={args.server}")
         return
-    path = name_file()
-    if path.is_file():
-        print(f"name file  {path}")
-        print(f"name       {path.read_text().strip()}")
-    else:
-        print(f"name file  {path} (missing)")
-        print("fix: dt config --init tm_andy_ouc")
+    path = config_path()
+    if not path.is_file():
+        print(f"config     {path} (missing)")
+        print("fix: dt config --init --client laptop --server myserver")
+        return
+    cfg = load_config()
+    print(f"home       {home_dir()}")
+    print(f"config     {path}")
+    print(f"client     {cfg.client}")
+    print(f"server     {cfg.server}")
+    print(f"workspace  {cfg.workspace}")
+    if args.client or args.server or args.workspace != "/workspace":
+        cfg = AppConfig(
+            client=args.client or cfg.client,
+            server=args.server or cfg.server,
+            workspace=args.workspace if args.workspace != "/workspace" else cfg.workspace,
+        )
+        write_config(cfg)
+        print("[ok] updated")
 
 
 def cmd_doctor(_: argparse.Namespace) -> None:
@@ -183,27 +203,32 @@ def cmd_doctor(_: argparse.Namespace) -> None:
         mark = "OK " if good else "ERR"
         if not good:
             ok = False
-        print(f"{mark}  {label:<14} {detail}")
+        print(f"{mark}  {label:<12} {detail}")
 
-    try:
-        me = require_me()
-        check("source name", True, me)
-    except SystemExit as exc:
-        check("source name", False, str(exc).removeprefix("[err] "))
-        me = ""
+    path = config_path()
+    if path.is_file():
+        cfg = load_config()
+        check("config", True, str(path))
+        check("client", bool(cfg.client), cfg.client)
+        check("server", bool(cfg.server), cfg.server)
+        server = cfg.server
+    else:
+        check("config", False, f"{path} missing")
+        server = ""
+    home_dir().mkdir(parents=True, exist_ok=True)
+    check("home", home_dir().is_dir(), str(home_dir()))
     check("tmux", tmux_ops.have_tmux(), shutil.which("tmux") or "not in PATH")
     check("ssh", shutil.which("ssh") is not None, shutil.which("ssh") or "not in PATH")
-    host = os.environ.get("DT_SSH_HOST", "tom7r")
-    ssh = subprocess.run(
-        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", host, "echo ok"],
-        capture_output=True,
-        text=True,
-    )
-    check(f"ssh {host}", ssh.returncode == 0, (ssh.stdout or ssh.stderr or "").strip()[:80] or "failed")
-    persist = Path.home() / "crons" / "tmux" / "rsync_to_tom7r"
-    check("persist cron", persist.exists() or persist.is_symlink(), str(persist))
-    tunnels = len(iter_dt_files())
-    check("tunnels", True, str(tunnels))
+    if server:
+        ssh = subprocess.run(
+            ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", server, "echo ok"],
+            capture_output=True,
+            text=True,
+        )
+        check("ssh server", ssh.returncode == 0, (ssh.stdout or ssh.stderr or "").strip()[:80] or "failed")
+    else:
+        check("ssh server", False, "no server in config")
+    check("tunnels", True, str(len(iter_dt_files())))
     if not ok:
         raise SystemExit(1)
 
@@ -222,7 +247,7 @@ def cmd_upgrade(_: argparse.Namespace) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="dt",
-        description="Dual tmux tunnels: op_* line head + run_* jump host, 1:1 dt-* binding",
+        description="Dual tmux tunnels: Client op_* + Server jump run_*, 1:1 dt-* binding",
     )
     parser.add_argument("--version", action="store_true", help="show version")
     sub = parser.add_subparsers(dest="command")
@@ -232,15 +257,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_show.add_argument("name")
 
     p_new = sub.add_parser("new", help="create op/run sessions and register a tunnel")
-    p_new.add_argument("name", help="dt-cp-gateway or cp-gateway")
+    p_new.add_argument("name", help="dt-app or app")
     p_new.add_argument("--op", help="defaults to op_<name>")
     p_new.add_argument("--run", help="defaults to run_<name>")
-    p_new.add_argument("--host", default="tom7r")
+    p_new.add_argument("--server", default="", help="overrides config server (ssh host)")
     p_new.add_argument("--container", default="")
-    p_new.add_argument("--dir", default="/workspace")
+    p_new.add_argument("--dir", default="", help="remote working directory")
     p_new.add_argument("--cmd", default="", help="override reconnect command")
 
-    p_bind = sub.add_parser("bind", help="bind trigger/bullet opencode sessions")
+    p_bind = sub.add_parser("bind", help="bind trigger/bullet agent sessions")
     p_bind.add_argument("name")
     p_bind.add_argument("--trigger", default="")
     p_bind.add_argument("--bullet", default="")
@@ -248,22 +273,24 @@ def build_parser() -> argparse.ArgumentParser:
     p_bind.add_argument("--bullet-id", default="")
 
     for name, help_text in (
-        ("enter", "attach op_* (line head)"),
-        ("work", "attach run_* (workspace jump)"),
+        ("enter", "attach op_* (line head on Client)"),
+        ("work", "attach run_* (jump to Server workspace)"),
         ("re", "re-send runtime ssh/docker into run_*"),
     ):
         p = sub.add_parser(name, help=help_text)
         p.add_argument("name", nargs="?", help="defaults to latest tunnel")
 
-    p_send = sub.add_parser("send", help="send-keys into run_* (trigger dispatch)")
+    p_send = sub.add_parser("send", help="send-keys into run_*")
     p_send.add_argument("name")
     p_send.add_argument("text")
 
-    p_config = sub.add_parser("config", help="show or init source name")
+    p_config = sub.add_parser("config", help="show or init Client/Server config")
     p_config.add_argument("--init", action="store_true")
-    p_config.add_argument("name", nargs="?", help="tm_andy_ouc")
+    p_config.add_argument("--client", default="", help="this machine id")
+    p_config.add_argument("--server", default="", help="ssh host alias of the Server")
+    p_config.add_argument("--workspace", default="/workspace")
 
-    sub.add_parser("doctor", help="check tm_, tmux, ssh, persist")
+    sub.add_parser("doctor", help="check config, tmux, ssh")
     sub.add_parser("upgrade", help="upgrade via uv tool")
     return parser
 

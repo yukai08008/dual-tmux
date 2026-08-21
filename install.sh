@@ -44,7 +44,7 @@ install_or_update() {
     uv tool install --force "$PACKAGE_SPEC"
     if command -v "$BIN_NAME" >/dev/null 2>&1; then
         info "Ready: $($BIN_NAME --version | sed -n '1p')"
-        info "Next: dt doctor && dt config --init tm_<your-name>"
+        info "Next: dt config --init --client <id> --server <ssh-host> && dt doctor"
     elif [ -x "${INSTALL_DIR}/${BIN_NAME}" ]; then
         warn "Installed. Restart the terminal so ${INSTALL_DIR} is in PATH."
     else
@@ -57,7 +57,7 @@ uninstall() {
         uv tool uninstall "$TOOL_NAME" 2>/dev/null || true
     fi
     rm -f "${INSTALL_DIR}/${BIN_NAME}"
-    info "Uninstalled. Tunnel JSON under ~/sessions/tmux/ was preserved."
+    info "Uninstalled. Data under ~/.dual-tmux was preserved."
 }
 
 main() {

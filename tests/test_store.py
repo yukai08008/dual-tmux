@@ -1,6 +1,7 @@
+from dual_tmux.config import AppConfig, _parse_toml
+from dual_tmux.identity import legal_source
 from dual_tmux.runtime import build_cmd
 from dual_tmux.store import default_names, normalize_dt
-from dual_tmux.identity import legal_source
 
 
 def test_names():
@@ -10,16 +11,19 @@ def test_names():
 
 
 def test_source():
-    assert legal_source("tm_andy_ouc")
-    assert legal_source("tm_m7")
+    assert legal_source("tm_client")
     assert not legal_source("m7")
-    assert not legal_source("andydeMacBook-Pro")
-    assert not legal_source("tmux_general_sessions")
+    assert not legal_source("hostname")
 
 
 def test_cmd():
-    cmd = build_cmd("tom7r", "box", "/workspace/app")
-    assert "ssh -t tom7r" in cmd
+    cmd = build_cmd("myserver", "box", "/workspace/app")
+    assert "ssh -t myserver" in cmd
     assert "docker exec -it box" in cmd
     assert "/workspace/app" in cmd
-    assert build_cmd("tom7r", "", "/workspace") == "ssh -t tom7r"
+    assert build_cmd("myserver", "", "/workspace") == "ssh -t myserver"
+
+
+def test_config_parse():
+    cfg = _parse_toml('client = "laptop"\nserver = "prod"\nworkspace = "/opt/app"\n')
+    assert cfg == AppConfig(client="laptop", server="prod", workspace="/opt/app")
