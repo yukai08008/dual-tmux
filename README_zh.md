@@ -57,6 +57,8 @@ workspace = "/workspace"  # 默认跳板目录；初始化不问
 └── ops/op_<name>/AGENTS.md   # trigger OpenCode 的启动目录
 ```
 
+枢纽（第三棵树，不是 persist）：`dt push` / `dt pull` 只 rsync `tunnels/` 和 `entries/` 到 Server 的 `~/<user>/dual-tmux/`。`config.toml`（这台机的 `client`）、`ops/`、`events.jsonl` 留在本机。`new` / `freeze` / `bind` 会尽力推。另一台 Client：`dt config --init --client tm_<那台>`，`dt pull`，必要时 `oc-restore`，再 `dt resume`。
+
 trigger oc 从 `ops/op_*` 启动，必读 `AGENTS.md`，里面指向包内的 `dual-tmux` + `tmux-trigger`。任意机器 `uv tool install` 后布局相同。
 
 把 `dt` 当成一个小 server：每条命令往 `events.jsonl` 追加一行（`cmd.start` / `cmd.ok` / `cmd.fail`，以及 `freeze.start` / `freeze.side.ok` / `freeze.side.fail` / `freeze.ok`）。`dt log` 用来回溯。freeze 失败也是事件，不只是一行 stderr。
@@ -171,6 +173,8 @@ freeze 还会记下 **工作点**（`op_point` / `run_point`：kind、cwd、ssh�
 | `dt ls` | 第 1 列 DT，第 2 列 IS_DST |
 | `dt make dst <name> [--tool] [--model]` | 一键 DT + 两侧 oc + freeze |
 | `dt resume <name>` | 接续 DST；oc 掉了自动接 |
+| `dt push` | 把 tunnels+entries 推到 Server `~/<user>/dual-tmux` |
+| `dt pull` | 从枢纽拉 tunnels+entries；不覆盖本机 `client` |
 | `dt re <name>` | 重新打入 run_* 的 ssh/docker |
 | `dt send <name> '…'` | 向 run_*（bullet）发 `tmux send-keys` |
 | `dt inspect <name>` | 查看 DT 以及 op/run 的 tool、model、session_id（可空） |

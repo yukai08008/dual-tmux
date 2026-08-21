@@ -1,7 +1,7 @@
 import pytest
 
 from dual_tmux.config import AppConfig, _parse_toml, init_config
-from dual_tmux.identity import legal_source, legal_user, remote_sessions_root
+from dual_tmux.identity import legal_source, legal_user, remote_dt_root, remote_sessions_root
 from dual_tmux.runtime import build_cmd
 from dual_tmux.sshutil import list_ssh_hosts, parse_ssh_target
 from dual_tmux.oc import as_bind, empty_side, is_dst, parse_model, resume_cmd, start_cmd, OcSession
@@ -163,6 +163,7 @@ def test_user():
     assert not legal_user("1ouc")
     assert not legal_user("")
     assert remote_sessions_root("ouc") == "~/ouc/sessions"
+    assert remote_dt_root("andy") == "~/andy/dual-tmux"
 
 
 def test_config_parse():
