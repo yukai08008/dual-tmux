@@ -80,9 +80,13 @@ def test_event_log(monkeypatch, tmp_path):
     monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
     emit("freeze.side.fail", name="dt-msg", side="bullet", error="no oc")
     emit("freeze.ok", name="dt-msg", is_dst=False)
+    emit("freeze.side.ok", kind="local", point_kind="local", name="dt-msg")
     rows = read_events(kind="freeze")
-    assert len(rows) == 2
+    assert len(rows) == 3
     assert rows[0]["kind"] == "freeze.side.fail"
+    assert rows[2]["kind"] == "freeze.side.ok"
+    assert rows[2]["point_kind"] == "local"
+    assert "kind" in rows[2] and rows[2]["kind"] == "freeze.side.ok"
 
 
 def test_workpoint_empty():

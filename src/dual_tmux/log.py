@@ -9,18 +9,26 @@ from .paths import events_path, home_dir
 from .workpoint import now_iso
 
 
-def emit(kind: str, **fields: Any) -> dict:
+_RESERVED = {"ts", "kind", "pid"}
+
+
+def emit(event: str, **fields: Any) -> dict:
     home_dir().mkdir(parents=True, exist_ok=True)
-    event = {
+    extra = {}
+    for key, value in fields.items():
+        if value is None or key in _RESERVED:
+            continue
+        extra[key] = value
+    row = {
         "ts": now_iso(),
-        "kind": kind,
+        "kind": event,
         "pid": os.getpid(),
-        **{k: v for k, v in fields.items() if v is not None},
+        **extra,
     }
     path = events_path()
     with path.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(event, ensure_ascii=False) + "\n")
-    return event
+        fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+    return row
 
 
 def read_events(limit: int = 50, kind: str = "", name: str = "") -> list[dict]:
