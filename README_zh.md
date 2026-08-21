@@ -57,7 +57,37 @@ workspace = "/workspace"  # 默认跳板目录；初始化不问
 └── ops/op_<name>/AGENTS.md   # trigger OpenCode 的启动目录
 ```
 
-枢纽（第三棵树，不是 persist）：`dt push` / `dt pull` 只 rsync `tunnels/` 和 `entries/` 到 Server 的 `~/<user>/dual-tmux/`。`config.toml`（这台机的 `client`）、`ops/`、`events.jsonl` 留在本机。`new` / `freeze` / `bind` 会尽力推。另一台 Client：`dt config --init --client tm_<那台>`，`dt pull`，必要时 `oc-restore`，再 `dt resume`。
+## 另一台 Client 接续 DST
+
+这是 **第三棵树**，和 tmux persist、OpenCode persist 不冲突。
+
+| 树 | 路径 | 管什么 |
+|----|------|--------|
+| tmux persist | `~/sessions/tmux/tm_*/` | 窗口 / 进程 / 屏幕 |
+| OpenCode persist | `~/sessions/opencode/tm_*/` | 对话 JSON |
+| **dt 枢纽** | Server `~/<user>/dual-tmux/` | 只存 DT/DST 绑定 |
+
+`dt push` / `dt pull` **只** rsync `tunnels/` 和 `entries/`。不推 `config.toml`（这台机的 `client`）、`ops/`、`events.jsonl`。`new` / `freeze` / `bind` 会尽力推。
+
+这台笔记本（freeze 之后已经做过）：
+
+```sh
+dt push
+```
+
+另一台机器：
+
+```sh
+uv tool install git+https://github.com/yukai08008/dual-tmux.git
+dt config --init --client tm_<那台> --server tom7r --user andy
+ssh tom7r    # 必须已经能通；dt 不写 ~/.ssh
+dt pull
+# 若那台机 oc sqlite 是空的，先 oc-restore persist 里
+# trigger/bullet 的 JSON（~/sessions/opencode/tm_*/<slug>.json）
+dt resume dt-msg
+```
+
+`dt pull` 只恢复绑定。`dt resume` 在 `op_*` / `run_*` 里跑 `opencode --auto -s <id>`。没做 persist restore 时 `-s` 会 Session not found。每台 Client 的 `config.toml` 仍用自己的 `tm_*`。
 
 trigger oc 从 `ops/op_*` 启动，必读 `AGENTS.md`，里面指向包内的 `dual-tmux` + `tmux-trigger`。任意机器 `uv tool install` 后布局相同。
 
@@ -68,6 +98,7 @@ trigger oc 从 `ops/op_*` 启动，必读 `AGENTS.md`，里面指向包内的 `d
 | 谁 | 路径 | 规则 |
 |----|------|------|
 | 本 CLI | `~/.dual-tmux/` | 隧道登记 + 跳板命令 |
+| dt 枢纽（Server） | `~/<user>/dual-tmux/{tunnels,entries}` | `dt push` / `dt pull`；不是 persist |
 | tmux persist（Client） | `~/sessions/tmux/<tm_来源>/` | 来源目录必须 `tm_*` |
 | tmux persist（Server） | `~/<user>/sessions/tmux/<tm_来源>/` | 同一棵树，按人隔离 |
 | OpenCode persist（Client） | `~/sessions/opencode/<tm_来源>/` | 与 tmux 同一套 `tm_*` 源名 |
