@@ -215,6 +215,7 @@ freeze 还会记下 **工作点**（`op_point` / `run_point`：kind、cwd、ssh�
 | `dt enter --oc [--model M]` | 在 op 里起 trigger oc |
 | `dt work --oc [--model M]` | 在 run 里起 bullet oc |
 | `dt freeze <name>` | 冻结两侧 oc；两边都有才是 **DST** |
+| `dt model <name> [--run|--op] <id>` | 退出该侧 oc，用新模型再起，freeze |
 | `dt ls` | 第 1 列 DT，第 2 列 IS_DST |
 | `dt make dst <name> [--tool] [--model]` | 一键 DT + 两侧 oc + freeze |
 | `dt resume <name> [--force]` | 接续 DST；`--force` 抢枢纽锁 |
