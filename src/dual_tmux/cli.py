@@ -312,19 +312,19 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
         ui.warn(f"{error}. dt {'enter' if side == 'trigger' else 'work'} --oc first")
         return False
     _bind_oc(data, side, session, tool)
-        ev.emit(
-            "freeze.side.ok",
-            name=data.get("name"),
-            side=side,
-            tmux=tmux_name,
-            session=session.session_id,
-            model=session.model,
-            cwd=point.get("cwd"),
-            point_kind=point.get("kind"),
-            ssh=point.get("ssh"),
-            container=point.get("container"),
-            hops=len(point.get("hops") or []),
-        )
+    ev.emit(
+        "freeze.side.ok",
+        name=data.get("name"),
+        side=side,
+        tmux=tmux_name,
+        session=session.session_id,
+        model=session.model,
+        cwd=point.get("cwd"),
+        point_kind=point.get("kind"),
+        ssh=point.get("ssh"),
+        container=point.get("container"),
+        hops=len(point.get("hops") or []),
+    )
     _print_side(side, data[side])
     return True
 
