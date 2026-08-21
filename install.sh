@@ -44,7 +44,7 @@ install_or_update() {
     uv tool install --force "$PACKAGE_SPEC"
     if command -v "$BIN_NAME" >/dev/null 2>&1; then
         info "Ready: $($BIN_NAME --version | sed -n '1p')"
-        info "Next: dt config --init --client tm_<id> --server <ssh-host> && dt doctor"
+        info "Next: dt config --init --client tm_<id> --server <ssh-host> --user <name> && dt doctor"
     elif [ -x "${INSTALL_DIR}/${BIN_NAME}" ]; then
         warn "Installed. Restart the terminal so ${INSTALL_DIR} is in PATH."
     else

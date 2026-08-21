@@ -16,15 +16,16 @@ Client（本机）
 
 ## 第一次启动
 
-安装只是把 `dt` 放到 PATH。第一次真正干活（`dt` / `dt new` / `dt work` / `dt config --init`）只收 **两个字段**。跳板目录默认 `/workspace`，某条隧道要用别的路径再 `dt new --dir`。
+安装只是把 `dt` 放到 PATH。第一次真正干活（`dt` / `dt new` / `dt work` / `dt config --init`）收 **三个字段**。跳板目录默认 `/workspace`，某条隧道要用别的路径再 `dt new --dir`。
 
 | 字段 | 你填什么 | 本 CLI **不会**做的 |
 |------|----------|---------------------|
 | `client` | 合规的**本机源主机名**：`tm_` + `[A-Za-z0-9._-]`。例：`tm_laptop`。不要用 hostname。 | 不会用 `hostname` 瞎起名 |
 | `server` | 已经能通的 ssh **Host 别名**（`ssh myserver`） | 不写 `~/.ssh/config`、密钥、`known_hosts` |
+| `user` | 人名：`[A-Za-z][A-Za-z0-9._-]`。例：`ouc`。不要 `tm_*`。 | 不创建系统账号 |
 
 ```sh
-dt config --init --client tm_laptop --server myserver
+dt config --init --client tm_laptop --server myserver --user ouc
 ssh myserver          # 必须已经能通
 dt doctor
 ```
@@ -34,10 +35,11 @@ dt doctor
 ```toml
 client = "tm_laptop"   # 本机源名
 server = "myserver"    # ~/.ssh/config 里的 Host
+user = "ouc"           # 人；远端 persist 在 ~/<user>/sessions
 workspace = "/workspace"  # 默认跳板目录；初始化不问
 ```
 
-没有配置时，`dt` 会在 TTY 里问这两项，然后检查 Client tmux 和 `ssh <server>`。SSH 始终由你自己管。
+没有配置时，`dt` 会在 TTY 里问这三项，然后检查 Client tmux 和 `ssh <server>`。SSH 始终由你自己管。
 
 另外：Client 必须已装 tmux。`op_*` / `run_*` 都是**本机会话**；`run_*` 只通过 ssh 进 Server。
 
@@ -57,14 +59,16 @@ workspace = "/workspace"  # 默认跳板目录；初始化不问
 | 谁 | 路径 | 规则 |
 |----|------|------|
 | 本 CLI | `~/.dual-tmux/` | 隧道登记 + 跳板命令 |
-| tmux-resurrect / persist | `~/sessions/tmux/<tm_来源>/` | 来源目录必须 `tm_*`；非法名会被 persist 删掉 |
-| OpenCode persist | `~/sessions/opencode/<tm_来源>/` | 与 tmux 同一套 `tm_*` 源名 |
+| tmux persist（Client） | `~/sessions/tmux/<tm_来源>/` | 来源目录必须 `tm_*` |
+| tmux persist（Server） | `~/<user>/sessions/tmux/<tm_来源>/` | 同一棵树，按人隔离 |
+| OpenCode persist（Client） | `~/sessions/opencode/<tm_来源>/` | 与 tmux 同一套 `tm_*` 源名 |
+| OpenCode persist（Server） | `~/<user>/sessions/opencode/<tm_来源>/` | 同一棵树，按人隔离 |
 | OpenCode 活库 | `~/.local/share/opencode/opencode.db` | 禁止 rsync 整库 |
 | OpenCode 配置 | `~/.config/opencode/` | 模型/凭据，本 CLI 不管 |
 | tmux 活会话 | 进程内存 + `/tmp/tmux-*` socket | 不是本 CLI 的文件 |
 | ssh | `~/.ssh/` | 你的；永不改写 |
 
-`config.toml` 里的 `client` **就是**那个 `tm_*` 源名，这样 dual-tmux 和 persist（若使用）对齐。
+`client` 是机器源名 `tm_*`。`user` 是人。多人共用一台 Server 时每人一个 `user`：本地仍是 `~/sessions`，远端是 `~/<user>/sessions`。
 
 ## 默认 agent：OpenCode
 
@@ -129,7 +133,7 @@ dt                    # 接入最近一条隧道的 op_*
 | `dt bind` | 绑定 trigger/bullet 会话 slug |
 | `dt send` | 向 `run_*` 发送 `tmux send-keys` |
 | `dt doctor` | 检查 Client tmux 和到 Server 的 ssh（不改 SSH） |
-| `dt config --init` | 写入 `tm_*` 本机源名 + ssh Host |
+| `dt config --init` | 写入 `tm_*` 本机源名 + ssh Host + user |
 | `dt upgrade` | `uv tool upgrade dual-tmux` |
 
 ## 卸载
