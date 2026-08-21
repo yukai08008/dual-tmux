@@ -111,13 +111,27 @@ dt enter dt-myapp     # 接入 op_*
 dt work  dt-myapp     # 接入 run_*
 dt re    dt-myapp     # 跳板掉回本机 shell 时，重新打入 ssh/docker
 
-dt bind dt-myapp --trigger trigger-slug --bullet bullet-slug
+dt enter dt-myapp --oc    # 在 op_* 里起 trigger OpenCode
+dt work  dt-myapp --oc    # 在 run_* 里起 bullet OpenCode
+dt capture dt-myapp       # 记下两侧 tool + model + session_id
+dt ls                     # DST 列表
+dt enter dt-myapp --resume
 dt send dt-myapp '发给 bullet agent 的任务'
 
 dt                    # 接入最近一条隧道的 op_*
 ```
 
-`dt new NAME` 会展开成 `dt-NAME` / `op_NAME` / `run_NAME`。一条隧道只绑一对 op 和 run。
+`dt new NAME` 会展开成 `dt-NAME` / `op_NAME` / `run_NAME`。这是 **DT**。
+
+**DST** 是 DT 再加上两侧 agent：trigger 在 `op_*`，bullet 在 `run_*`。每侧记三项：
+
+| 字段 | 用途 |
+|------|------|
+| `tool` | 工具/harness，默认 `opencode`，以后可换 |
+| `model` | 这个 harness 用的模型 |
+| `session_id` | 接续：`opencode --auto -s <id>`（禁用 `-c`） |
+
+`dt ls` 就是 DST 列表。两边 OpenCode 起来后再 `capture`；接续用记下的 id。
 
 `run_*` 是**本机跳板会话**。pane 里 ssh（可选再 `docker exec`）进入 Server 工作目录。默认不要在 Server 上再套一层 tmux。
 
@@ -129,8 +143,11 @@ dt                    # 接入最近一条隧道的 op_*
 | `dt work` | 接入工作区跳板 run_* |
 | `dt re` | 重新打入跳板命令 |
 | `dt new` | 创建会话并登记 |
-| `dt ls` / `dt show` | 查看 |
-| `dt bind` | 绑定 trigger/bullet 会话 slug |
+| `dt ls` / `dt show` | DST 列表 / 一条隧道 JSON |
+| `dt capture` | 从活着的 OpenCode 记下 tool/model/session_id |
+| `dt bind` | 手工写 tool/model/session_id |
+| `dt enter --oc` / `--resume` | 启动或接续 trigger |
+| `dt work --oc` / `--resume` | 启动或接续 bullet |
 | `dt send` | 向 `run_*` 发送 `tmux send-keys` |
 | `dt doctor` | 检查 Client tmux 和到 Server 的 ssh（不改 SSH） |
 | `dt config --init` | 写入 `tm_*` 本机源名 + ssh Host + user |

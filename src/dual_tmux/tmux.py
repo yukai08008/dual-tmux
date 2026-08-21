@@ -51,3 +51,12 @@ def send_keys(name: str, text: str) -> None:
     if not has_session(name):
         raise SystemExit(f"[err] 无此会话: {name}")
     subprocess.run(["tmux", "send-keys", "-t", name, "--", text, "Enter"], check=False)
+
+
+def start_opencode(name: str, extra: str = "") -> None:
+    ensure_session(name)
+    current = pane_command(name)
+    if current == "opencode":
+        return
+    cmd = "opencode" if not extra else extra
+    subprocess.run(["tmux", "send-keys", "-t", name, "--", cmd, "Enter"], check=False)
