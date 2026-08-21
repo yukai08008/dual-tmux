@@ -29,3 +29,16 @@ ssh -t <server> 'docker exec -it ... opencode --auto -s ses_xxx'
 4. Poll every 15–30s. Do not hold an SSH session as the task lifecycle.
 
 Resume bullet with `opencode --auto -s <id>`, never `-c`.
+
+## Container rebuild is trigger work
+
+Bullet often lives **inside** the workspace container (`docker exec` hop in `run_*`).
+It must not recreate, replace, stop, or `docker run` that container: that kills its own pane.
+
+If bullet says the container is gone, stale, needs a new image, or asks to rebuild:
+
+1. Do **not** `tmux send-keys` docker rebuild into `run_*`.
+2. Trigger does it on the **Client / Server host**, outside that container.
+3. After the new container exists, `dt re <dt>` (or rewrite `runtime.cmd`) and resume bullet with `--auto -s <id>` in the new pane.
+
+Host-level docker/ssh is trigger. In-container coding is bullet.

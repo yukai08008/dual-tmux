@@ -21,4 +21,6 @@ tmux send-keys -t <run_*> -- 'task...' Enter
 
 Resume uses `opencode --auto -s <id>`, never `-c`.
 
+If bullet asks to rebuild / replace its workspace container: **you** do that on the host (outside the container), then `dt re`. Bullet must not docker-rebuild the box it is sitting in.
+
 Bindings live in `dt inspect`. Another Client: `dt pull` then `dt resume` (imports trigger persist JSON locally; bullet `-s` at the jump sqlite). Hub lock: only one Client active; `dt drop` kills local tmux and releases. `dt push` does not copy `config.toml`. Container names are not persist sources.
