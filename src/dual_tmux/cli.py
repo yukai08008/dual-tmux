@@ -7,7 +7,8 @@ import subprocess
 import sys
 
 from . import __version__
-from .config import AppConfig, init_config, load_config, write_config
+from .config import init_config, load_config
+from .identity import SOURCE_HINT
 from .health import collect_checks, ensure_ready, guide_if_needed, print_checks
 from .paths import config_path, home_dir, tunnels_dir
 from .runtime import build_cmd
@@ -161,10 +162,35 @@ def cmd_send(args: argparse.Namespace) -> None:
     tmux_ops.send_keys(data["run"], args.text)
 
 
+def _prompt(label: str) -> str:
+    try:
+        return input(label).strip()
+    except EOFError:
+        return ""
+
+
+def prompt_init(workspace: str = "/workspace") -> None:
+    if not sys.stdin.isatty():
+        raise SystemExit(
+            "usage: dt config --init --client tm_<id> --server <ssh-host>"
+        )
+    print("First-time setup. dual-tmux does not write SSH keys or ~/.ssh/config.")
+    print(f"client: {SOURCE_HINT}")
+    print("server: Host alias that already works with `ssh <alias>`")
+    client = _prompt("client (tm_*): ")
+    server = _prompt("server (ssh host): ")
+    given = _prompt("workspace [/workspace]: ")
+    path = init_config(client, server, given or workspace or "/workspace")
+    print(f"[ok] wrote {path}")
+    print(f"     client={client}  server={server}")
+    print(f"     next: ssh {server} && dt doctor")
+
+
 def cmd_config(args: argparse.Namespace) -> None:
     if args.init:
         if not args.client or not args.server:
-            raise SystemExit("usage: dt config --init --client <id> --server <ssh-host>")
+            prompt_init(args.workspace)
+            return
         path = init_config(args.client, args.server, args.workspace)
         print(f"[ok] wrote {path}")
         print(f"     client={args.client}  server={args.server}")
@@ -174,7 +200,7 @@ def cmd_config(args: argparse.Namespace) -> None:
     path = config_path()
     if not path.is_file():
         print(f"config     {path} (missing)")
-        print("fix: dt config --init --client laptop --server myserver")
+        print("fix: dt config --init --client tm_laptop --server myserver")
         return
     cfg = load_config()
     print(f"home       {home_dir()}")
@@ -183,13 +209,12 @@ def cmd_config(args: argparse.Namespace) -> None:
     print(f"server     {cfg.server}")
     print(f"workspace  {cfg.workspace}")
     if args.client or args.server or args.workspace != "/workspace":
-        cfg = AppConfig(
-            client=args.client or cfg.client,
-            server=args.server or cfg.server,
-            workspace=args.workspace if args.workspace != "/workspace" else cfg.workspace,
+        path = init_config(
+            args.client or cfg.client,
+            args.server or cfg.server,
+            args.workspace if args.workspace != "/workspace" else cfg.workspace,
         )
-        write_config(cfg)
-        print("[ok] updated")
+        print(f"[ok] updated {path}")
 
 
 def cmd_doctor(_: argparse.Namespace) -> None:
@@ -254,8 +279,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_config = sub.add_parser("config", help="show or init Client/Server config")
     p_config.add_argument("--init", action="store_true")
-    p_config.add_argument("--client", default="", help="this machine id")
-    p_config.add_argument("--server", default="", help="ssh host alias of the Server")
+    p_config.add_argument("--client", default="", help="legal local source name, must start with tm_")
+    p_config.add_argument("--server", default="", help="ssh Host alias already in ~/.ssh/config")
     p_config.add_argument("--workspace", default="/workspace")
 
     sub.add_parser("doctor", help="check config, tmux, ssh")
@@ -271,10 +296,14 @@ def main() -> None:
         return
     command = args.command
     if command is None:
+        if not config_path().is_file():
+            prompt_init()
         ensure_ready()
         cmd_enter(argparse.Namespace(name=None))
         return
     if command not in {"config", "doctor", "upgrade", "ls", "show"}:
+        if not config_path().is_file():
+            prompt_init()
         ensure_ready()
     handlers = {
         "ls": cmd_ls,

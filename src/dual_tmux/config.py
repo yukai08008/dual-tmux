@@ -5,6 +5,7 @@ import tomllib
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from .identity import SOURCE_HINT, legal_source
 from .paths import config_path, home_dir
 
 
@@ -52,4 +53,8 @@ def init_config(client: str, server: str, workspace: str = "/workspace") -> Path
     server = server.strip()
     if not client or not server:
         raise SystemExit("[err] client and server are required")
+    if not legal_source(client):
+        raise SystemExit(f"[err] client {SOURCE_HINT}")
+    if any(c.isspace() for c in server) or server in ("server", ".", "-"):
+        raise SystemExit("[err] server must be an ssh Host alias from ~/.ssh/config")
     return write_config(AppConfig(client=client, server=server, workspace=workspace or "/workspace"))

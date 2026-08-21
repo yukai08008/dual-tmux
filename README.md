@@ -6,27 +6,80 @@ Dual tmux tunnels. Physical sessions stay ordinary tmux; this CLI names them and
 
 ```
 Client (this machine)
-  op_<name>          trigger agent
+  op_<name>          trigger agent  (OpenCode by default)
        │  dt-<name>
   run_<name>         ssh / docker exec → Server workspace
-                          └─ bullet agent
+                          └─ bullet agent  (OpenCode by default)
 ```
 
 **Client** is the laptop you sit at. **Server** is the ssh host where work happens (optional container). dual-tmux never stores keys.
 
-Machine-local data lives in `~/.dual-tmux/` (`DUAL_TMUX_HOME` overrides).
+## First start
+
+Install does nothing except put `dt` on PATH. The first real command (`dt`, `dt new`, `dt work`, or `dt config --init`) asks for **exactly two fields**:
+
+| Field | What you type | What this CLI does **not** do |
+|-------|----------------|-------------------------------|
+| `client` | Legal **local source name**: `tm_` + `[A-Za-z0-9._-]`. Example: `tm_laptop`. Not a hostname. | Does not invent a name from `hostname`. |
+| `server` | ssh **Host alias** that already works (`ssh myserver`). | Does not write `~/.ssh/config`, keys, or `known_hosts`. |
+
+```sh
+dt config --init --client tm_laptop --server myserver
+ssh myserver          # must already work
+dt doctor
+```
+
+`~/.dual-tmux/config.toml`:
+
+```toml
+client = "tm_laptop"   # this machine's source name
+server = "myserver"    # ssh Host alias in ~/.ssh/config
+workspace = "/workspace"
+```
+
+If config is missing, `dt` prompts for those two fields (TTY only). Then it checks Client tmux + `ssh <server>`. SSH stays yours.
+
+Also required: tmux on the Client. `op_*` / `run_*` are **local** sessions; `run_*` only uses ssh to reach the Server.
+
+## Directories
+
+This CLI only owns `~/.dual-tmux/` (`DUAL_TMUX_HOME` overrides). It does not write `~/sessions`.
+
+```
+~/.dual-tmux/                 # dual-tmux only
+├── config.toml               # client + server + workspace
+├── tunnels/dt-<name>.json    # 1:1 op/run binding
+└── entries/run_<name>.cmd    # reconnect command for run_*
+```
+
+If you also persist tmux / OpenCode (optional, separate tools), those trees are **not** dual-tmux:
+
+| Who | Path | Rule |
+|-----|------|------|
+| this CLI | `~/.dual-tmux/` | tunnels + jump cmds |
+| tmux-resurrect / persist | `~/sessions/tmux/<tm_source>/` | source dir **must** be `tm_*`; illegal names are deleted by persist |
+| OpenCode persist | `~/sessions/opencode/<tm_source>/` | same `tm_*` source as tmux |
+| OpenCode live DB | `~/.local/share/opencode/opencode.db` | do not rsync the DB |
+| OpenCode config | `~/.config/opencode/` | your model/auth, not this CLI |
+| tmux live | tmux server memory + socket under `/tmp/tmux-*` | not files this CLI owns |
+| ssh | `~/.ssh/` | yours; never touched |
+
+`client` in `config.toml` **is** that `tm_*` source name, so persist (if you use it) and dual-tmux agree.
+
+## Default agent: OpenCode
+
+The intended occupants of `op_*` (trigger) and `run_*` (bullet) are **[OpenCode](https://opencode.ai)** sessions.
+
+That is a longevity choice: OpenCode is open source. Binding to a closed CLI (keys, proprietary session stores, surprise protocol changes) is how this kind of tunnel dies in a year. dual-tmux only names tmux sessions and `tmux send-keys`; the agent can be swapped, but the documented default is OpenCode so you hit fewer private-tool pits.
+
+Install OpenCode yourself. This CLI does not vendor it.
 
 ## Assumptions
 
-Before using this CLI:
-
-1. You can already `ssh <server>` from the Client (Host alias in `~/.ssh/config`, key-based login).
-2. **tmux is installed on the Client.** `op_*` and `run_*` are local sessions; `run_*` only uses ssh to reach the Server.
+1. `ssh <server>` already works (Host alias + your keys).
+2. tmux is installed on the Client.
 3. A working directory exists on the Server (and in a container if you pass `--container`).
-
-This tool does **not** set up SSH, keys, or `~/.ssh/config`. SSH stays on your machine.
-
-After install, the first real command (`dt`, `dt new`, `dt work`, …) checks Client tmux + `ssh <server>`. If that link is missing, it tells you to run `dt config --init` and to fix SSH yourself. `dt doctor` is the same check, on demand.
+4. OpenCode is installed if you want the default trigger/bullet flow.
 
 ## Install
 
@@ -39,24 +92,6 @@ Or with uv:
 ```sh
 uv tool install git+https://github.com/yukai08008/dual-tmux.git
 ```
-
-## Setup
-
-```sh
-dt config --init --client laptop --server myserver
-ssh myserver          # must already work; dual-tmux never writes SSH files
-dt doctor
-```
-
-`~/.dual-tmux/config.toml`:
-
-```toml
-client = "laptop"      # this machine
-server = "myserver"    # ssh Host alias in ~/.ssh/config
-workspace = "/workspace"
-```
-
-`run_*` is a **local jump session**. The pane SSHes (and optionally `docker exec`) into the Server workspace. Do not nest another tmux on the Server by default.
 
 ## Usage
 
@@ -80,12 +115,7 @@ dt                    # attach latest op_*
 
 `dt new NAME` expands to `dt-NAME` / `op_NAME` / `run_NAME`. One tunnel binds exactly one op and one run.
 
-```
-~/.dual-tmux/
-├── config.toml
-├── tunnels/dt-<name>.json
-└── entries/run_<name>.cmd
-```
+`run_*` is a **local jump session**. The pane SSHes (and optionally `docker exec`) into the Server workspace. Do not nest another tmux on the Server by default.
 
 ## Commands
 
@@ -99,7 +129,7 @@ dt                    # attach latest op_*
 | `dt bind` | bind trigger/bullet session slugs |
 | `dt send` | `tmux send-keys` into `run_*` |
 | `dt doctor` | check Client tmux + ssh to Server (does not change SSH) |
-| `dt config --init` | write Client/Server config |
+| `dt config --init` | write `tm_*` client + ssh Host |
 | `dt upgrade` | `uv tool upgrade dual-tmux` |
 
 ## Uninstall
@@ -107,3 +137,5 @@ dt                    # attach latest op_*
 ```sh
 curl -fsSL https://raw.githubusercontent.com/yukai08008/dual-tmux/main/install.sh | bash -s -- uninstall
 ```
+
+Uninstall removes the `dt` binary. `~/.dual-tmux/` is kept. tmux sessions, OpenCode DB, and `~/sessions/` are untouched.
