@@ -5,12 +5,12 @@ import subprocess
 from dataclasses import dataclass
 
 from .config import AppConfig, load_config
-from .identity import SOURCE_HINT, legal_source
+from .identity import SOURCE_HINT, USER_HINT, legal_source, legal_user, remote_sessions_root
 from .paths import config_path, home_dir
 from . import tmux as tmux_ops
 
 SSH_HINT = "fix ~/.ssh/config and keys yourself; this CLI never writes SSH files"
-INIT_HINT = "dt config --init --client tm_<id> --server <ssh-host>"
+INIT_HINT = "dt config --init --client tm_<id> --server <ssh-host> --user <name>"
 
 
 @dataclass
@@ -65,6 +65,10 @@ def collect_checks() -> tuple[AppConfig | None, list[Check]]:
             checks.append(Check("server", False, cfg.server or "(empty)", INIT_HINT))
         else:
             checks.append(Check("server", True, cfg.server))
+        if not legal_user(cfg.user):
+            checks.append(Check("user", False, cfg.user or "(empty)", USER_HINT))
+        else:
+            checks.append(Check("user", True, f"{cfg.user}  remote {remote_sessions_root(cfg.user)}"))
     home_dir().mkdir(parents=True, exist_ok=True)
     checks.append(Check("home", home_dir().is_dir(), str(home_dir())))
     if tmux_ops.have_tmux():
@@ -92,9 +96,10 @@ def guide_if_needed(checks: list[Check]) -> None:
         return
     print()
     print("Client -> Server link is not ready.")
-    print("Step 1 is two fields only:")
+    print("Step 1 is three fields:")
     print("  client  legal local source name (tm_*)")
     print("  server  ssh Host alias already in ~/.ssh/config")
+    print("  user    person id; remote persist is ~/<user>/sessions")
     print("This CLI never writes ~/.ssh or keys.")
     print()
     print(f"  {INIT_HINT}")

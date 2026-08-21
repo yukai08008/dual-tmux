@@ -16,15 +16,16 @@ Client (this machine)
 
 ## First start
 
-Install does nothing except put `dt` on PATH. The first real command (`dt`, `dt new`, `dt work`, or `dt config --init`) asks for **exactly two fields**. Jump directory is always `/workspace` until you override a tunnel with `dt new --dir`.
+Install does nothing except put `dt` on PATH. The first real command (`dt`, `dt new`, `dt work`, or `dt config --init`) asks for **three fields**. Jump directory is always `/workspace` until you override a tunnel with `dt new --dir`.
 
 | Field | What you type | What this CLI does **not** do |
 |-------|----------------|-------------------------------|
 | `client` | Legal **local source name**: `tm_` + `[A-Za-z0-9._-]`. Example: `tm_laptop`. Not a hostname. | Does not invent a name from `hostname`. |
 | `server` | ssh **Host alias** that already works (`ssh myserver`). | Does not write `~/.ssh/config`, keys, or `known_hosts`. |
+| `user` | Person id: `[A-Za-z][A-Za-z0-9._-]`. Example: `ouc`. Not `tm_*`. | Does not create OS accounts. |
 
 ```sh
-dt config --init --client tm_laptop --server myserver
+dt config --init --client tm_laptop --server myserver --user ouc
 ssh myserver          # must already work
 dt doctor
 ```
@@ -34,10 +35,11 @@ dt doctor
 ```toml
 client = "tm_laptop"   # this machine's source name
 server = "myserver"    # ssh Host alias in ~/.ssh/config
+user = "ouc"           # person; remote persist ~/<user>/sessions
 workspace = "/workspace"  # default jump dir; not asked at init
 ```
 
-If config is missing, `dt` prompts for those two fields (TTY only). Then it checks Client tmux + `ssh <server>`. SSH stays yours.
+If config is missing, `dt` prompts for those three fields (TTY only). Then it checks Client tmux + `ssh <server>`. SSH stays yours.
 
 Also required: tmux on the Client. `op_*` / `run_*` are **local** sessions; `run_*` only uses ssh to reach the Server.
 
@@ -57,14 +59,16 @@ If you also persist tmux / OpenCode (optional, separate tools), those trees are 
 | Who | Path | Rule |
 |-----|------|------|
 | this CLI | `~/.dual-tmux/` | tunnels + jump cmds |
-| tmux-resurrect / persist | `~/sessions/tmux/<tm_source>/` | source dir **must** be `tm_*`; illegal names are deleted by persist |
-| OpenCode persist | `~/sessions/opencode/<tm_source>/` | same `tm_*` source as tmux |
+| tmux persist (Client) | `~/sessions/tmux/<tm_source>/` | source dir **must** be `tm_*` |
+| tmux persist (Server) | `~/<user>/sessions/tmux/<tm_source>/` | same tree, namespaced by person |
+| OpenCode persist (Client) | `~/sessions/opencode/<tm_source>/` | same `tm_*` source as tmux |
+| OpenCode persist (Server) | `~/<user>/sessions/opencode/<tm_source>/` | same tree, namespaced by person |
 | OpenCode live DB | `~/.local/share/opencode/opencode.db` | do not rsync the DB |
 | OpenCode config | `~/.config/opencode/` | your model/auth, not this CLI |
 | tmux live | tmux server memory + socket under `/tmp/tmux-*` | not files this CLI owns |
 | ssh | `~/.ssh/` | yours; never touched |
 
-`client` in `config.toml` **is** that `tm_*` source name, so persist (if you use it) and dual-tmux agree.
+`client` is the `tm_*` machine source. `user` is the person. Several laptops can share one Server if each `user` is unique: local stays `~/sessions`, remote is `~/<user>/sessions`.
 
 ## Default agent: OpenCode
 
@@ -129,7 +133,7 @@ dt                    # attach latest op_*
 | `dt bind` | bind trigger/bullet session slugs |
 | `dt send` | `tmux send-keys` into `run_*` |
 | `dt doctor` | check Client tmux + ssh to Server (does not change SSH) |
-| `dt config --init` | write `tm_*` client + ssh Host |
+| `dt config --init` | write `tm_*` client + ssh Host + user |
 | `dt upgrade` | `uv tool upgrade dual-tmux` |
 
 ## Uninstall

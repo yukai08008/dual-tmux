@@ -8,7 +8,7 @@ import sys
 
 from . import __version__
 from .config import init_config, load_config
-from .identity import SOURCE_HINT
+from .identity import SOURCE_HINT, USER_HINT, remote_sessions_root
 from .health import collect_checks, ensure_ready, guide_if_needed, print_checks
 from .paths import config_path, home_dir, tunnels_dir
 from .runtime import build_cmd
@@ -89,6 +89,7 @@ def cmd_new(args: argparse.Namespace) -> None:
         "op": op,
         "run": run,
         "client": cfg.client,
+        "user": cfg.user,
         "runtime": {
             "server": server,
             "container": args.container or "",
@@ -172,46 +173,55 @@ def _prompt(label: str) -> str:
 def prompt_init(workspace: str = "/workspace") -> None:
     if not sys.stdin.isatty():
         raise SystemExit(
-            "usage: dt config --init --client tm_<id> --server <ssh-host>"
+            "usage: dt config --init --client tm_<id> --server <ssh-host> --user <name>"
         )
     print("First-time setup. dual-tmux does not write SSH keys or ~/.ssh/config.")
     print(f"client: {SOURCE_HINT}")
     print("server: Host alias that already works with `ssh <alias>`")
+    print(f"user:   {USER_HINT}")
+    print("        local persist  ~/sessions")
+    print("        remote persist ~/<user>/sessions")
     print("workspace stays /workspace; override later with dt new --dir")
     client = _prompt("client (tm_*): ")
     server = _prompt("server (ssh host): ")
-    path = init_config(client, server, workspace or "/workspace")
+    user = _prompt("user: ")
+    path = init_config(client, server, user, workspace or "/workspace")
     print(f"[ok] wrote {path}")
-    print(f"     client={client}  server={server}")
+    print(f"     client={client}  server={server}  user={user}")
+    print(f"     remote persist {remote_sessions_root(user)}")
     print(f"     next: ssh {server} && dt doctor")
 
 
 def cmd_config(args: argparse.Namespace) -> None:
     if args.init:
-        if not args.client or not args.server:
+        if not args.client or not args.server or not args.user:
             prompt_init(args.workspace)
             return
-        path = init_config(args.client, args.server, args.workspace)
+        path = init_config(args.client, args.server, args.user, args.workspace)
         print(f"[ok] wrote {path}")
-        print(f"     client={args.client}  server={args.server}")
+        print(f"     client={args.client}  server={args.server}  user={args.user}")
+        print(f"     remote persist {remote_sessions_root(args.user)}")
         print("     SSH is yours: this CLI never writes ~/.ssh or keys.")
         print(f"     next: ssh {args.server} && dt doctor")
         return
     path = config_path()
     if not path.is_file():
         print(f"config     {path} (missing)")
-        print("fix: dt config --init --client tm_laptop --server myserver")
+        print("fix: dt config --init --client tm_laptop --server myserver --user ouc")
         return
     cfg = load_config()
     print(f"home       {home_dir()}")
     print(f"config     {path}")
     print(f"client     {cfg.client}")
     print(f"server     {cfg.server}")
+    print(f"user       {cfg.user}")
+    print(f"remote     {remote_sessions_root(cfg.user)}")
     print(f"workspace  {cfg.workspace}")
-    if args.client or args.server or args.workspace != "/workspace":
+    if args.client or args.server or args.user or args.workspace != "/workspace":
         path = init_config(
             args.client or cfg.client,
             args.server or cfg.server,
+            args.user or cfg.user,
             args.workspace if args.workspace != "/workspace" else cfg.workspace,
         )
         print(f"[ok] updated {path}")
@@ -281,6 +291,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_config.add_argument("--init", action="store_true")
     p_config.add_argument("--client", default="", help="legal local source name, must start with tm_")
     p_config.add_argument("--server", default="", help="ssh Host alias already in ~/.ssh/config")
+    p_config.add_argument("--user", default="", help="person id; remote persist ~/<user>/sessions")
     p_config.add_argument("--workspace", default="/workspace")
 
     sub.add_parser("doctor", help="check config, tmux, ssh")
