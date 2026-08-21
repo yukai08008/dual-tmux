@@ -99,6 +99,10 @@ def print_inspect(data: dict) -> None:
     meta.add_row("IS_DST", dst_text(dst))
     meta.add_row("op", str(data.get("op") or "—"))
     meta.add_row("run", str(data.get("run") or "—"))
+    if data.get("op"):
+        from .opsdir import ops_dir
+
+        meta.add_row("op launch", f"[dim]{ops_dir(str(data.get('op')))}[/]")
     meta.add_row("server", blank(runtime.get("server")))
     meta.add_row("cmd", f"[dim]{blank(runtime.get('cmd'))}[/]")
     op_point = data.get("op_point") or {}

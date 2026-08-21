@@ -52,8 +52,12 @@ workspace = "/workspace"  # 默认跳板目录；初始化不问
 ├── config.toml               # client + server + workspace
 ├── tunnels/dt-<name>.json    # op/run 1:1 绑定
 ├── entries/run_<name>.cmd    # run_* 回连命令
-└── events.jsonl              # CLI 事件 / 操作日志
+├── events.jsonl              # CLI 事件 / 操作日志
+├── skills/                   # 从安装包同步出来的 trigger 技能
+└── ops/op_<name>/AGENTS.md   # trigger OpenCode 的启动目录
 ```
+
+trigger oc 从 `ops/op_*` 启动，必读 `AGENTS.md`，里面指向包内的 `dual-tmux` + `tmux-trigger`。任意机器 `uv tool install` 后布局相同。
 
 把 `dt` 当成一个小 server：每条命令往 `events.jsonl` 追加一行（`cmd.start` / `cmd.ok` / `cmd.fail`，以及 `freeze.start` / `freeze.side.ok` / `freeze.side.fail` / `freeze.ok`）。`dt log` 用来回溯。freeze 失败也是事件，不只是一行 stderr。
 

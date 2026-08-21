@@ -21,11 +21,14 @@ def kill_session(name: str) -> bool:
     return True
 
 
-def ensure_session(name: str) -> None:
+def ensure_session(name: str, cwd: str = "") -> None:
     if not have_tmux():
         raise SystemExit("[err] 未找到 tmux")
     if not has_session(name):
-        subprocess.run(["tmux", "new", "-d", "-s", name], check=True)
+        cmd = ["tmux", "new", "-d", "-s", name]
+        if cwd:
+            cmd.extend(["-c", cwd])
+        subprocess.run(cmd, check=True)
 
 
 def attach(name: str) -> None:
@@ -96,10 +99,15 @@ def start_opencode(name: str, extra: str = "") -> None:
     subprocess.run(["tmux", "send-keys", "-t", name, "--", cmd, "Enter"], check=False)
 
 
-def ensure_agent(name: str, cmd: str) -> bool:
+def ensure_agent(name: str, cmd: str, cwd: str = "") -> bool:
     """Start cmd if pane is not already opencode. Return True if a command was sent."""
-    ensure_session(name)
+    ensure_session(name, cwd=cwd)
     if pane_command(name) == "opencode":
         return False
+    if cwd:
+        current = pane_info(name).get("cwd") or ""
+        if current.rstrip("/") != str(cwd).rstrip("/"):
+            subprocess.run(["tmux", "send-keys", "-t", name, "--", f"cd {cwd}", "Enter"], check=False)
+            time.sleep(0.15)
     subprocess.run(["tmux", "send-keys", "-t", name, "--", cmd, "Enter"], check=False)
     return True
