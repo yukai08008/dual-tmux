@@ -103,35 +103,19 @@ uv tool install git+https://github.com/yukai08008/dual-tmux.git
 dt --version
 dt doctor
 
-dt new myapp --container appbox --dir /workspace/myapp
-dt ls
-dt show dt-myapp
+dt new myapp                  # 只有 DT：op_* + run_*
+dt enter myapp                # op 会话
+dt work  myapp                # run 会话
+dt enter myapp --oc --model glm-5.1
+dt work  myapp --oc --model glm-5.1
+dt freeze myapp               # 两侧都有 oc 才算 DST
+dt ls                         # DT | IS_DST | ...
 
-dt enter dt-myapp     # 接入 op_*
-dt work  dt-myapp     # 接入 run_*
-dt re    dt-myapp     # 跳板掉回本机 shell 时，重新打入 ssh/docker
-
-dt enter dt-myapp --oc    # 在 op_* 里起 trigger OpenCode
-dt work  dt-myapp --oc    # 在 run_* 里起 bullet OpenCode
-dt capture dt-myapp       # 记下两侧 tool + model + session_id
-dt ls                     # DST 列表
-dt enter dt-myapp --resume
-dt send dt-myapp '发给 bullet agent 的任务'
-
-dt                    # 接入最近一条隧道的 op_*
+dt make dst myapp --model glm-5.1    # 一键 DT + 两侧 oc + freeze
+dt resume myapp                      # 掉了的 oc 自动接上
 ```
 
-`dt new NAME` 会展开成 `dt-NAME` / `op_NAME` / `run_NAME`。这是 **DT**。
-
-**DST** 是 DT 再加上两侧 agent：trigger 在 `op_*`，bullet 在 `run_*`。每侧记三项：
-
-| 字段 | 用途 |
-|------|------|
-| `tool` | 工具/harness，默认 `opencode`，以后可换 |
-| `model` | 这个 harness 用的模型 |
-| `session_id` | 接续：`opencode --auto -s <id>`（禁用 `-c`） |
-
-`dt ls` 就是 DST 列表。两边 OpenCode 起来后再 `capture`；接续用记下的 id。
+`dt new` 只建 **DT**。**DST** 要等 op 和 run 下面都有 oc 会话（`tool` + `model` + `session_id`）。`dt ls` 第一列 DT，第二列 IS_DST。
 
 `run_*` 是**本机跳板会话**。pane 里 ssh（可选再 `docker exec`）进入 Server 工作目录。默认不要在 Server 上再套一层 tmux。
 
@@ -143,11 +127,12 @@ dt                    # 接入最近一条隧道的 op_*
 | `dt work` | 接入工作区跳板 run_* |
 | `dt re` | 重新打入跳板命令 |
 | `dt new` | 创建会话并登记 |
-| `dt ls` / `dt show` | DST 列表 / 一条隧道 JSON |
-| `dt capture` | 从活着的 OpenCode 记下 tool/model/session_id |
-| `dt bind` | 手工写 tool/model/session_id |
-| `dt enter --oc` / `--resume` | 启动或接续 trigger |
-| `dt work --oc` / `--resume` | 启动或接续 bullet |
+| `dt ls` | DT 名 + IS_DST |
+| `dt freeze` | 冻结两侧 oc；两边都有才是 DST |
+| `dt make dst` | 建 DT、起两侧 oc、freeze |
+| `dt resume` | 接续 DST；oc 掉了会自动接 |
+| `dt enter --oc --model` | 起 trigger oc |
+| `dt work --oc --model` | 起 bullet oc |
 | `dt send` | 向 `run_*` 发送 `tmux send-keys` |
 | `dt doctor` | 检查 Client tmux 和到 Server 的 ssh（不改 SSH） |
 | `dt config --init` | 写入 `tm_*` 本机源名 + ssh Host + user |
