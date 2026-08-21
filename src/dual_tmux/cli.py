@@ -32,6 +32,7 @@ from .store import (
 )
 from . import activity
 from . import cron as cron_ops
+from . import hotfix as hotfix_ops
 from . import log as ev
 from . import opsdir
 from . import tmux as tmux_ops
@@ -605,6 +606,7 @@ def cmd_config(args: argparse.Namespace) -> None:
         ui.info(f"remote persist {remote_sessions_root(cfg.user)}")
         hint = f"ssh -p {cfg.ssh_port} {cfg.server}" if cfg.ssh_port != 22 else f"ssh {cfg.server}"
         ui.info(f"next: {hint} && dt doctor")
+        _run_hotfix(cfg, ssh=True)
         return
     path = config_path()
     if not path.is_file():
@@ -673,12 +675,36 @@ def cmd_park(args: argparse.Namespace) -> None:
     cmd_drop(args)
 
 
-def cmd_doctor(_: argparse.Namespace) -> None:
+def _run_hotfix(cfg=None, *, ssh: bool = True) -> None:
     try:
-        if cron_ops.install():
-            ui.ok(f"crontab  {cron_ops.line()}")
+        steps = hotfix_ops.apply(cfg, ssh=ssh)
     except SystemExit as exc:
         ui.warn(str(exc))
+        return
+    for step in steps:
+        msg = f"{step.id}  {step.detail}"
+        if not step.ok:
+            ui.warn(msg)
+        elif step.changed:
+            ui.ok(msg)
+        else:
+            ui.skip(msg)
+
+
+def cmd_doctor(_: argparse.Namespace) -> None:
+    cfg = None
+    try:
+        cfg = load_config()
+    except Exception:
+        cfg = None
+    if cfg and cfg.client.startswith("tm_"):
+        _run_hotfix(cfg, ssh=True)
+    else:
+        try:
+            if cron_ops.install():
+                ui.ok(f"crontab  {cron_ops.line()}")
+        except SystemExit as exc:
+            ui.warn(str(exc))
     _, checks = collect_checks()
     ok = print_checks(checks)
     ui.info(f"tunnels  {len(iter_dt_files())}")
@@ -769,6 +795,9 @@ def cmd_upgrade(_: argparse.Namespace) -> None:
     )
     if result.returncode != 0:
         raise SystemExit(result.returncode)
+    if config_path().is_file():
+        _run_hotfix(load_config(), ssh=True)
+        ui.ok("hotfix persist-tenant-v1 applied")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -887,8 +916,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_log.add_argument("--kind", default="", help="prefix filter, e.g. freeze")
     p_log.add_argument("--name", default="", help="filter by DT name")
 
-    sub.add_parser("doctor", help="check config, tmux, ssh")
-    sub.add_parser("upgrade", help="upgrade via uv tool")
+    sub.add_parser("doctor", help="check config, tmux, ssh; apply persist tenant hotfix")
+    sub.add_parser("upgrade", help="upgrade via uv tool, then apply persist tenant hotfix")
     return parser
 
 

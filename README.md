@@ -228,9 +228,9 @@ Freeze also records **work points** (`op_point` / `run_point`: kind, cwd, ssh, d
 | `dt log [-n] [--kind freeze] [--name dt-msg]` | CLI event log |
 | `dt show <name>` | raw tunnel JSON |
 | `dt` | attach latest op_* |
-| `dt doctor` | check Client tmux + ssh (does not change SSH) |
+| `dt doctor` | check Client tmux + ssh; apply persist tenant hotfix |
 | `dt config --init` | write client + server + user |
-| `dt upgrade` | `uv tool upgrade dual-tmux` |
+| `dt upgrade` | `uv tool upgrade dual-tmux`, then persist tenant hotfix |
 
 ## Uninstall
 
