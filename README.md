@@ -1,5 +1,7 @@
 # dual-tmux
 
+[中文文档](README_zh.md)
+
 Dual tmux tunnels. Physical sessions stay ordinary tmux; this CLI names them and binds them 1:1.
 
 ```
