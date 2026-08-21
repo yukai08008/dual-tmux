@@ -415,6 +415,39 @@ def freeze_sides(data: dict, sides: list[str], tool: str = "opencode", wait: boo
         _freeze_one(data, "bullet", data["run"], tool, wait)
 
 
+def cmd_model(args: argparse.Namespace) -> None:
+    data = _resolve(args.name)
+    hub.require_active(data)
+    model = (getattr(args, "model_flag", "") or args.model or "").strip()
+    if not model:
+        raise SystemExit("usage: dt model <name> [--run|--op] <provider/id>")
+    sides: list[str] = []
+    if args.op:
+        sides.append("trigger")
+    if args.run or (not args.op and not args.run):
+        sides.append("bullet")
+    path = find_dt(data["name"])
+    for side in sides:
+        tmux_name = data["op"] if side == "trigger" else data["run"]
+        info = _side(data, side)
+        info["model"] = model
+        info["tool"] = info.get("tool") or "opencode"
+        if tmux_ops.pane_command(tmux_name) == "opencode":
+            ui.info(f"quit {tmux_name} opencode")
+            tmux_ops.quit_opencode(tmux_name)
+        cmd = oc_ops.start_cmd(info, model)
+        cwd = str(opsdir.prepare(data)) if side == "trigger" else ""
+        tmux_ops.ensure_agent(tmux_name, cmd, cwd=cwd)
+        ui.ok(f"{side} {cmd} -> {tmux_name}")
+    save(path, data)
+    ui.info("waiting for opencode")
+    freeze_sides(data, sides, "opencode", wait=True)
+    wp.stamp(data, "freeze_at")
+    save(path, data)
+    print_inspect(data)
+    hub.push_best_effort(wait=True)
+
+
 def cmd_freeze(args: argparse.Namespace) -> None:
     data = _resolve(args.name)
     path = find_dt(data["name"])
@@ -792,6 +825,13 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument("--resume", action="store_true", help="resume by recorded session_id")
             p.add_argument("--force", action="store_true", help="steal hub lock from another Client")
 
+    p_model = sub.add_parser("model", help="restart a side with a new model and freeze")
+    p_model.add_argument("name", nargs="?", help="defaults to latest tunnel")
+    p_model.add_argument("model", nargs="?", default="", help="provider/id, e.g. cli-proxy/glm-5.1")
+    p_model.add_argument("--model", dest="model_flag", default="", help="same as positional model")
+    p_model.add_argument("--run", action="store_true", help="bullet (default)")
+    p_model.add_argument("--op", action="store_true", help="trigger")
+
     p_freeze = sub.add_parser("freeze", help="freeze op-oc and run-oc; DST only if both exist")
     p_freeze.add_argument("name", nargs="?", help="defaults to latest tunnel")
     p_freeze.add_argument("--trigger", action="store_true")
@@ -875,6 +915,7 @@ def main() -> None:
         "branch": cmd_branch,
         "rm": cmd_rm,
         "bind": cmd_bind,
+        "model": cmd_model,
         "freeze": cmd_freeze,
         "capture": cmd_capture,
         "make": cmd_make,

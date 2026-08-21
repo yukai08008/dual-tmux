@@ -215,6 +215,7 @@ Freeze also records **work points** (`op_point` / `run_point`: kind, cwd, ssh, d
 | `dt enter --oc [--model M]` | start trigger oc in op |
 | `dt work --oc [--model M]` | start bullet oc in run |
 | `dt freeze <name>` | freeze both oc; **DST** only if both exist |
+| `dt model <name> [--run|--op] <id>` | quit that oc, restart with new model, freeze |
 | `dt ls` | col1 DT, col2 IS_DST |
 | `dt make dst <name> [--tool] [--model]` | one-shot DT + both oc + freeze |
 | `dt resume <name> [--force]` | resume DST; `--force` steals hub lock |

@@ -21,6 +21,22 @@ def kill_session(name: str) -> bool:
     return True
 
 
+def quit_opencode(name: str) -> bool:
+    if pane_command(name) != "opencode":
+        return False
+    subprocess.run(["tmux", "send-keys", "-t", name, "Escape"], check=False)
+    time.sleep(0.15)
+    subprocess.run(["tmux", "send-keys", "-t", name, "C-x", "q"], check=False)
+    deadline = time.time() + 8
+    while time.time() < deadline:
+        if pane_command(name) != "opencode":
+            return True
+        time.sleep(0.25)
+    subprocess.run(["tmux", "send-keys", "-t", name, "C-c"], check=False)
+    time.sleep(0.2)
+    return pane_command(name) != "opencode"
+
+
 def drop_session(name: str) -> bool:
     if not name or not has_session(name):
         return False
