@@ -23,7 +23,12 @@ def line() -> str:
 
 
 def current() -> str:
-    result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+    try:
+        result = subprocess.run(
+            ["crontab", "-l"], capture_output=True, text=True, timeout=8
+        )
+    except subprocess.TimeoutExpired:
+        return ""
     return result.stdout or ""
 
 
@@ -37,7 +42,9 @@ def install() -> bool:
     body = current().rstrip()
     extra = line()
     text = f"{body}\n{extra}\n" if body else f"{extra}\n"
-    result = subprocess.run(["crontab", "-"], input=text, capture_output=True, text=True)
+    result = subprocess.run(
+        ["crontab", "-"], input=text, capture_output=True, text=True, timeout=8
+    )
     if result.returncode != 0:
         err = (result.stderr or "crontab failed").strip().splitlines()
         raise SystemExit(f"[err] crontab: {err[-1] if err else 'failed'}")
@@ -49,7 +56,9 @@ def uninstall() -> bool:
     if len(rows) == len(current().splitlines()):
         return False
     text = ("\n".join(rows) + "\n") if rows else ""
-    result = subprocess.run(["crontab", "-"], input=text, capture_output=True, text=True)
+    result = subprocess.run(
+        ["crontab", "-"], input=text, capture_output=True, text=True, timeout=8
+    )
     if result.returncode != 0:
         raise SystemExit("[err] crontab remove failed")
     return True
