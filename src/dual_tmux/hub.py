@@ -185,7 +185,7 @@ def claim(name: str, force: bool = False) -> str:
             raise SystemExit(
                 f"[err] {name} active on {holder} ({age}s ago). "
                 f"last {TICKS} ticks still changing. "
-                f"dt park there, or: dt resume {name} --force"
+                f"wait, dt drop there, or: dt resume {name} --force"
             )
         if not force:
             ui.info(f"idle  {name} on {holder}: last {TICKS} ticks frozen, taking over")
@@ -195,7 +195,7 @@ def claim(name: str, force: bool = False) -> str:
     if kind == "HELD":
         raise SystemExit(
             f"[err] {name} active on {holder} ({age}s ago, TTL {LOCK_TTL}s). "
-            f"dt park there, or: dt resume {name} --force"
+            f"wait, dt drop there, or: dt resume {name} --force"
         )
     ev.emit("hub.claim", name=name, holder=holder or load_config().client, force=force)
     return holder or load_config().client
@@ -206,24 +206,27 @@ def release(name: str) -> None:
     ev.emit("hub.release", name=name)
 
 
-def park_local(data: dict) -> list[str]:
-    parked = []
+def drop_local(data: dict) -> list[str]:
+    dropped = []
     for key in ("op", "run"):
         name = data.get(key) or ""
-        got = tmux_ops.park_session(name) if name else ""
-        if got:
-            parked.append(f"{name}->{got}")
-    if parked:
-        ev.emit("dt.park", name=data.get("name"), sessions=",".join(parked))
-        ui.info(f"parked  {' '.join(parked)}")
-    return parked
+        if name and tmux_ops.drop_session(name):
+            dropped.append(name)
+    if dropped:
+        ev.emit("dt.drop", name=data.get("name"), sessions=",".join(dropped))
+        ui.info(f"dropped tmux  {' '.join(dropped)}")
+    return dropped
+
+
+def park_local(data: dict) -> list[str]:
+    return drop_local(data)
 
 
 def require_active(data: dict, force: bool = False) -> None:
     try:
         claim(data["name"], force=force)
     except SystemExit:
-        park_local(data)
+        drop_local(data)
         raise
 
 
@@ -239,7 +242,7 @@ def enforce_local() -> None:
         except SystemExit:
             continue
         if holder and holder != me:
-            park_local(data)
+            drop_local(data)
 
 
 def push_best_effort(wait: bool = False) -> None:

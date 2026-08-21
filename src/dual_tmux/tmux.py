@@ -21,17 +21,11 @@ def kill_session(name: str) -> bool:
     return True
 
 
-def park_session(name: str) -> str:
-    if not name or "__parked" in name or not has_session(name):
-        return ""
+def drop_session(name: str) -> bool:
+    if not name or not has_session(name):
+        return False
     subprocess.run(["tmux", "detach-client", "-s", name], capture_output=True)
-    parked = f"{name}__parked"
-    n = 1
-    while has_session(parked):
-        parked = f"{name}__parked{n}"
-        n += 1
-    subprocess.run(["tmux", "rename-session", "-t", name, parked], check=False)
-    return parked
+    return kill_session(name)
 
 
 def ensure_session(name: str, cwd: str = "") -> None:

@@ -90,7 +90,7 @@ dt resume dt-msg
 
 One Client at a time: hub lock `~/<user>/dual-tmux/locks/<dt-name>` (`client@epoch`, TTL 300s). `enter` / `work` / `resume` claim it.
 
-Idle is **not** the lock TTL. `dt tick` (cron, every minute) hashes the last 10 lines of `op_*` and `run_*` into `~/.dual-tmux/activity.log` and pushes it to `~/<user>/dual-tmux/activity/<client>.log`. `dt resume` on another machine reads the holder's last **30 ticks**. Same fingerprint for all 30 → take over. Still changing → refuse unless `--force`. Leave: `dt park dt-msg`.
+Idle is **not** the lock TTL. `dt tick` hashes pane tails every minute. Another Client `dt resume` takes over if the last **30 ticks** are frozen. The old Client's local `op_*`/`run_*` are **killed** (not renamed `__parked`). Binding stays on the hub; oc JSON stays in persist. Next `dt resume` recreates the light tmux pair. Leave now: `dt drop dt-msg`. Steal: `--force`.
 
 Install / `dt doctor` writes that crontab. Other machine: same one-liner install, then `dt pull && dt resume`. No extra cron step.
 
@@ -209,7 +209,7 @@ Freeze also records **work points** (`op_point` / `run_point`: kind, cwd, ssh, d
 | `dt ls` | col1 DT, col2 IS_DST |
 | `dt make dst <name> [--tool] [--model]` | one-shot DT + both oc + freeze |
 | `dt resume <name> [--force]` | resume DST; `--force` steals hub lock |
-| `dt park <name>` | park local op_*/run_* and release hub lock |
+| `dt drop <name>` | kill local op_*/run_* and release lock; hub binding kept |
 | `dt tick` | minute job (install/doctor adds crontab) |
 | `dt cron [--remove]` | install or remove the tick crontab |
 | `dt push` | rsync now (otherwise freeze/new/work already push in the background) |
