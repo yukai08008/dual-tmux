@@ -27,6 +27,7 @@ from .store import (
     write_entry,
     now_iso,
 )
+from . import log as ev
 from . import tmux as tmux_ops
 from . import ui
 from . import workpoint as wp
@@ -122,6 +123,7 @@ def cmd_new(args: argparse.Namespace) -> None:
         data["trigger"] = old.get("trigger") or data["trigger"]
         data["bullet"] = old.get("bullet") or data["bullet"]
     save(path, data)
+    ev.emit("dt.new", name=name, op=op, run=run, server=server)
     ui.ok(f"registered {name}")
     print_inspect(data)
     ui.print_next_new(name)
@@ -215,6 +217,7 @@ def cmd_enter(args: argparse.Namespace) -> None:
         print_next_after_init()
         return
     data = _resolve(args.name)
+    ev.emit("dt.enter", name=data["name"], oc=bool(getattr(args, "oc", False)))
     wp.stamp(data, "enter_at")
     if getattr(args, "oc", False) or getattr(args, "resume", False):
         _start_side(data, data["op"], "trigger", getattr(args, "model", "") or "", getattr(args, "resume", False))
@@ -225,6 +228,7 @@ def cmd_enter(args: argparse.Namespace) -> None:
 
 def cmd_work(args: argparse.Namespace) -> None:
     data = _resolve(args.name)
+    ev.emit("dt.work", name=data["name"], oc=bool(getattr(args, "oc", False)))
     wp.stamp(data, "work_at")
     if getattr(args, "oc", False) or getattr(args, "resume", False):
         _start_side(data, data["run"], "bullet", getattr(args, "model", "") or "", getattr(args, "resume", False))
@@ -285,13 +289,33 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
         runtime = data.get("runtime") or {}
         session = oc_ops.latest_remote(_ssh_argv(data), point.get("container") or runtime.get("container") or "")
     if not session:
-        ui.warn(
+        error = (
             f"no {side} opencode on {tmux_name} "
-            f"(cmd={point.get('cmd') or '—'} cwd={point.get('cwd') or '—'}). "
-            f"dt {'enter' if side == 'trigger' else 'work'} --oc first"
+            f"(cmd={point.get('cmd') or '—'} cwd={point.get('cwd') or '—'})"
         )
+        ev.emit(
+            "freeze.side.fail",
+            name=data.get("name"),
+            side=side,
+            tmux=tmux_name,
+            cmd=point.get("cmd"),
+            cwd=point.get("cwd"),
+            kind=point.get("kind"),
+            error=error,
+        )
+        ui.warn(f"{error}. dt {'enter' if side == 'trigger' else 'work'} --oc first")
         return False
     _bind_oc(data, side, session, tool)
+    ev.emit(
+        "freeze.side.ok",
+        name=data.get("name"),
+        side=side,
+        tmux=tmux_name,
+        session=session.session_id,
+        model=session.model,
+        cwd=point.get("cwd"),
+        kind=point.get("kind"),
+    )
     _print_side(side, data[side])
     return True
 
@@ -311,11 +335,18 @@ def cmd_freeze(args: argparse.Namespace) -> None:
         sides.append("trigger")
     if args.bullet or (not args.trigger and not args.bullet):
         sides.append("bullet")
+    span = ev.timed("freeze", name=data["name"], sides=",".join(sides))
     freeze_sides(data, sides, getattr(args, "tool", "") or "opencode")
     wp.stamp(data, "freeze_at")
     save(path, data)
-    ui.ok(f"freeze {data['name']}  IS_DST={'yes' if oc_ops.is_dst(data) else 'no'}")
-    if not oc_ops.is_dst(data):
+    dst = oc_ops.is_dst(data)
+    span.ok(
+        is_dst=dst,
+        trigger=(data.get("trigger") or {}).get("session_id") or "",
+        bullet=(data.get("bullet") or {}).get("session_id") or "",
+    )
+    ui.ok(f"freeze {data['name']}  IS_DST={'yes' if dst else 'no'}")
+    if not dst:
         ui.warn("DST needs both op-oc and run-oc session ids")
     print_inspect(data)
 
@@ -385,6 +416,7 @@ def cmd_resume(args: argparse.Namespace) -> None:
     data["op_point"] = wp.discover(data["op"])
     data["run_point"] = wp.discover(data["run"])
     save(find_dt(data["name"]), data)
+    ev.emit("dt.resume", name=data["name"])
     ui.ok(f"resumed DST {data['name']}")
     if getattr(args, "attach", True):
         tmux_ops.attach(data["op"])
@@ -480,6 +512,11 @@ def cmd_doctor(_: argparse.Namespace) -> None:
         raise SystemExit(1)
 
 
+def cmd_log(args: argparse.Namespace) -> None:
+    rows = ev.read_events(limit=args.limit, kind=args.kind, name=args.name or "")
+    ui.print_log(rows)
+
+
 def cmd_upgrade(_: argparse.Namespace) -> None:
     ui.info(f"Current version: {__version__}")
     result = subprocess.run(
@@ -572,6 +609,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_config.add_argument("--user", default="", help="person id; remote persist ~/<user>/sessions")
     p_config.add_argument("--workspace", default="/workspace")
 
+    p_log = sub.add_parser("log", help="show CLI event log (~/.dual-tmux/events.jsonl)")
+    p_log.add_argument("-n", "--limit", type=int, default=40)
+    p_log.add_argument("--kind", default="", help="prefix filter, e.g. freeze")
+    p_log.add_argument("--name", default="", help="filter by DT name")
+
     sub.add_parser("doctor", help="check config, tmux, ssh")
     sub.add_parser("upgrade", help="upgrade via uv tool")
     return parser
@@ -590,7 +632,7 @@ def main() -> None:
         ensure_ready()
         cmd_enter(argparse.Namespace(name=None))
         return
-    if command not in {"config", "doctor", "upgrade", "ls", "show", "inspect"}:
+    if command not in {"config", "doctor", "upgrade", "ls", "show", "inspect", "log"}:
         if not config_path().is_file():
             prompt_init()
         ensure_ready()
@@ -609,10 +651,19 @@ def main() -> None:
         "re": cmd_re,
         "send": cmd_send,
         "config": cmd_config,
+        "log": cmd_log,
         "doctor": cmd_doctor,
         "upgrade": cmd_upgrade,
     }
-    handlers[command](args)
+    ev.emit("cmd.start", cmd=command)
+    try:
+        handlers[command](args)
+    except SystemExit as exc:
+        code = exc.code
+        if code not in (0, None):
+            ev.emit("cmd.fail", cmd=command, error=str(code))
+        raise
+    ev.emit("cmd.ok", cmd=command)
 
 
 if __name__ == "__main__":

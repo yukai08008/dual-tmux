@@ -135,6 +135,35 @@ def print_inspect(data: dict) -> None:
     console.print(sides)
 
 
+def print_log(rows: list[dict]) -> None:
+    if not rows:
+        console.print("[dim](no events)[/]")
+        return
+    table = Table(title="events", border_style="cyan", header_style="bold")
+    table.add_column("ts", style="dim")
+    table.add_column("kind")
+    table.add_column("name")
+    table.add_column("detail")
+    for item in rows:
+        kind = str(item.get("kind") or "")
+        style = "green" if kind.endswith(".ok") else "red" if kind.endswith(".fail") else "cyan"
+        detail = {k: v for k, v in item.items() if k not in {"ts", "kind", "pid", "name", "dt"}}
+        table.add_row(
+            str(item.get("ts") or "")[-19:],
+            Text(kind, style=style),
+            str(item.get("name") or item.get("dt") or "—"),
+            json_detail(detail),
+        )
+    console.print(table)
+
+
+def json_detail(data: dict) -> str:
+    if not data:
+        return "—"
+    parts = [f"{k}={v}" for k, v in data.items() if v not in ("", None, [], {})]
+    return "  ".join(parts)[:80] or "—"
+
+
 def print_checks(checks) -> bool:
     table = Table(title="doctor", border_style="cyan", header_style="bold")
     table.add_column("status", width=6)

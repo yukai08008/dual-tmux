@@ -51,8 +51,11 @@ This CLI only owns `~/.dual-tmux/` (`DUAL_TMUX_HOME` overrides). It does not wri
 ~/.dual-tmux/                 # dual-tmux only
 ├── config.toml               # client + server + workspace
 ├── tunnels/dt-<name>.json    # 1:1 op/run binding
-└── entries/run_<name>.cmd    # reconnect command for run_*
+├── entries/run_<name>.cmd    # reconnect command for run_*
+└── events.jsonl              # CLI event / operation log
 ```
+
+Treat `dt` like a small server: every command appends JSON lines to `events.jsonl` (`cmd.start` / `cmd.ok` / `cmd.fail`, plus `freeze.start` / `freeze.side.ok` / `freeze.side.fail` / `freeze.ok`). `dt log` is the audit view. Freeze failures are events, not only a one-line stderr.
 
 If you also persist tmux / OpenCode (optional, separate tools), those trees are **not** dual-tmux:
 
@@ -166,6 +169,7 @@ Freeze also records **work points** (`op_point` / `run_point`: kind, cwd, ssh, d
 | `dt re <name>` | re-send ssh/docker into run_* |
 | `dt send <name> '…'` | `tmux send-keys` into run_* (bullet) |
 | `dt inspect <name>` | DT + op/run tool, model, session_id (empty allowed) |
+| `dt log [-n] [--kind freeze] [--name dt-msg]` | CLI event log |
 | `dt show <name>` | raw tunnel JSON |
 | `dt` | attach latest op_* |
 | `dt doctor` | check Client tmux + ssh (does not change SSH) |

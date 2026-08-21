@@ -51,8 +51,11 @@ workspace = "/workspace"  # 默认跳板目录；初始化不问
 ~/.dual-tmux/                 # 仅 dual-tmux
 ├── config.toml               # client + server + workspace
 ├── tunnels/dt-<name>.json    # op/run 1:1 绑定
-└── entries/run_<name>.cmd    # run_* 回连命令
+├── entries/run_<name>.cmd    # run_* 回连命令
+└── events.jsonl              # CLI 事件 / 操作日志
 ```
+
+把 `dt` 当成一个小 server：每条命令往 `events.jsonl` 追加一行（`cmd.start` / `cmd.ok` / `cmd.fail`，以及 `freeze.start` / `freeze.side.ok` / `freeze.side.fail` / `freeze.ok`）。`dt log` 用来回溯。freeze 失败也是事件，不只是一行 stderr。
 
 若你另外做 tmux / OpenCode 持久化（可选、另一套工具），那些树 **不是** dual-tmux 的：
 
@@ -166,6 +169,7 @@ freeze 还会记下 **工作点**（`op_point` / `run_point`：kind、cwd、ssh�
 | `dt re <name>` | 重新打入 run_* 的 ssh/docker |
 | `dt send <name> '…'` | 向 run_*（bullet）发 `tmux send-keys` |
 | `dt inspect <name>` | 查看 DT 以及 op/run 的 tool、model、session_id（可空） |
+| `dt log [-n] [--kind freeze] [--name dt-msg]` | CLI 事件日志 |
 | `dt show <name>` | 隧道 JSON |
 | `dt` | 接入最近一条 op_* |
 | `dt doctor` | 检查 Client tmux 和 ssh（不改 SSH） |
