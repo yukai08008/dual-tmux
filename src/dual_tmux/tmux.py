@@ -39,12 +39,16 @@ def reconnect(name: str, cmd: str) -> None:
     ensure_session(name)
     current = pane_command(name)
     if current in {"ssh", "docker", "tmux"}:
-        print(f"[skip] {name} 已在链路中 (cmd={current})")
+        from .ui import skip
+
+        skip(f"{name} already on the jump (cmd={current})")
         return
     subprocess.run(["tmux", "send-keys", "-t", name, "C-c"], check=False)
     time.sleep(0.2)
     subprocess.run(["tmux", "send-keys", "-t", name, cmd, "Enter"], check=False)
-    print(f"[ok] 已重打: {name} <- {cmd}")
+    from .ui import ok
+
+    ok(f"resent {name} <- {cmd}")
 
 
 def send_keys(name: str, text: str) -> None:

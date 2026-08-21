@@ -84,31 +84,17 @@ def collect_checks() -> tuple[AppConfig | None, list[Check]]:
 
 
 def print_checks(checks: list[Check]) -> bool:
-    ok = True
-    for item in checks:
-        mark = "OK " if item.ok else "ERR"
-        if not item.ok:
-            ok = False
-        print(f"{mark}  {item.label:<12} {item.detail}")
-        if not item.ok and item.hint:
-            print(f"      -> {item.hint}")
-    return ok
+    from .ui import print_checks as rich_checks
+
+    return rich_checks(checks)
 
 
 def guide_if_needed(checks: list[Check]) -> None:
     if all(c.ok for c in checks):
         return
-    print()
-    print("Client -> Server link is not ready.")
-    print("Step 1 is three fields:")
-    print("  client  legal local source name (tm_*)")
-    print("  server  ssh Host alias already in ~/.ssh/config")
-    print("  user    person id; remote persist is ~/<user>/sessions")
-    print("This CLI never writes ~/.ssh or keys.")
-    print()
-    print(f"  {INIT_HINT}")
-    print("  ssh <ssh-host>            # must succeed; dual-tmux does not set this up")
-    print("  dt doctor")
+    from .ui import print_guide
+
+    print_guide()
 
 
 def all_ok(checks: list[Check]) -> bool:
