@@ -88,6 +88,8 @@ dt resume dt-msg
 
 `dt pull` restores the binding. `dt resume` starts `opencode --auto -s <id>` in `op_*` / `run_*`. Without persist restore, `-s` will say session not found. Each Client keeps its own `tm_*` in `config.toml`.
 
+One Client at a time: hub lock `~/<user>/dual-tmux/locks/<dt-name>` (`client@epoch`, TTL 300s). `enter` / `work` / `resume` claim it. If another Client holds it, this machine **parks** local `op_*`/`run_*` (`rename …__parked`) and exits. Steal: `dt resume dt-msg --force`. Leave: `dt park dt-msg`.
+
 Trigger OpenCode starts in `ops/op_*` so it always reads `AGENTS.md`, which points at packaged `dual-tmux` + `tmux-trigger` skills. Same layout after `uv tool install` on any machine.
 
 Treat `dt` like a small server: every command appends JSON lines to `events.jsonl` (`cmd.start` / `cmd.ok` / `cmd.fail`, plus `freeze.start` / `freeze.side.ok` / `freeze.side.fail` / `freeze.ok`). `dt log` is the audit view. Freeze failures are events, not only a one-line stderr.
@@ -202,7 +204,8 @@ Freeze also records **work points** (`op_point` / `run_point`: kind, cwd, ssh, d
 | `dt freeze <name>` | freeze both oc; **DST** only if both exist |
 | `dt ls` | col1 DT, col2 IS_DST |
 | `dt make dst <name> [--tool] [--model]` | one-shot DT + both oc + freeze |
-| `dt resume <name>` | resume DST; reconnect dropped oc |
+| `dt resume <name> [--force]` | resume DST; `--force` steals hub lock |
+| `dt park <name>` | park local op_*/run_* and release hub lock |
 | `dt push` | rsync now (otherwise freeze/new/work already push in the background) |
 | `dt pull` | rsync tunnels+entries ← hub; does not overwrite `client` |
 | `dt re <name>` | re-send ssh/docker into run_* |
