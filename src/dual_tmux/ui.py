@@ -104,7 +104,17 @@ def print_inspect(data: dict) -> None:
     op_point = data.get("op_point") or {}
     run_point = data.get("run_point") or {}
     meta.add_row("op point", f"{blank(op_point.get('kind'))}  cwd={blank(op_point.get('cwd'))}")
-    meta.add_row("run point", f"{blank(run_point.get('kind'))}  cwd={blank(run_point.get('cwd'))}  ssh={blank(run_point.get('ssh'))}  docker={blank(run_point.get('container'))}")
+    meta.add_row(
+        "run point",
+        f"{blank(run_point.get('kind'))}  cwd={blank(run_point.get('cwd'))}  "
+        f"ssh={blank(run_point.get('ssh'))}  docker={blank(run_point.get('container'))}",
+    )
+    for hop in run_point.get("hops") or []:
+        meta.add_row(
+            "run hop",
+            f"{hop.get('from_host', '')}:{hop.get('from_path', '')}  +  {hop.get('command', '')}  "
+            f"→  {hop.get('to_host', '')}:{hop.get('to_path', '')}",
+        )
     times = data.get("times") or {}
     if any(times.values()):
         meta.add_row("created", blank(times.get("created_at")))

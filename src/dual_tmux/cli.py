@@ -209,7 +209,10 @@ def _start_side(data: dict, tmux_name: str, side: str, model: str = "", resume: 
 
 def _touch_point(data: dict, which: str) -> None:
     tmux_name = data["op"] if which == "op" else data["run"]
-    data[f"{which}_point"] = wp.discover(tmux_name)
+    point = wp.discover(tmux_name)
+    data[f"{which}_point"] = point
+    if which == "run":
+        wp.apply_runtime(data, point)
     save(find_dt(data["name"]), data)
 
 
@@ -265,6 +268,8 @@ def _ssh_argv(data: dict) -> list[str]:
 def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) -> bool:
     point = wp.discover(tmux_name)
     data["op_point" if side == "trigger" else "run_point"] = point
+    if side == "bullet":
+        wp.apply_runtime(data, point)
     other = "bullet" if side == "trigger" else "trigger"
     exclude = (data.get(other) or {}).get("session_id") or ""
     info = tmux_ops.pane_info(tmux_name)
@@ -307,16 +312,19 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
         ui.warn(f"{error}. dt {'enter' if side == 'trigger' else 'work'} --oc first")
         return False
     _bind_oc(data, side, session, tool)
-    ev.emit(
-        "freeze.side.ok",
-        name=data.get("name"),
-        side=side,
-        tmux=tmux_name,
-        session=session.session_id,
-        model=session.model,
-        cwd=point.get("cwd"),
-        point_kind=point.get("kind"),
-    )
+        ev.emit(
+            "freeze.side.ok",
+            name=data.get("name"),
+            side=side,
+            tmux=tmux_name,
+            session=session.session_id,
+            model=session.model,
+            cwd=point.get("cwd"),
+            point_kind=point.get("kind"),
+            ssh=point.get("ssh"),
+            container=point.get("container"),
+            hops=len(point.get("hops") or []),
+        )
     _print_side(side, data[side])
     return True
 
