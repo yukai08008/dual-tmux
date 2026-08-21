@@ -57,7 +57,37 @@ This CLI only owns `~/.dual-tmux/` (`DUAL_TMUX_HOME` overrides). It does not wri
 └── ops/op_<name>/AGENTS.md   # launch dir for trigger OpenCode
 ```
 
-Hub (third tree, not persist): `dt push` / `dt pull` rsync **only** `tunnels/` and `entries/` to `~/<user>/dual-tmux/` on Server. `config.toml` (this machine's `client`), `ops/`, `events.jsonl` stay local. `new` / `freeze` / `bind` push best-effort. Other Client: `dt config --init --client tm_<that-box>`, `dt pull`, restore oc JSON if needed, `dt resume`.
+## Another Client (continue a DST)
+
+This is a **third tree**. It does not collide with tmux persist or OpenCode persist.
+
+| Tree | Path | What |
+|------|------|------|
+| tmux persist | `~/sessions/tmux/tm_*/` | windows / processes / screen |
+| OpenCode persist | `~/sessions/opencode/tm_*/` | conversation JSON |
+| **dt hub** | Server `~/<user>/dual-tmux/` | DT/DST bindings only |
+
+`dt push` / `dt pull` rsync **only** `tunnels/` and `entries/`. Never `config.toml` (this machine's `client`), `ops/`, or `events.jsonl`. `new` / `freeze` / `bind` push best-effort.
+
+On this laptop (already done after freeze):
+
+```sh
+dt push
+```
+
+On the other machine:
+
+```sh
+uv tool install git+https://github.com/yukai08008/dual-tmux.git
+dt config --init --client tm_<that-box> --server tom7r --user andy
+ssh tom7r    # must already work; dt does not write ~/.ssh
+dt pull
+# if the oc sqlite on that box is empty, oc-restore the trigger/bullet JSON
+# from persist (~/sessions/opencode/tm_*/<slug>.json) first
+dt resume dt-msg
+```
+
+`dt pull` restores the binding. `dt resume` starts `opencode --auto -s <id>` in `op_*` / `run_*`. Without persist restore, `-s` will say session not found. Each Client keeps its own `tm_*` in `config.toml`.
 
 Trigger OpenCode starts in `ops/op_*` so it always reads `AGENTS.md`, which points at packaged `dual-tmux` + `tmux-trigger` skills. Same layout after `uv tool install` on any machine.
 
@@ -68,6 +98,7 @@ If you also persist tmux / OpenCode (optional, separate tools), those trees are 
 | Who | Path | Rule |
 |-----|------|------|
 | this CLI | `~/.dual-tmux/` | tunnels + jump cmds |
+| dt hub (Server) | `~/<user>/dual-tmux/{tunnels,entries}` | `dt push` / `dt pull`; not persist |
 | tmux persist (Client) | `~/sessions/tmux/<tm_source>/` | source dir **must** be `tm_*` |
 | tmux persist (Server) | `~/<user>/sessions/tmux/<tm_source>/` | same tree, namespaced by person |
 | OpenCode persist (Client) | `~/sessions/opencode/<tm_source>/` | same `tm_*` source as tmux |
