@@ -98,6 +98,34 @@ def test_remove_dt(monkeypatch, tmp_path):
     assert not path.exists()
 
 
+SAMPLE_PANE = """
+ andy_ouc@Mac  ~/Desktop/吕鑫航交接 
+ andy_ouc@Mac  ~/Desktop/吕鑫航交接  tom7r
+(base) ┌─root@m7:~
+└─ $ docker ps|grep  messenger
+(base) ┌─root@m7:~
+└─ $ docker exec -it andy_messenger_24642_20260820174023 bash
+root@m7:/workspace#
+"""
+
+
+def test_parse_hops():
+    from dual_tmux.workpoint import parse_hops, _from_hops
+
+    hops = parse_hops(SAMPLE_PANE)
+    assert hops[0]["command"] == "tom7r"
+    assert hops[0]["from_path"] == "~/Desktop/吕鑫航交接"
+    assert hops[0]["to_host"] == "root@m7"
+    assert hops[0]["to_path"] == "~"
+    assert hops[1]["command"].startswith("docker exec")
+    assert hops[1]["to_path"] == "/workspace"
+    point = _from_hops(hops)
+    assert point["kind"] == "docker"
+    assert point["container"] == "andy_messenger_24642_20260820174023"
+    assert point["ssh"] == "tom7r"
+    assert point["cwd"] == "/workspace"
+
+
 def test_workpoint_empty():
     point = empty_point()
     assert point["kind"] == "local"

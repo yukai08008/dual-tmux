@@ -52,6 +52,15 @@ def pane_info(name: str) -> dict[str, str]:
     return {"pid": pid.strip(), "cmd": cmd.strip(), "cwd": cwd.strip(), "title": title.strip()}
 
 
+def capture_pane(name: str, start: int = -200) -> str:
+    r = subprocess.run(
+        ["tmux", "capture-pane", "-t", name, "-p", "-S", str(start)],
+        capture_output=True,
+        text=True,
+    )
+    return r.stdout or ""
+
+
 def pane_command(name: str) -> str:
     return pane_info(name).get("cmd") or ""
 

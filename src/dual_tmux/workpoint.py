@@ -5,9 +5,13 @@ import subprocess
 from datetime import datetime, timezone
 
 from . import tmux as tmux_ops
+from .sshutil import list_ssh_hosts, parse_ssh_target
 
-SSH_RE = re.compile(r"\bssh\b(?:\s+-[^\s]+)*\s+(\S+)")
 DOCKER_RE = re.compile(r"docker\s+exec\s+(?:-[^\s]+\s+)*(\S+)")
+STARSHIP_SEP = re.compile(r"\s*[❯]\s*")
+BOX_HEAD = re.compile(r"┌─(?:\([^)]+\)\s*)?(.+)$")
+BOX_TAIL = re.compile(r"└─\s*[#$]\s*(.*)$")
+CLASSIC = re.compile(r"^(?:\([^)]+\)\s*)?(\S+@\S+):(.+?)[#$]\s*(.*)$")
 
 
 def now_iso() -> str:
@@ -23,6 +27,7 @@ def empty_point() -> dict:
         "container": "",
         "directory": "",
         "resume_cmd": "",
+        "hops": [],
         "seen_at": "",
     }
 
@@ -46,52 +51,191 @@ def _ps_command(pid: str) -> str:
     return (r.stdout or "").strip()
 
 
-def _ps_ppid(pid: str) -> str:
+def _children(pid: str) -> list[str]:
     if not pid:
-        return ""
-    r = subprocess.run(["ps", "-p", pid, "-o", "ppid="], capture_output=True, text=True)
-    return (r.stdout or "").strip()
+        return []
+    r = subprocess.run(["pgrep", "-P", pid], capture_output=True, text=True)
+    return [line.strip() for line in r.stdout.splitlines() if line.strip()]
 
 
-def walk_commands(pid: str, limit: int = 8) -> list[str]:
+def walk_commands(pid: str, limit: int = 16) -> list[str]:
     out: list[str] = []
     seen: set[str] = set()
-    current = pid
-    while current and current not in seen and len(out) < limit:
+    queue = [pid]
+    while queue and len(out) < limit:
+        current = queue.pop(0)
+        if not current or current in seen:
+            continue
         seen.add(current)
         cmd = _ps_command(current)
         if cmd:
             out.append(cmd)
-        current = _ps_ppid(current)
+        queue.extend(_children(current))
     return out
 
 
-def discover(tmux_name: str) -> dict:
+def _parse_prompts(text: str) -> list[dict]:
+    rows: list[dict] = []
+    pending: dict | None = None
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        box = BOX_HEAD.search(line)
+        if box and "└" not in line:
+            rest = box.group(1).strip()
+            if ":" in rest:
+                left, path = rest.rsplit(":", 1)
+                pending = {"host": left, "path": path, "command": ""}
+            continue
+        if pending is not None:
+            tail = BOX_TAIL.search(line)
+            if tail:
+                pending["command"] = tail.group(1).strip()
+                rows.append(pending)
+                pending = None
+                continue
+        if "" in line or "❯" in line:
+            parts = [p for p in STARSHIP_SEP.split(line) if p is not None]
+            parts = [p.strip() for p in parts]
+            if len(parts) >= 2:
+                rows.append(
+                    {
+                        "host": parts[0],
+                        "path": parts[1],
+                        "command": " ".join(parts[2:]).strip(),
+                    }
+                )
+                continue
+        classic = CLASSIC.match(line)
+        if classic:
+            rows.append(
+                {
+                    "host": classic.group(1),
+                    "path": classic.group(2).rstrip(),
+                    "command": classic.group(3).strip(),
+                }
+            )
+    if pending is not None:
+        rows.append(pending)
+    return rows
+
+
+def _compact(rows: list[dict]) -> list[dict]:
+    out: list[dict] = []
+    for row in rows:
+        if (
+            out
+            and out[-1]["host"] == row["host"]
+            and out[-1]["path"] == row["path"]
+            and not out[-1]["command"]
+        ):
+            out[-1]["command"] = row["command"]
+            continue
+        out.append(dict(row))
+    return out
+
+
+def parse_hops(text: str) -> list[dict]:
+    stops = _compact(_parse_prompts(text))
+    hops: list[dict] = []
+    for i, stop in enumerate(stops[:-1]):
+        nxt = stops[i + 1]
+        if not stop.get("command"):
+            continue
+        if (stop["host"], stop["path"]) == (nxt["host"], nxt["path"]):
+            continue
+        hops.append(
+            {
+                "from_host": stop["host"],
+                "from_path": stop["path"],
+                "command": stop["command"],
+                "to_host": nxt["host"],
+                "to_path": nxt["path"],
+            }
+        )
+    return hops
+
+
+def _from_hops(hops: list[dict]) -> dict:
     point = empty_point()
-    info = tmux_ops.pane_info(tmux_name)
-    point["cwd"] = info.get("cwd") or ""
-    point["cmd"] = info.get("cmd") or ""
-    point["directory"] = point["cwd"]
-    point["kind"] = "local"
-    point["seen_at"] = now_iso()
-    for cmd in walk_commands(info.get("pid") or ""):
+    aliases = set(list_ssh_hosts())
+    for hop in hops:
+        cmd = hop.get("command") or ""
         docker = DOCKER_RE.search(cmd)
-        if docker and not point["container"]:
+        if docker:
             point["container"] = docker.group(1)
             point["kind"] = "docker"
-        ssh = SSH_RE.search(cmd)
-        if ssh and not point["ssh"] and ssh.group(1) not in {"-t", "-p", "-o"}:
-            dest = ssh.group(1)
-            if dest.startswith("-"):
-                continue
-            point["ssh"] = dest
+        token = cmd.split()[0] if cmd else ""
+        if token in aliases or cmd.startswith("ssh ") or token == "ssh":
+            target = parse_ssh_target(cmd if cmd.startswith("ssh") else token)
+            point["ssh"] = target.stored or token
             if point["kind"] == "local":
                 point["kind"] = "ssh"
-        if "docker exec" in cmd and not point["resume_cmd"]:
-            point["resume_cmd"] = cmd
-        elif cmd.startswith("ssh ") and not point["resume_cmd"]:
-            point["resume_cmd"] = cmd
+        if hop.get("to_host") and hop.get("from_host") and hop["to_host"] != hop["from_host"]:
+            if point["kind"] == "local":
+                point["kind"] = "ssh"
+            if not point["ssh"]:
+                point["ssh"] = token
+    if hops:
+        last = hops[-1]
+        point["cwd"] = last.get("to_path") or ""
+        point["directory"] = point["cwd"]
+        point["hops"] = hops
+        point["resume_cmd"] = " && ".join(h["command"] for h in hops if h.get("command"))
     return point
+
+
+def _from_processes(pid: str, point: dict) -> None:
+    for cmd in walk_commands(pid):
+        if cmd.startswith("ssh ") or " ssh " in f" {cmd}":
+            target = parse_ssh_target(cmd)
+            if not point["ssh"]:
+                point["ssh"] = target.stored or target.dest
+            if point["kind"] == "local":
+                point["kind"] = "ssh"
+            if not point["resume_cmd"]:
+                point["resume_cmd"] = cmd
+        docker = DOCKER_RE.search(cmd)
+        if docker:
+            if not point["container"]:
+                point["container"] = docker.group(1)
+            point["kind"] = "docker"
+            if "docker exec" in cmd and "docker exec" not in (point.get("resume_cmd") or ""):
+                point["resume_cmd"] = ((point.get("resume_cmd") or "") + " && " + cmd).strip(" &")
+
+
+def discover(tmux_name: str) -> dict:
+    info = tmux_ops.pane_info(tmux_name)
+    hops = parse_hops(tmux_ops.capture_pane(tmux_name))
+    point = _from_hops(hops)
+    point["cmd"] = info.get("cmd") or ""
+    point["seen_at"] = now_iso()
+    if not point["cwd"]:
+        point["cwd"] = info.get("cwd") or ""
+        point["directory"] = point["cwd"]
+    _from_processes(info.get("pid") or "", point)
+    return point
+
+
+def apply_runtime(data: dict, point: dict) -> None:
+    runtime = data.setdefault("runtime", {})
+    if point.get("ssh") and not runtime.get("server"):
+        runtime["server"] = point["ssh"]
+    if point.get("container"):
+        runtime["container"] = point["container"]
+    if point.get("directory") and point["kind"] in {"ssh", "docker"}:
+        runtime["directory"] = point["directory"]
+    if point.get("container") or (point.get("ssh") and runtime.get("server")):
+        from .runtime import build_cmd
+
+        port = int(runtime.get("ssh_port") or 22)
+        runtime["cmd"] = build_cmd(
+            runtime.get("server") or point.get("ssh") or "",
+            runtime.get("container") or "",
+            runtime.get("directory") or "/workspace",
+            port,
+        )
 
 
 def stamp(data: dict, key: str) -> None:
