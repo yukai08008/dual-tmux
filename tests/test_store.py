@@ -3,6 +3,7 @@ import pytest
 from dual_tmux.config import AppConfig, _parse_toml, init_config
 from dual_tmux.identity import legal_source, legal_user, remote_sessions_root
 from dual_tmux.runtime import build_cmd
+from dual_tmux.sshutil import list_ssh_hosts, parse_ssh_target
 from dual_tmux.store import default_names, normalize_dt
 
 
@@ -27,6 +28,28 @@ def test_cmd():
     assert "docker exec -it box" in cmd
     assert "/workspace/app" in cmd
     assert build_cmd("myserver", "", "/workspace") == "ssh -t myserver"
+
+
+def test_parse_ssh_target():
+    assert parse_ssh_target("tom7r").dest == "tom7r"
+    assert parse_ssh_target("ssh tom7r").dest == "tom7r"
+    assert parse_ssh_target("ssh -t tom7r").dest == "tom7r"
+    assert parse_ssh_target("ssh -p 22 root@1.2.3.4").dest == "root@1.2.3.4"
+    assert parse_ssh_target("ssh -p 22 root@1.2.3.4").port == 22
+    t = parse_ssh_target("ssh -p 10700 root@1.2.3.4")
+    assert t.dest == "root@1.2.3.4" and t.port == 10700 and t.extra_args == ["-p", "10700"]
+    assert parse_ssh_target("root@1.2.3.4").dest == "root@1.2.3.4"
+
+
+def test_cmd_with_port():
+    assert "-p 10700" in build_cmd("root@1.2.3.4", "", "/workspace", 10700)
+    assert "-p " not in build_cmd("myserver", "", "/workspace", 22)
+
+
+def test_list_ssh_hosts(tmp_path):
+    cfg = tmp_path / "config"
+    cfg.write_text("Host tom7r github.com\n  HostName example.com\nHost *\n  IdentitiesOnly yes\nHost tm_skip?\n")
+    assert list_ssh_hosts(cfg) == ["tom7r", "github.com"]
 
 
 def test_user():
