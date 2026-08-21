@@ -158,6 +158,7 @@ freeze 还会记下 **工作点**（`op_point` / `run_point`：kind、cwd、ssh�
 | 命令 | 作用 |
 |------|------|
 | `dt new <name>` | 只建 **DT**（`op_*` + `run_*`） |
+| `dt rm <name> [-y] [--kill]` | 注销 DT；`--kill` 同时杀掉 op_*/run_* tmux |
 | `dt enter <name>` | 接入 op tmux |
 | `dt work <name>` | 接入 run tmux |
 | `dt enter --oc [--model M]` | 在 op 里起 trigger oc |

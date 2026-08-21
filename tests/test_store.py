@@ -5,7 +5,7 @@ from dual_tmux.identity import legal_source, legal_user, remote_sessions_root
 from dual_tmux.runtime import build_cmd
 from dual_tmux.sshutil import list_ssh_hosts, parse_ssh_target
 from dual_tmux.oc import as_bind, empty_side, is_dst, parse_model, resume_cmd, start_cmd, OcSession
-from dual_tmux.store import default_names, normalize_dt
+from dual_tmux.store import default_names, normalize_dt, remove_dt, save, tunnels_dir
 from dual_tmux.log import emit, read_events
 from dual_tmux.workpoint import empty_point, empty_times
 
@@ -87,6 +87,15 @@ def test_event_log(monkeypatch, tmp_path):
     assert rows[2]["kind"] == "freeze.side.ok"
     assert rows[2]["point_kind"] == "local"
     assert "kind" in rows[2] and rows[2]["kind"] == "freeze.side.ok"
+
+
+def test_remove_dt(monkeypatch, tmp_path):
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
+    path = tunnels_dir() / "dt-msg.json"
+    save(path, {"name": "dt-msg", "op": "op_msg", "run": "run_msg"})
+    data = remove_dt("dt-msg")
+    assert data["name"] == "dt-msg"
+    assert not path.exists()
 
 
 def test_workpoint_empty():

@@ -26,6 +26,7 @@ from .store import (
     save,
     write_entry,
     now_iso,
+    remove_dt,
 )
 from . import log as ev
 from . import tmux as tmux_ops
@@ -512,6 +513,35 @@ def cmd_doctor(_: argparse.Namespace) -> None:
         raise SystemExit(1)
 
 
+def cmd_rm(args: argparse.Namespace) -> None:
+    path = find_dt(args.name)
+    data = load(path)
+    name = data["name"]
+    op = data.get("op") or ""
+    run = data.get("run") or ""
+    if not args.yes:
+        if not sys.stdin.isatty():
+            raise SystemExit("usage: dt rm <name> --yes [--kill]")
+        answer = input(f"rm {name}  op={op}  run={run}  kill_tmux={args.kill}? [y/N] ").strip().lower()
+        if answer not in {"y", "yes"}:
+            ui.skip("cancelled")
+            return
+    data = remove_dt(name)
+    killed = []
+    if args.kill:
+        if tmux_ops.kill_session(op):
+            killed.append(op)
+        if tmux_ops.kill_session(run):
+            killed.append(run)
+    ev.emit("dt.rm", name=name, op=op, run=run, kill=args.kill, killed=",".join(killed))
+    ui.ok(f"removed {name}")
+    if killed:
+        ui.info(f"killed tmux  {' '.join(killed)}")
+    else:
+        ui.info("tmux sessions kept (pass --kill to destroy op_*/run_*)")
+    ui.info("OpenCode sqlite untouched")
+
+
 def cmd_log(args: argparse.Namespace) -> None:
     rows = ev.read_events(limit=args.limit, kind=args.kind, name=args.name or "")
     ui.print_log(rows)
@@ -541,6 +571,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_show.add_argument("name")
     p_ins = sub.add_parser("inspect", help="show DT/DST fields including empty tool/model/session")
     p_ins.add_argument("name", nargs="?", help="defaults to latest tunnel")
+
+    p_rm = sub.add_parser("rm", help="unregister a DT; --kill also destroys op_*/run_* tmux")
+    p_rm.add_argument("name")
+    p_rm.add_argument("--yes", "-y", action="store_true", help="do not prompt")
+    p_rm.add_argument("--kill", action="store_true", help="tmux kill-session op_* and run_*")
 
     p_new = sub.add_parser("new", help="create op/run sessions and register a tunnel")
     p_new.add_argument("name", help="dt-app or app")
@@ -641,6 +676,7 @@ def main() -> None:
         "show": cmd_show,
         "inspect": cmd_inspect,
         "new": cmd_new,
+        "rm": cmd_rm,
         "bind": cmd_bind,
         "freeze": cmd_freeze,
         "capture": cmd_capture,

@@ -79,3 +79,17 @@ def write_entry(session: str, cmd: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(cmd.rstrip() + "\n")
     return path
+
+
+def entry_path(session: str) -> Path:
+    return entries_dir() / f"{session}.cmd"
+
+
+def remove_dt(name: str) -> dict[str, Any]:
+    path = find_dt(name)
+    data = load(path)
+    path.unlink(missing_ok=True)
+    run = data.get("run") or ""
+    if run:
+        entry_path(run).unlink(missing_ok=True)
+    return data
