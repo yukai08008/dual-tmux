@@ -12,9 +12,19 @@ Client (this machine)
                           └─ bullet agent
 ```
 
-**Client** is the laptop you sit at. **Server** is the ssh host where work happens (optional container). SSH to Server must already work. dual-tmux never stores keys.
+**Client** is the laptop you sit at. **Server** is the ssh host where work happens (optional container). dual-tmux never stores keys.
 
 Machine-local data lives in `~/.dual-tmux/` (`DUAL_TMUX_HOME` overrides).
+
+## Assumptions
+
+Before using this CLI:
+
+1. You can already `ssh <server>` from the Client (Host alias in `~/.ssh/config`, key-based login).
+2. **tmux is installed on the Client.** `op_*` and `run_*` are local sessions; `run_*` only uses ssh to reach the Server.
+3. A working directory exists on the Server (and in a container if you pass `--container`).
+
+This tool does not set up SSH, keys, or remote tmux. `dt doctor` checks Client tmux and `ssh <server>`.
 
 ## Install
 

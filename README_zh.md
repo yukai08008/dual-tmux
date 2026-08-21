@@ -12,9 +12,19 @@ Client（本机）
                           └─ bullet agent
 ```
 
-**Client** 是你坐的那台机器。**Server** 是干活的 ssh 主机（容器可选）。到 Server 的 SSH 必须已经能通。dual-tmux 不保存任何密钥。
+**Client** 是你坐的那台机器。**Server** 是干活的 ssh 主机（容器可选）。dual-tmux 不保存任何密钥。
 
 本机数据在 `~/.dual-tmux/`（可用 `DUAL_TMUX_HOME` 覆盖）。
+
+## 前提
+
+使用本 CLI 之前：
+
+1. Client 上已经能 `ssh <server>`（`~/.ssh/config` 的 Host 别名 + 密钥登录）。
+2. **Client 已安装 tmux。** `op_*` / `run_*` 都是本机会话；`run_*` 只通过 ssh 进 Server。
+3. Server 上已有工作目录（若使用 `--container`，容器内也要有）。
+
+本工具不负责配置 SSH、密钥或远端 tmux。`dt doctor` 会检查 Client 的 tmux 以及 `ssh <server>`。
 
 ## 安装
 
