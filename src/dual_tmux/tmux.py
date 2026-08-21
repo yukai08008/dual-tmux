@@ -26,13 +26,27 @@ def attach(name: str) -> None:
     subprocess.run(["tmux", "attach", "-t", name], check=False)
 
 
-def pane_command(name: str) -> str:
+def pane_info(name: str) -> dict[str, str]:
     r = subprocess.run(
-        ["tmux", "list-panes", "-t", name, "-F", "#{pane_current_command}"],
+        [
+            "tmux",
+            "list-panes",
+            "-t",
+            name,
+            "-F",
+            "#{pane_pid}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_title}",
+        ],
         capture_output=True,
         text=True,
     )
-    return (r.stdout or "").splitlines()[0] if r.returncode == 0 and r.stdout.strip() else ""
+    if r.returncode != 0 or not r.stdout.strip():
+        return {"pid": "", "cmd": "", "cwd": "", "title": ""}
+    pid, cmd, cwd, title, *_ = (r.stdout.splitlines()[0] + "\t\t\t").split("\t")
+    return {"pid": pid.strip(), "cmd": cmd.strip(), "cwd": cwd.strip(), "title": title.strip()}
+
+
+def pane_command(name: str) -> str:
+    return pane_info(name).get("cmd") or ""
 
 
 def reconnect(name: str, cmd: str) -> None:

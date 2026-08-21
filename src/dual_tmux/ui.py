@@ -101,6 +101,16 @@ def print_inspect(data: dict) -> None:
     meta.add_row("run", str(data.get("run") or "—"))
     meta.add_row("server", blank(runtime.get("server")))
     meta.add_row("cmd", f"[dim]{blank(runtime.get('cmd'))}[/]")
+    op_point = data.get("op_point") or {}
+    run_point = data.get("run_point") or {}
+    meta.add_row("op point", f"{blank(op_point.get('kind'))}  cwd={blank(op_point.get('cwd'))}")
+    meta.add_row("run point", f"{blank(run_point.get('kind'))}  cwd={blank(run_point.get('cwd'))}  ssh={blank(run_point.get('ssh'))}  docker={blank(run_point.get('container'))}")
+    times = data.get("times") or {}
+    if any(times.values()):
+        meta.add_row("created", blank(times.get("created_at")))
+        meta.add_row("enter", blank(times.get("enter_at")))
+        meta.add_row("work", blank(times.get("work_at")))
+        meta.add_row("freeze", blank(times.get("freeze_at")))
     sides = Table(border_style="dim", header_style="bold", expand=True)
     sides.add_column("")
     sides.add_column("tool")

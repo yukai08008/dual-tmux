@@ -29,6 +29,7 @@ from .store import (
 )
 from . import tmux as tmux_ops
 from . import ui
+from . import workpoint as wp
 
 
 def require_config() -> AppConfig:
@@ -107,8 +108,14 @@ def cmd_new(args: argparse.Namespace) -> None:
         },
         "trigger": oc_ops.empty_side(),
         "bullet": oc_ops.empty_side(),
+        "op_point": wp.empty_point(),
+        "run_point": wp.empty_point(),
+        "times": wp.empty_times(),
         "updated_at": now_iso(),
     }
+    data["times"]["created_at"] = data["updated_at"]
+    data["op_point"] = wp.discover(op)
+    data["run_point"] = wp.discover(run)
     path = tunnels_dir() / f"{name}.json"
     if path.exists():
         old = load(path)
@@ -197,24 +204,32 @@ def _start_side(data: dict, tmux_name: str, side: str, model: str = "", resume: 
         ui.skip(f"{tmux_name} already running opencode")
 
 
+def _touch_point(data: dict, which: str) -> None:
+    tmux_name = data["op"] if which == "op" else data["run"]
+    data[f"{which}_point"] = wp.discover(tmux_name)
+    save(find_dt(data["name"]), data)
+
+
 def cmd_enter(args: argparse.Namespace) -> None:
     if not args.name and not iter_dt_files():
         print_next_after_init()
         return
     data = _resolve(args.name)
+    wp.stamp(data, "enter_at")
     if getattr(args, "oc", False) or getattr(args, "resume", False):
         _start_side(data, data["op"], "trigger", getattr(args, "model", "") or "", getattr(args, "resume", False))
-        path = find_dt(data["name"])
-        save(path, data)
+        wp.stamp(data, "trigger_oc_at")
+    _touch_point(data, "op")
     tmux_ops.attach(data["op"])
 
 
 def cmd_work(args: argparse.Namespace) -> None:
     data = _resolve(args.name)
+    wp.stamp(data, "work_at")
     if getattr(args, "oc", False) or getattr(args, "resume", False):
         _start_side(data, data["run"], "bullet", getattr(args, "model", "") or "", getattr(args, "resume", False))
-        path = find_dt(data["name"])
-        save(path, data)
+        wp.stamp(data, "bullet_oc_at")
+    _touch_point(data, "run")
     tmux_ops.attach(data["run"])
 
 
@@ -242,23 +257,50 @@ def _ssh_argv(data: dict) -> list[str]:
     return ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", *target.extra_args, target.dest]
 
 
+def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) -> bool:
+    point = wp.discover(tmux_name)
+    data["op_point" if side == "trigger" else "run_point"] = point
+    other = "bullet" if side == "trigger" else "trigger"
+    exclude = (data.get(other) or {}).get("session_id") or ""
+    info = tmux_ops.pane_info(tmux_name)
+    pane_cmd = info.get("cmd") or ""
+    local_oc = pane_cmd == "opencode"
+    session = oc_ops.from_pane(
+        info.get("pid") or "",
+        point.get("cwd") or "",
+        exclude,
+        fallback=local_oc,
+    )
+    if wait and not session:
+        import time
+
+        deadline = time.time() + 20
+        while time.time() < deadline and not session:
+            time.sleep(1)
+            info = tmux_ops.pane_info(tmux_name)
+            pane_cmd = info.get("cmd") or ""
+            local_oc = pane_cmd == "opencode"
+            session = oc_ops.from_pane(info.get("pid") or "", info.get("cwd") or "", exclude, fallback=local_oc)
+    if not session and not local_oc and point["kind"] in {"ssh", "docker"}:
+        runtime = data.get("runtime") or {}
+        session = oc_ops.latest_remote(_ssh_argv(data), point.get("container") or runtime.get("container") or "")
+    if not session:
+        ui.warn(
+            f"no {side} opencode on {tmux_name} "
+            f"(cmd={point.get('cmd') or '—'} cwd={point.get('cwd') or '—'}). "
+            f"dt {'enter' if side == 'trigger' else 'work'} --oc first"
+        )
+        return False
+    _bind_oc(data, side, session, tool)
+    _print_side(side, data[side])
+    return True
+
+
 def freeze_sides(data: dict, sides: list[str], tool: str = "opencode", wait: bool = False) -> None:
-    runtime = data.get("runtime") or {}
     if "trigger" in sides:
-        latest = oc_ops.wait_latest_local() if wait else oc_ops.latest_local(1)
-        session = latest[0] if isinstance(latest, list) else latest
-        if not session:
-            raise SystemExit("[err] no local opencode session. dt enter --oc first")
-        _bind_oc(data, "trigger", session, tool)
-        _print_side("trigger", data["trigger"])
+        _freeze_one(data, "trigger", data["op"], tool, wait)
     if "bullet" in sides:
-        argv = _ssh_argv(data)
-        container = runtime.get("container") or ""
-        session = oc_ops.wait_latest_remote(argv, container) if wait else oc_ops.latest_remote(argv, container)
-        if not session:
-            raise SystemExit("[err] no remote opencode session. dt work --oc first")
-        _bind_oc(data, "bullet", session, tool)
-        _print_side("bullet", data["bullet"])
+        _freeze_one(data, "bullet", data["run"], tool, wait)
 
 
 def cmd_freeze(args: argparse.Namespace) -> None:
@@ -270,6 +312,7 @@ def cmd_freeze(args: argparse.Namespace) -> None:
     if args.bullet or (not args.trigger and not args.bullet):
         sides.append("bullet")
     freeze_sides(data, sides, getattr(args, "tool", "") or "opencode")
+    wp.stamp(data, "freeze_at")
     save(path, data)
     ui.ok(f"freeze {data['name']}  IS_DST={'yes' if oc_ops.is_dst(data) else 'no'}")
     if not oc_ops.is_dst(data):
@@ -338,6 +381,10 @@ def cmd_resume(args: argparse.Namespace) -> None:
         tmux_ops.reconnect(data["run"], jump)
     _start_side(data, data["op"], "trigger", "", True)
     _start_side(data, data["run"], "bullet", "", True)
+    wp.stamp(data, "resume_at")
+    data["op_point"] = wp.discover(data["op"])
+    data["run_point"] = wp.discover(data["run"])
+    save(find_dt(data["name"]), data)
     ui.ok(f"resumed DST {data['name']}")
     if getattr(args, "attach", True):
         tmux_ops.attach(data["op"])
