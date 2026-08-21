@@ -24,7 +24,9 @@ Before using this CLI:
 2. **tmux is installed on the Client.** `op_*` and `run_*` are local sessions; `run_*` only uses ssh to reach the Server.
 3. A working directory exists on the Server (and in a container if you pass `--container`).
 
-This tool does not set up SSH, keys, or remote tmux. `dt doctor` checks Client tmux and `ssh <server>`.
+This tool does **not** set up SSH, keys, or `~/.ssh/config`. SSH stays on your machine.
+
+After install, the first real command (`dt`, `dt new`, `dt work`, …) checks Client tmux + `ssh <server>`. If that link is missing, it tells you to run `dt config --init` and to fix SSH yourself. `dt doctor` is the same check, on demand.
 
 ## Install
 
@@ -42,6 +44,7 @@ uv tool install git+https://github.com/yukai08008/dual-tmux.git
 
 ```sh
 dt config --init --client laptop --server myserver
+ssh myserver          # must already work; dual-tmux never writes SSH files
 dt doctor
 ```
 
@@ -95,7 +98,7 @@ dt                    # attach latest op_*
 | `dt ls` / `dt show` | inspect |
 | `dt bind` | bind trigger/bullet session slugs |
 | `dt send` | `tmux send-keys` into `run_*` |
-| `dt doctor` | check local setup |
+| `dt doctor` | check Client tmux + ssh to Server (does not change SSH) |
 | `dt config --init` | write Client/Server config |
 | `dt upgrade` | `uv tool upgrade dual-tmux` |
 
