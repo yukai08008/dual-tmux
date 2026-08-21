@@ -89,3 +89,39 @@ def test_ensure_local_missing_json(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("dual_tmux.oc.by_id", lambda _sid: None)
     with pytest.raises(SystemExit, match="no persist JSON"):
         ensure_local({"session_id": "ses_missing", "slug": "eager-orchid"})
+
+
+def test_hotfix_identity_and_trees(tmp_path: Path, monkeypatch):
+    from dual_tmux.config import AppConfig, write_config
+    from dual_tmux import hotfix
+
+    home = tmp_path / "dt"
+    persist = tmp_path / "persist"
+    sessions = tmp_path / "sessions"
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(home))
+    monkeypatch.setenv("DT_PERSIST_CONFIG", str(persist))
+    monkeypatch.setenv("DT_SESSIONS_HOME", str(sessions))
+    write_config(AppConfig(client="tm_box", server="tom7r", user="andy"))
+    persist.mkdir()
+    (persist / "name").write_text("MacBookPro\n")
+    monkeypatch.setattr(hotfix, "install_tick", lambda: hotfix.Step("tick-cron", True, "skip", False))
+    monkeypatch.setattr(hotfix, "install_persist_sync", lambda cfg: hotfix.Step("persist-cron", True, "skip", False))
+    steps = hotfix.apply(ssh=False)
+    ids = {s.id: s for s in steps}
+    assert ids["identity"].ok
+    assert (persist / "name").read_text().strip() == "tm_box"
+    assert (persist / "user").read_text().strip() == "andy"
+    assert (sessions / "opencode" / "tm_box").is_dir()
+    assert (sessions / "tmux" / "tm_box").is_dir()
+    assert hotfix.stamp_path().read_text().strip() == hotfix.HOTFIX_ID
+    assert not hotfix.needed()
+
+
+def test_persist_script_uses_tenant_not_login_home():
+    from dual_tmux.hotfix import persist_script
+
+    body = persist_script("opencode", "tom7r", "andy")
+    assert "andy/sessions/opencode" in body
+    assert "HOST:sessions/opencode" not in body
+    assert "andy_messenger" not in body
+    assert "tm_*" in body

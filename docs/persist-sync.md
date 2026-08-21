@@ -79,3 +79,17 @@ dt resume dt-msg
 If trigger `-s` says Session not found, the binding arrived and the JSON did not.
 Fix persist rsync to `~/<user>/sessions/opencode/`, then import, then resume.
 Do not look at docker names.
+
+## Hotfix on install / upgrade
+
+`dt upgrade` and `dt doctor` apply `persist-tenant-v1`:
+
+1. write `~/.config/session-persist/{name,user}` from dt config if missing/illegal
+2. mkdir Client `~/sessions/{tmux,opencode}/<client>/`
+3. mkdir Server `~/<user>/sessions/{tmux,opencode}/`
+4. install minute jobs: `dt tick`, `~/.dual-tmux/bin/dt-persist-tmux`, `dt-persist-opencode`
+
+Those persist jobs rsync **to the tenant path**, never `~/sessions` on the Server login home.
+`tm_` remains a machine source. Container names are not sources.
+
+Stamp: `~/.dual-tmux/hotfix.stamp`. Re-run is idempotent.

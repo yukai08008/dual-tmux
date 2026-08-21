@@ -98,7 +98,7 @@ dt branch dt-msg dt-msg-v2
 
 会 **重放** 记下的跳板（`runtime.cmd` 或 hops：ssh → docker → cwd），两侧用同样 model **新开** oc（新 `session_id`），再 freeze 成自己的 DST。源 `dt-msg` 的锁和现场不动。同一容器可以进两次；不要复用父会话的 oc id。
 
-安装 / `dt doctor` 会写这条 crontab。另一台：同一条一键安装，然后 `dt pull && dt resume`，不用再配 cron。
+安装 / `dt doctor` / `dt upgrade` 会写 tick crontab，并打 persist 租户 hotfix（`~/<user>/sessions`）。另一台同一条一键安装后 `dt pull && dt resume`。
 
 trigger oc 从 `ops/op_*` 启动，必读 `AGENTS.md`，里面指向包内的 `dual-tmux` + `tmux-trigger`。任意机器 `uv tool install` 后布局相同。
 
@@ -228,9 +228,9 @@ freeze 还会记下 **工作点**（`op_point` / `run_point`：kind、cwd、ssh�
 | `dt log [-n] [--kind freeze] [--name dt-msg]` | CLI 事件日志 |
 | `dt show <name>` | 隧道 JSON |
 | `dt` | 接入最近一条 op_* |
-| `dt doctor` | 检查 Client tmux 和 ssh（不改 SSH） |
+| `dt doctor` | 检查 Client tmux 和 ssh；打 persist 租户 hotfix |
 | `dt config --init` | 写入 client + server + user |
-| `dt upgrade` | `uv tool upgrade dual-tmux` |
+| `dt upgrade` | `uv tool upgrade dual-tmux`，然后打 persist 租户 hotfix |
 
 ## 卸载
 

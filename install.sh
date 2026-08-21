@@ -45,8 +45,11 @@ install_or_update() {
     if command -v "$BIN_NAME" >/dev/null 2>&1; then
         info "Ready: $($BIN_NAME --version | sed -n '1p')"
         "$BIN_NAME" cron --install >/dev/null 2>&1 || true
+        if [ -f "${HOME}/.dual-tmux/config.toml" ]; then
+            "$BIN_NAME" doctor >/dev/null 2>&1 || true
+        fi
         info "Next: dt config --init --client tm_<id> --server <ssh-host> --user <name> && dt doctor"
-        info "Minute job: dt tick (crontab). Cross-machine idle takeover needs this."
+        info "Upgrade/doctor applies persist tenant hotfix (rsync ~/<user>/sessions)."
     elif [ -x "${INSTALL_DIR}/${BIN_NAME}" ]; then
         warn "Installed. Restart the terminal so ${INSTALL_DIR} is in PATH."
     else
