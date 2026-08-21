@@ -236,6 +236,7 @@ def cmd_enter(args: argparse.Namespace) -> None:
         print_next_after_init()
         return
     data = _resolve(args.name)
+    hub.require_active(data, force=bool(getattr(args, "force", False)))
     opsdir.prepare(data)
     ev.emit("dt.enter", name=data["name"], oc=bool(getattr(args, "oc", False)))
     wp.stamp(data, "enter_at")
@@ -248,6 +249,7 @@ def cmd_enter(args: argparse.Namespace) -> None:
 
 def cmd_work(args: argparse.Namespace) -> None:
     data = _resolve(args.name)
+    hub.require_active(data, force=bool(getattr(args, "force", False)))
     ev.emit("dt.work", name=data["name"], oc=bool(getattr(args, "oc", False)))
     wp.stamp(data, "work_at")
     if getattr(args, "oc", False) or getattr(args, "resume", False):
@@ -432,6 +434,7 @@ def cmd_make(args: argparse.Namespace) -> None:
 
 def cmd_resume(args: argparse.Namespace) -> None:
     data = _resolve(args.name)
+    hub.require_active(data, force=bool(getattr(args, "force", False)))
     opsdir.prepare(data)
     if not oc_ops.is_dst(data):
         raise SystemExit("[err] not a DST. Freeze both oc sessions first: dt freeze")
@@ -533,10 +536,24 @@ def cmd_config(args: argparse.Namespace) -> None:
         ui.ok(f"updated {path}")
 
 
+def cmd_park(args: argparse.Namespace) -> None:
+    data = _resolve(args.name)
+    hub.park_local(data)
+    try:
+        hub.release(data["name"])
+        ui.ok(f"released {data['name']}")
+    except SystemExit as exc:
+        ui.warn(str(exc))
+
+
 def cmd_doctor(_: argparse.Namespace) -> None:
     _, checks = collect_checks()
     ok = print_checks(checks)
     ui.info(f"tunnels  {len(iter_dt_files())}")
+    try:
+        hub.enforce_local()
+    except SystemExit:
+        pass
     if not ok:
         guide_if_needed(checks)
         raise SystemExit(1)
@@ -555,6 +572,10 @@ def cmd_rm(args: argparse.Namespace) -> None:
         if answer not in {"y", "yes"}:
             ui.skip("cancelled")
             return
+    try:
+        hub.release(name)
+    except SystemExit:
+        pass
     data = remove_dt(name)
     opsdir.remove_ops(op)
     killed = []
@@ -655,6 +676,7 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument("--oc", action="store_true", help="start OpenCode in that tmux")
             p.add_argument("--model", default="", help="model for --oc")
             p.add_argument("--resume", action="store_true", help="resume by recorded session_id")
+            p.add_argument("--force", action="store_true", help="steal hub lock from another Client")
 
     p_freeze = sub.add_parser("freeze", help="freeze op-oc and run-oc; DST only if both exist")
     p_freeze.add_argument("name", nargs="?", help="defaults to latest tunnel")
@@ -679,6 +701,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_resume = sub.add_parser("resume", help="resume a DST; reconnects missing op/run oc")
     p_resume.add_argument("name", nargs="?", help="defaults to latest tunnel")
+    p_resume.add_argument("--force", action="store_true", help="steal hub lock from another Client")
+
+    p_park = sub.add_parser("park", help="detach/rename local op_*/run_* and release hub lock")
+    p_park.add_argument("name", nargs="?", help="defaults to latest tunnel")
 
     p_send = sub.add_parser("send", help="send-keys into run_*")
     p_send.add_argument("name")
@@ -732,6 +758,7 @@ def main() -> None:
         "capture": cmd_capture,
         "make": cmd_make,
         "resume": cmd_resume,
+        "park": cmd_park,
         "enter": cmd_enter,
         "work": cmd_work,
         "re": cmd_re,

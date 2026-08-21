@@ -97,6 +97,13 @@ def print_inspect(data: dict) -> None:
     meta.add_column()
     meta.add_row("DT", f"[bold]{data.get('name', '—')}[/]")
     meta.add_row("IS_DST", dst_text(dst))
+    try:
+        from .hub import read_lock
+
+        holder, age = read_lock(str(data.get("name") or ""))
+        meta.add_row("holder", f"{holder}  {age}s ago" if holder else "[dim]—[/]")
+    except SystemExit:
+        meta.add_row("holder", "[dim]—[/]")
     meta.add_row("op", str(data.get("op") or "—"))
     meta.add_row("run", str(data.get("run") or "—"))
     if data.get("op"):

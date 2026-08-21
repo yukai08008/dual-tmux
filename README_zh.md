@@ -88,6 +88,8 @@ dt resume dt-msg
 
 `dt pull` 只恢复绑定。`dt resume` 在 `op_*` / `run_*` 里跑 `opencode --auto -s <id>`。没做 persist restore 时 `-s` 会 Session not found。每台 Client 的 `config.toml` 仍用自己的 `tm_*`。
 
+同一时刻只有一台 Client：枢纽锁 `~/<user>/dual-tmux/locks/<dt-名>`（`client@epoch`，TTL 300s）。`enter` / `work` / `resume` 占锁。他机占着则本机把 `op_*`/`run_*` **park**（改名 `__parked`）并退出。抢锁：`dt resume dt-msg --force`。放手：`dt park dt-msg`。
+
 trigger oc 从 `ops/op_*` 启动，必读 `AGENTS.md`，里面指向包内的 `dual-tmux` + `tmux-trigger`。任意机器 `uv tool install` 后布局相同。
 
 把 `dt` 当成一个小 server：每条命令往 `events.jsonl` 追加一行（`cmd.start` / `cmd.ok` / `cmd.fail`，以及 `freeze.start` / `freeze.side.ok` / `freeze.side.fail` / `freeze.ok`）。`dt log` 用来回溯。freeze 失败也是事件，不只是一行 stderr。
@@ -202,7 +204,8 @@ freeze 还会记下 **工作点**（`op_point` / `run_point`：kind、cwd、ssh�
 | `dt freeze <name>` | 冻结两侧 oc；两边都有才是 **DST** |
 | `dt ls` | 第 1 列 DT，第 2 列 IS_DST |
 | `dt make dst <name> [--tool] [--model]` | 一键 DT + 两侧 oc + freeze |
-| `dt resume <name>` | 接续 DST；oc 掉了自动接 |
+| `dt resume <name> [--force]` | 接续 DST；`--force` 抢枢纽锁 |
+| `dt park <name>` | 本机 park op_*/run_* 并释放枢纽锁 |
 | `dt push` | 立刻推（平时 freeze/new/work 已后台推） |
 | `dt pull` | 从枢纽拉 tunnels+entries；不覆盖本机 `client` |
 | `dt re <name>` | 重新打入 run_* 的 ssh/docker |
