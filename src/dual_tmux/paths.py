@@ -18,3 +18,7 @@ def tunnels_dir() -> Path:
 
 def entries_dir() -> Path:
     return home_dir() / "entries"
+
+
+def events_path() -> Path:
+    return home_dir() / "events.jsonl"

@@ -6,6 +6,7 @@ from dual_tmux.runtime import build_cmd
 from dual_tmux.sshutil import list_ssh_hosts, parse_ssh_target
 from dual_tmux.oc import as_bind, empty_side, is_dst, parse_model, resume_cmd, start_cmd, OcSession
 from dual_tmux.store import default_names, normalize_dt
+from dual_tmux.log import emit, read_events
 from dual_tmux.workpoint import empty_point, empty_times
 
 
@@ -73,6 +74,15 @@ def test_dst_bind():
     assert empty_side()["tool"] == "opencode"
     assert is_dst({"trigger": bind, "bullet": bind})
     assert not is_dst({"trigger": bind, "bullet": empty_side()})
+
+
+def test_event_log(monkeypatch, tmp_path):
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
+    emit("freeze.side.fail", name="dt-msg", side="bullet", error="no oc")
+    emit("freeze.ok", name="dt-msg", is_dst=False)
+    rows = read_events(kind="freeze")
+    assert len(rows) == 2
+    assert rows[0]["kind"] == "freeze.side.fail"
 
 
 def test_workpoint_empty():
