@@ -1,0 +1,20 @@
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+
+def home_dir() -> Path:
+    return Path(os.environ.get("DUAL_TMUX_HOME", Path.home() / ".dual-tmux")).expanduser()
+
+
+def config_path() -> Path:
+    return home_dir() / "config.toml"
+
+
+def tunnels_dir() -> Path:
+    return home_dir() / "tunnels"
+
+
+def entries_dir() -> Path:
+    return home_dir() / "entries"

@@ -5,23 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .identity import legal_source
-
-
-def tmux_root() -> Path:
-    return Path.home() / "sessions" / "tmux"
-
-
-def dt_dir(me: str) -> Path:
-    path = tmux_root() / me / "dt"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-
-def entry_dir(me: str) -> Path:
-    path = tmux_root() / me / "entry"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+from .paths import entries_dir, tunnels_dir
 
 
 def now_iso() -> str:
@@ -30,7 +14,7 @@ def now_iso() -> str:
 
 def normalize_dt(name: str) -> str:
     if not name:
-        raise SystemExit("[err] 缺少隧道名")
+        raise SystemExit("[err] missing tunnel name")
     return name if name.startswith("dt-") else f"dt-{name}"
 
 
@@ -44,22 +28,15 @@ def legal_run(name: str) -> bool:
 
 def default_names(short: str) -> tuple[str, str, str]:
     short = short.removeprefix("dt-")
-    return f"dt-{short}", f"op_{short.replace('-', '_')}", f"run_{short.replace('-', '_')}"
+    safe = short.replace("-", "_")
+    return f"dt-{short}", f"op_{safe}", f"run_{safe}"
 
 
 def iter_dt_files() -> list[Path]:
-    root = tmux_root()
+    root = tunnels_dir()
     if not root.is_dir():
         return []
-    files: list[Path] = []
-    for src in sorted(root.iterdir()):
-        if not src.is_dir() or not legal_source(src.name):
-            continue
-        folder = src / "dt"
-        if not folder.is_dir():
-            continue
-        files.extend(sorted(folder.glob("dt-*.json")))
-    return files
+    return sorted(root.glob("dt-*.json"))
 
 
 def load(path: Path) -> dict[str, Any]:
@@ -73,10 +50,10 @@ def save(path: Path, data: dict[str, Any]) -> None:
 
 def find_dt(name: str) -> Path:
     name = normalize_dt(name)
-    for path in iter_dt_files():
-        if path.stem == name:
-            return path
-    raise SystemExit(f"[err] 无此隧道: {name}")
+    path = tunnels_dir() / f"{name}.json"
+    if path.is_file():
+        return path
+    raise SystemExit(f"[err] unknown tunnel: {name}")
 
 
 def occupied(field: str, value: str, skip: str = "") -> str:
@@ -92,12 +69,13 @@ def occupied(field: str, value: str, skip: str = "") -> str:
 def latest_dt() -> Path:
     files = iter_dt_files()
     if not files:
-        raise SystemExit("[err] 还没有隧道。先: dt new <名> --host tom7r --dir /workspace/...")
+        raise SystemExit("[err] no tunnels yet. Run: dt new <name> --dir /workspace/...")
     files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     return files[0]
 
 
-def write_entry(me: str, session: str, cmd: str) -> Path:
-    path = entry_dir(me) / f"{session}.cmd"
+def write_entry(session: str, cmd: str) -> Path:
+    path = entries_dir() / f"{session}.cmd"
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(cmd.rstrip() + "\n")
     return path
