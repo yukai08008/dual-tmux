@@ -30,3 +30,7 @@ def skills_dir() -> Path:
 
 def ops_root() -> Path:
     return home_dir() / "ops"
+
+
+def activity_path() -> Path:
+    return home_dir() / "activity.log"
