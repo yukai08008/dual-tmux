@@ -16,7 +16,7 @@ def test_missing_config(monkeypatch, tmp_path: Path):
 def test_config_without_ssh(monkeypatch, tmp_path: Path):
     home = tmp_path / "home"
     monkeypatch.setenv("DUAL_TMUX_HOME", str(home))
-    write_config(AppConfig(client="laptop", server="ghost-host", workspace="/workspace"))
+    write_config(AppConfig(client="tm_laptop", server="ghost-host", workspace="/workspace"))
 
     def fake_run(*_args, **_kwargs):
         class R:

@@ -1,4 +1,6 @@
-from dual_tmux.config import AppConfig, _parse_toml
+import pytest
+
+from dual_tmux.config import AppConfig, _parse_toml, init_config
 from dual_tmux.identity import legal_source
 from dual_tmux.runtime import build_cmd
 from dual_tmux.store import default_names, normalize_dt
@@ -12,6 +14,9 @@ def test_names():
 
 def test_source():
     assert legal_source("tm_client")
+    assert legal_source("tm_laptop")
+    assert not legal_source("laptop")
+    assert not legal_source("tm_")
     assert not legal_source("m7")
     assert not legal_source("hostname")
 
@@ -25,5 +30,13 @@ def test_cmd():
 
 
 def test_config_parse():
-    cfg = _parse_toml('client = "laptop"\nserver = "prod"\nworkspace = "/opt/app"\n')
-    assert cfg == AppConfig(client="laptop", server="prod", workspace="/opt/app")
+    cfg = _parse_toml('client = "tm_laptop"\nserver = "prod"\nworkspace = "/opt/app"\n')
+    assert cfg == AppConfig(client="tm_laptop", server="prod", workspace="/opt/app")
+
+
+def test_init_rejects_hostname(monkeypatch, tmp_path):
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
+    with pytest.raises(SystemExit):
+        init_config("laptop", "myserver")
+    path = init_config("tm_laptop", "myserver")
+    assert path.is_file()

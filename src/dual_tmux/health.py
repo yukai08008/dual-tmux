@@ -5,11 +5,12 @@ import subprocess
 from dataclasses import dataclass
 
 from .config import AppConfig, load_config
+from .identity import SOURCE_HINT, legal_source
 from .paths import config_path, home_dir
 from . import tmux as tmux_ops
 
 SSH_HINT = "fix ~/.ssh/config and keys yourself; this CLI never writes SSH files"
-INIT_HINT = "dt config --init --client <id> --server <ssh-host>"
+INIT_HINT = "dt config --init --client tm_<id> --server <ssh-host>"
 
 
 @dataclass
@@ -56,8 +57,8 @@ def collect_checks() -> tuple[AppConfig | None, list[Check]]:
     else:
         cfg = load_config()
         checks.append(Check("config", True, str(path)))
-        if not cfg.client or cfg.client == "client":
-            checks.append(Check("client", False, cfg.client or "(empty)", INIT_HINT))
+        if not legal_source(cfg.client):
+            checks.append(Check("client", False, cfg.client or "(empty)", SOURCE_HINT))
         else:
             checks.append(Check("client", True, cfg.client))
         if not cfg.server or cfg.server == "server":
@@ -91,7 +92,10 @@ def guide_if_needed(checks: list[Check]) -> None:
         return
     print()
     print("Client -> Server link is not ready.")
-    print("This CLI never writes ~/.ssh or keys. Configure SSH yourself, then retry.")
+    print("Step 1 is two fields only:")
+    print("  client  legal local source name (tm_*)")
+    print("  server  ssh Host alias already in ~/.ssh/config")
+    print("This CLI never writes ~/.ssh or keys.")
     print()
     print(f"  {INIT_HINT}")
     print("  ssh <ssh-host>            # must succeed; dual-tmux does not set this up")
