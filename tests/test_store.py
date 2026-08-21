@@ -48,8 +48,15 @@ def test_cmd_with_port():
 
 def test_list_ssh_hosts(tmp_path):
     cfg = tmp_path / "config"
-    cfg.write_text("Host tom7r github.com\n  HostName example.com\nHost *\n  IdentitiesOnly yes\nHost tm_skip?\n")
+    cfg.write_text(
+        "Host tom7r\n  HostName 1.2.3.4\n  User root\n  Port 10700\n"
+        "Host github.com\n  HostName github.com\nHost *\n  IdentitiesOnly yes\nHost tm_skip?\n"
+    )
     assert list_ssh_hosts(cfg) == ["tom7r", "github.com"]
+    t = parse_ssh_target("ssh -p 10700 root@1.2.3.4", cfg)
+    assert t.stored == "tom7r"
+    t2 = parse_ssh_target("ssh -p 22 root@9.9.9.9", cfg)
+    assert t2.stored == "root@9.9.9.9"
 
 
 def test_user():

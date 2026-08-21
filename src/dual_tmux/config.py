@@ -82,15 +82,16 @@ def init_config(
         raise SystemExit(f"[err] client {SOURCE_HINT}")
     if not legal_user(user):
         raise SystemExit(f"[err] user {USER_HINT}")
-    dest = target.dest
+    dest = target.stored
     if any(c.isspace() for c in dest) or dest in ("server", ".", "-"):
         raise SystemExit("[err] server must be a Host alias, user@host, or `ssh -p N user@host`")
+    ssh_port = 22 if target.matched_alias else target.port
     return write_config(
         AppConfig(
             client=client,
             server=dest,
             user=user,
             workspace=workspace or "/workspace",
-            ssh_port=target.port,
+            ssh_port=ssh_port,
         )
     )

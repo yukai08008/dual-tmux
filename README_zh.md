@@ -21,7 +21,7 @@ Client（本机）
 | 字段 | 你填什么 | 本 CLI **不会**做的 |
 |------|----------|---------------------|
 | `client` | 合规的**本机源主机名**：`tm_` + `[A-Za-z0-9._-]`。例：`tm_laptop`。不要用 hostname。 | 不会用 `hostname` 瞎起名 |
-| `server` | Host 别名、`user@host`，或粘贴 `ssh -p 22 root@IP`。非 22 端口只记在 config.toml 的 `ssh_port`。 | 不写 `~/.ssh/config`、密钥、`known_hosts` |
+| `server` | 只要 `ssh` 能通。粘贴 `ssh -p 22 root@IP`：若 `~/.ssh/config` 有对应 Host 就记别名，否则记 `root@IP`。名字好不好看无所谓。 | 不写 `~/.ssh/config`、密钥、`known_hosts`。不用远端 hostname。 |
 | `user` | 人名：`[A-Za-z][A-Za-z0-9._-]`。例：`ouc`。不要 `tm_*`。 | 不创建系统账号 |
 
 ```sh
