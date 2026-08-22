@@ -61,16 +61,25 @@ def agents_text(data: dict) -> str:
         f"- bullet session: `{bullet.get('session_id') or '—'}` model `{bullet.get('model') or '—'}`\n"
         f"- tunnel JSON: `{tunnels_dir() / f'{name}.json'}`\n"
         "\n"
+        "## Memory\n"
+        "\n"
+        f"- shared facts: `{home_dir() / 'MEMORY.json'}`  (`dt mem`)\n"
+        f"- this agent facts: `{ops_dir(op) / 'MEMORY.json'}`  (`dt mem {name}`)\n"
+        f"- this agent log: `{ops_dir(op) / 'memory.sqlite'}`  (`dt note {name} …` / `dt notes {name}`)\n"
+        "\n"
         "Resume either side with `opencode --auto -s <id>`, never `-c`.\n"
         f"Re-jump: `dt re {name}`\n"
     )
 
 
 def prepare(data: dict) -> Path:
+    from . import memory as mem
+
     sync_skills()
     dest = ops_dir(data["op"])
     dest.mkdir(parents=True, exist_ok=True)
     (dest / "AGENTS.md").write_text(agents_text(data), encoding="utf-8")
+    mem.prepare_for_tunnel(data)
     return dest
 
 

@@ -1,6 +1,6 @@
 # dual-tmux
 
-[中文文档](README_zh.md) · [Persist sync](docs/persist-sync.md)
+[中文文档](README_zh.md) · [Persist sync](docs/persist-sync.md) · [Memory](docs/memory.md)
 
 Dual tmux tunnels. Physical sessions stay ordinary tmux; this CLI names them and binds them 1:1.
 
@@ -231,6 +231,9 @@ Freeze also records **work points** (`op_point` / `run_point`: kind, cwd, ssh, d
 | `dt doctor` | check Client tmux + ssh; apply persist tenant hotfix |
 | `dt config --init` | write client + server + user |
 | `dt upgrade` | `uv tool upgrade dual-tmux`, then persist tenant hotfix |
+| `dt mem [name] [set k v]` | shared or per-agent MEMORY.json facts |
+| `dt note <name> '…'` | append sqlite note for that agent |
+| `dt notes <name> [--day] [--q]` | list / FTS-search agent notes |
 
 ## Uninstall
 
