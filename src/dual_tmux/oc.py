@@ -198,20 +198,28 @@ def latest_remote(ssh_argv: list[str], container: str = "") -> OcSession | None:
 
 
 def empty_side(tool: str = "opencode") -> dict[str, str]:
-    return {
+    from .paneparse import parser_id_for_side
+
+    info = {
         "tool": tool,
+        "parser": "",
         "model": "",
         "session_id": "",
         "slug": "",
         "agent": "",
     }
+    info["parser"] = parser_id_for_side(info)
+    return info
 
 
 def as_bind(session: OcSession, tool: str = "") -> dict[str, str]:
     from .workpoint import now_iso
 
-    return {
+    from .paneparse import parser_id_for_side
+
+    info = {
         "tool": tool or session.tool or "opencode",
+        "parser": "",
         "model": session.model,
         "session_id": session.session_id,
         "slug": session.slug,
@@ -219,6 +227,8 @@ def as_bind(session: OcSession, tool: str = "") -> dict[str, str]:
         "directory": session.directory,
         "frozen_at": now_iso(),
     }
+    info["parser"] = parser_id_for_side(info)
+    return info
 
 
 def resume_cmd(info: dict) -> str:

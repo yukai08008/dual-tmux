@@ -201,10 +201,15 @@ def cmd_branch(args: argparse.Namespace) -> None:
 def _side(data: dict, name: str) -> dict:
     side = data.setdefault(name, oc_ops.empty_side())
     side.setdefault("tool", "opencode")
+    side.setdefault("parser", "")
     side.setdefault("model", "")
     side.setdefault("session_id", "")
     side.setdefault("slug", "")
     side.setdefault("agent", "")
+    if not side.get("parser"):
+        from .paneparse import parser_id_for_side
+
+        side["parser"] = parser_id_for_side(side)
     return side
 
 

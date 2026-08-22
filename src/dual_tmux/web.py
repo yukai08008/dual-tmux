@@ -7,6 +7,7 @@ from urllib.parse import parse_qs, urlparse
 
 from . import oc as oc_ops
 from . import tmux as tmux_ops
+from .paneparse import parse_pane, parser_id_for_side
 from .store import find_dt, iter_dt_files, load, normalize_dt
 
 HOST = "127.0.0.1"
@@ -106,6 +107,10 @@ button {{ background:var(--acc); color:#fff; border:0; border-radius:6px; paddin
 .out {{ margin:0; height:380px; overflow:auto; background:#0b1220; color:#dbeafe; padding:12px 14px; border-radius:6px; font:13px/1.5 ui-monospace,Menlo,monospace; white-space:pre-wrap; word-break:break-word; }}
 h2 {{ margin:0 0 8px; font-size:13px; }}
 .h2row {{ display:flex; align-items:center; gap:12px; margin-bottom:8px; }}
+.pollhead {{ display:flex; align-items:center; gap:8px; }}
+.pollhead .spin {{ width:10px; height:10px; border-radius:50%; background:#9ca3af; }}
+.pollhead.busy .spin {{ background:#f59e0b; animation:blink 0.9s ease-in-out infinite; }}
+.bubble .meta {{ font-size:11px; color:#6b7280; margin-top:6px; }}
 .h2row h2 {{ margin:0; flex:1; }}
 .lamps {{ display:flex; gap:14px; margin-left:auto; }}
 .lamp-wrap {{ display:flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); }}
@@ -227,7 +232,10 @@ def tunnels_page(selected: str = "") -> str:
         <div class="thread" id="thread"></div>
       </div>
       <div class="card">
-        <h2>轮询状态</h2>
+        <div class="h2row pollhead idle" id="pollhead">
+          <h2>轮询状态</h2>
+          <i class="spin" id="pollspin"></i>
+        </div>
         <div class="log idle" id="log"></div>
       </div>
       <div class="card">
@@ -273,8 +281,10 @@ function setLamp(el, color) {{
 }}
 function setPollBusy(on) {{
   logEl.className = 'log ' + (on ? 'busy' : 'idle');
+  const head = document.getElementById('pollhead');
+  if (head) head.className = 'h2row pollhead ' + (on ? 'busy' : 'idle');
 }}
-function addBubble(kind, text) {{
+function addBubble(kind, text, extra) {{
   const b = document.createElement('div');
   b.className = 'bubble ' + kind;
   const who = document.createElement('div');
@@ -285,6 +295,15 @@ function addBubble(kind, text) {{
   body.textContent = text || '';
   b.appendChild(who);
   b.appendChild(body);
+  extra = extra || {{}};
+  const bits = [];
+  if (extra.model) bits.push(extra.model);
+  if (extra.elapsed) bits.push(extra.elapsed);
+  bits.push(new Date().toLocaleTimeString());
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+  meta.textContent = bits.join(' · ');
+  b.appendChild(meta);
   threadEl.appendChild(b);
   while (threadEl.children.length > THREAD_MAX) threadEl.removeChild(threadEl.firstChild);
   threadEl.scrollTop = threadEl.scrollHeight;
@@ -387,9 +406,8 @@ q.addEventListener('keydown', (e) => {{
 
 function snap(el, next) {{
   if (next === el.textContent) return;
-  const stick = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
   el.textContent = next;
-  if (stick) el.scrollTop = el.scrollHeight;
+  el.scrollTop = el.scrollHeight;
 }}
 
 async function tick() {{
@@ -409,12 +427,14 @@ async function tick() {{
     setLamp(lampOp, 'yellow');
     setLamp(lampRun, j.run_live ? 'yellow' : 'red');
     setPollBusy(true);
+    const parsed = (j.op_parsed || {{}});
     if (opChanged) {{
-      const delta = paneDelta(opAtSend, j.op_text);
-      const sum = summarize(delta || j.op_text);
-      if (sum !== lastPollKey) {{
-        logLine('poll', sum);
-        lastPollKey = sum;
+      const sum = parsed.body ? parsed.body.replace(/\\s+/g, ' ').slice(0, 140) : summarize(paneDelta(opAtSend, j.op_text) || j.op_text);
+      const key = (parsed.model || '') + '|' + sum;
+      if (key !== lastPollKey) {{
+        const extra = parsed.model ? (' · ' + parsed.model + (parsed.elapsed ? ' · ' + parsed.elapsed : '')) : '';
+        logLine('poll', sum + extra);
+        lastPollKey = key;
       }}
       pollQuiet = 0;
     }} else {{
@@ -422,17 +442,19 @@ async function tick() {{
       if (pollQuiet === 1) logLine('poll', '等待 trigger · op=' + opState);
       if (pollQuiet >= 8) {{
         const fail = !j.op_live;
-        const delta = paneDelta(opAtSend, j.op_text);
         const reply = fail
           ? ('失败 · trigger ' + opState)
-          : (summarize(delta) || delta || '本轮无新文本');
-        addBubble(fail ? 'fail' : 'ans', reply);
+          : (parsed.body || paneDelta(opAtSend, j.op_text) || '本轮无新文本');
+        addBubble(fail ? 'fail' : 'ans', reply, parsed);
         finalOp = fail ? 'red' : 'green';
         finalRun = j.run_live ? 'green' : 'red';
         setLamp(lampOp, finalOp);
         setLamp(lampRun, finalRun);
         setPollBusy(false);
-        logLine(fail ? 'err' : 'done', fail ? '本轮失败 · op=' + opState : '本轮结束 · ' + (summarize(delta) || '已写入问答'));
+        const doneMsg = fail
+          ? ('本轮失败 · op=' + opState)
+          : ('本轮结束 · ' + (parsed.model || '') + (parsed.elapsed ? ' · ' + parsed.elapsed : '') + (parsed.body ? ' · ' + parsed.body.replace(/\\s+/g, ' ').slice(0, 80) : ''));
+        logLine(fail ? 'err' : 'done', doneMsg.trim());
         waiting = false;
         pollQuiet = 0;
         lastPollKey = '';
@@ -524,6 +546,8 @@ class Handler(BaseHTTPRequestHandler):
                 "run_cmd": tmux_ops.pane_info(run).get("cmd") if run else "",
                 "op_text": _capture(op),
                 "run_text": _capture(run),
+                "op_parsed": parse_pane(_capture(op), parser_id_for_side(data.get("trigger"))).as_dict(),
+                "run_parsed": parse_pane(_capture(run), parser_id_for_side(data.get("bullet"))).as_dict(),
             }
             self._send(200, json.dumps(payload), "application/json; charset=utf-8")
             return
