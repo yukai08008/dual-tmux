@@ -39,6 +39,46 @@ def have_opencode() -> bool:
     return shutil.which("opencode") is not None
 
 
+def list_models() -> list[str]:
+    if not have_opencode():
+        return []
+    result = subprocess.run(
+        ["opencode", "models"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        return []
+    out: list[str] = []
+    for line in (result.stdout or "").splitlines():
+        name = line.strip()
+        if name and "/" in name and not name.startswith("opencode "):
+            out.append(name)
+    return out
+
+
+def probe_model(model: str, timeout: int = 45) -> tuple[bool, str]:
+    model = (model or "").strip()
+    if not model:
+        return False, "empty model"
+    if not have_opencode():
+        return False, "opencode not in PATH"
+    try:
+        result = subprocess.run(
+            ["opencode", "run", "--model", model, "reply with ok"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return False, f"timeout after {timeout}s"
+    text = ((result.stdout or "") + "\n" + (result.stderr or "")).strip()
+    if result.returncode != 0:
+        return False, text[-400:] or f"exit {result.returncode}"
+    return True, text[-200:] or "ok"
+
+
 def parse_model(raw: str) -> str:
     if not raw:
         return ""
