@@ -44,5 +44,7 @@ def test_admin_tabs_and_search(tmp_path, monkeypatch):
     assert "/api/model" in page
     assert "/api/models" in page
     assert "bindModelPicker" in page
+    assert "会话同步" in page
+    assert "syncbox" in page
     names = [r["name"] for r in _tunnels()]
     assert names == ["dt-msg"]

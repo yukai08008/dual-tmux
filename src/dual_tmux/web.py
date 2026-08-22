@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import html
 import json
+import os
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from . import oc as oc_ops
 from . import tmux as tmux_ops
 from .paneparse import parse_pane, parser_id_for_side
+from .config import load_config
 from .store import find_dt, iter_dt_files, load, normalize_dt
 
 HOST = "127.0.0.1"
@@ -46,6 +50,41 @@ def _pane_name(data: dict, side: str) -> str:
     if side == "op":
         return data.get("op") or ""
     return data.get("run") or ""
+
+
+def _mtime_iso(path: Path) -> str:
+    if not path.is_file() and not path.is_dir():
+        return ""
+    try:
+        ts = path.stat().st_mtime
+    except OSError:
+        return ""
+    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _sync_info(data: dict) -> dict:
+    cfg = load_config()
+    source = cfg.client
+    trigger = data.get("trigger") or {}
+    slug = trigger.get("slug") or ""
+    op = data.get("op") or ""
+    run = data.get("run") or ""
+    sessions = Path(os.environ.get("DT_SESSIONS_HOME", Path.home() / "sessions")).expanduser()
+    oc_json = sessions / "opencode" / source / f"{slug}.json" if slug else Path()
+    tmux_dir = sessions / "tmux" / source
+    last_link = tmux_dir / "last"
+    return {
+        "source": source,
+        "op": op,
+        "run": run,
+        "op_live": bool(op) and tmux_ops.has_session(op),
+        "run_live": bool(run) and tmux_ops.has_session(run),
+        "oc_slug": slug,
+        "oc_file": str(oc_json) if slug else "",
+        "oc_mtime": _mtime_iso(oc_json) if slug else "",
+        "tmux_last": _mtime_iso(last_link),
+        "tmux_dir": str(tmux_dir),
+    }
 
 
 def _capture(name: str) -> str:
@@ -154,6 +193,11 @@ h2 {{ margin:0 0 8px; font-size:13px; }}
 .models input {{ width:260px; padding:6px 8px; }}
 .models button {{ padding:6px 10px; }}
 .models .ghost {{ background:#fff; color:var(--acc); border:1px solid var(--acc); }}
+.sync {{ font:12px/1.5 ui-sans-serif,system-ui; color:#374151; }}
+.sync .row {{ display:flex; gap:10px; padding:4px 0; border-bottom:1px dashed var(--line); }}
+.sync .k {{ flex:0 0 88px; color:var(--muted); }}
+.sync .v {{ flex:1; font-family:ui-monospace,Menlo,monospace; }}
+.sync .chg {{ color:#059669; font-size:11px; }}
 .mhits {{ position:absolute; left:0; right:0; top:100%; background:#fff; border:1px solid var(--line); border-radius:6px; max-height:220px; overflow:auto; z-index:30; display:none; box-shadow:0 8px 20px rgba(0,0,0,.12); }}
 .mhits a {{ display:block; padding:6px 8px; text-decoration:none; color:var(--text); font:12px ui-monospace,Menlo,monospace; }}
 .mhits a:hover {{ background:#eff6ff; }}
@@ -278,6 +322,10 @@ def tunnels_page(selected: str = "") -> str:
       <div class="card">
         <h2>bullet 会话 · <span id="runlabel">{html.escape(run or "run_*")}</span></h2>
         <pre class="out" id="runout">{bullet_out}</pre>
+      </div>
+      <div class="card">
+        <h2>会话同步</h2>
+        <div class="sync" id="syncbox">选定隧道后显示 op / run 名称与 persist 时间</div>
       </div>
     </div>
 <script>
@@ -509,6 +557,24 @@ q.addEventListener('keydown', (e) => {{
   }}
 }});
 
+let lastSync = {{}};
+function renderSync(s) {{
+  if (!s) return;
+  const el = document.getElementById('syncbox');
+  const marks = [];
+  function line(k, v, prev) {{
+    const chg = prev && v && prev !== v ? '<span class="chg">更新</span>' : '';
+    marks.push('<div class="row"><span class="k">'+k+'</span><span class="v">'+(v || '—')+' '+chg+'</span></div>');
+  }}
+  line('op 会话', s.op + (s.op_live ? ' · live' : ' · down'), lastSync.op);
+  line('run 会话', s.run + (s.run_live ? ' · live' : ' · down'), lastSync.run);
+  line('oc slug', s.oc_slug, lastSync.oc_slug);
+  line('oc 快照', s.oc_mtime, lastSync.oc_mtime);
+  line('tmux last', s.tmux_last, lastSync.tmux_last);
+  line('来源', s.source, lastSync.source);
+  el.innerHTML = marks.join('');
+  lastSync = s;
+}}
 function snap(el, next) {{
   if (next === el.textContent) return;
   el.textContent = next;
@@ -523,6 +589,7 @@ async function tick() {{
   if (j.error) {{ logLine('err', j.error); return; }}
   snap(opout, j.op_text || '');
   snap(runout, j.run_text || '');
+  if (j.sync) renderSync(j.sync);
   if (j.trigger_model != null) {{
     const row = rows.find(r => r.name === st.name);
     if (row) {{
@@ -771,6 +838,7 @@ class Handler(BaseHTTPRequestHandler):
                 "run_parsed": parse_pane(_capture(run), parser_id_for_side(data.get("bullet"))).as_dict(),
                 "trigger_model": (data.get("trigger") or {}).get("model") or "",
                 "bullet_model": (data.get("bullet") or {}).get("model") or "",
+                "sync": _sync_info(data),
             }
             self._send(200, json.dumps(payload), "application/json; charset=utf-8")
             return
