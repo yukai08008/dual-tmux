@@ -856,6 +856,14 @@ def cmd_hotfix(_: argparse.Namespace) -> None:
     ui.ok(f"hotfix {hotfix_ops.HOTFIX_ID}")
 
 
+def cmd_web(args: argparse.Namespace) -> None:
+    from .web import DEFAULT_PORT, HOST, serve
+
+    port = int(args.port or DEFAULT_PORT)
+    ui.info(f"http://{HOST}:{port}")
+    serve(HOST, port)
+
+
 def cmd_upgrade(_: argparse.Namespace) -> None:
     ui.info(f"Current version: {__version__}")
     result = subprocess.run(
@@ -1006,6 +1014,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_notes.add_argument("--q", default="", help="FTS5 MATCH query")
     p_notes.add_argument("-n", "--limit", type=int, default=40)
 
+    p_web = sub.add_parser("web", help="local admin UI for tunnel pane I/O")
+    p_web.add_argument("--port", type=int, default=8787)
     sub.add_parser("doctor", help="check config, tmux, ssh; apply persist tenant hotfix")
     sub.add_parser("hotfix", help="apply persist tenant hotfix without upgrading")
     sub.add_parser("upgrade", help="upgrade via uv tool, then exec dt hotfix")
@@ -1039,6 +1049,7 @@ def main() -> None:
         "mem",
         "note",
         "notes",
+        "web",
     }:
         if not config_path().is_file():
             prompt_init()
@@ -1073,6 +1084,7 @@ def main() -> None:
         "note": cmd_note,
         "notes": cmd_notes,
         "hotfix": cmd_hotfix,
+        "web": cmd_web,
         "upgrade": cmd_upgrade,
     }
     ev.emit("cmd.start", cmd=command)
