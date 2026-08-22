@@ -105,6 +105,20 @@ button {{ background:var(--acc); color:#fff; border:0; border-radius:6px; paddin
 .log .msg {{ color:#374151; flex:1; }}
 .out {{ margin:0; height:380px; overflow:auto; background:#0b1220; color:#dbeafe; padding:12px 14px; border-radius:6px; font:13px/1.5 ui-monospace,Menlo,monospace; white-space:pre-wrap; word-break:break-word; }}
 h2 {{ margin:0 0 8px; font-size:13px; }}
+.h2row {{ display:flex; align-items:center; gap:12px; margin-bottom:8px; }}
+.h2row h2 {{ margin:0; flex:1; }}
+.lamps {{ display:flex; gap:14px; margin-left:auto; }}
+.lamp-wrap {{ display:flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); }}
+.lamp {{ width:12px; height:12px; border-radius:50%; background:#9ca3af; box-shadow:0 0 0 2px #e5e7eb; }}
+.lamp.red {{ background:#dc2626; box-shadow:0 0 0 2px #fecaca; }}
+.lamp.green {{ background:#059669; box-shadow:0 0 0 2px #a7f3d0; }}
+.lamp.yellow {{ background:#f59e0b; box-shadow:0 0 0 2px #fde68a; animation:blink 0.9s ease-in-out infinite; }}
+@keyframes blink {{ 50% {{ opacity:0.3; }} }}
+.log.busy {{ border-color:#f59e0b; background:#fffbeb; }}
+.log.idle {{ border-color:var(--line); background:#f3f4f6; }}
+.reply {{ min-height:88px; max-height:180px; overflow:auto; background:#f8fafc; border:1px solid var(--line); border-radius:6px; padding:10px; white-space:pre-wrap; font:13px/1.45 ui-sans-serif,system-ui; color:#374151; }}
+.reply.ok {{ border-color:#059669; background:#ecfdf5; }}
+.reply.fail {{ border-color:#dc2626; background:#fef2f2; }}
 </style>
 </head>
 <body>
@@ -187,7 +201,13 @@ def tunnels_page(selected: str = "") -> str:
         <div class="meta" id="meta" style="margin-top:8px">{meta}</div>
       </div>
       <div class="card">
-        <h2>发给 trigger（op_*）</h2>
+        <div class="h2row">
+          <h2>发给 trigger（op_*）</h2>
+          <div class="lamps">
+            <span class="lamp-wrap">trigger <i class="lamp red" id="lamp-op"></i></span>
+            <span class="lamp-wrap">bullet <i class="lamp red" id="lamp-run"></i></span>
+          </div>
+        </div>
         <form id="sendf">
           <input type="hidden" name="t" id="tname" value="{sel}">
           <textarea name="text" id="box" rows="10" placeholder="提交后 send-keys 到 trigger pane" {"disabled" if not selected else ""}></textarea>
@@ -195,8 +215,12 @@ def tunnels_page(selected: str = "") -> str:
         </form>
       </div>
       <div class="card">
+        <h2>trigger 回复</h2>
+        <div class="reply" id="reply">选定隧道并提交后，这里显示 trigger 最新一次回复</div>
+      </div>
+      <div class="card">
         <h2>轮询状态</h2>
-        <div class="log" id="log"></div>
+        <div class="log idle" id="log"></div>
       </div>
       <div class="card">
         <h2>trigger 会话 · <span id="oplabel">{html.escape(op or "op_*")}</span></h2>
@@ -220,12 +244,36 @@ const runout = document.getElementById('runout');
 const oplabel = document.getElementById('oplabel');
 const runlabel = document.getElementById('runlabel');
 const sendf = document.getElementById('sendf');
+const lampOp = document.getElementById('lamp-op');
+const lampRun = document.getElementById('lamp-run');
+const replyEl = document.getElementById('reply');
 let chosen = {json.dumps(selected)};
 let lastOp = '', lastRun = '';
 let lastSent = 0;
 let waiting = false;
 let pollQuiet = 0;
+let opAtSend = '';
+let finalOp = 'red';
+let finalRun = 'red';
 const LOG_MAX = 200;
+
+function setLamp(el, color) {{
+  el.className = 'lamp ' + color;
+}}
+function setPollBusy(on) {{
+  logEl.className = 'log ' + (on ? 'busy' : 'idle');
+}}
+function setReply(text, ok) {{
+  replyEl.textContent = text || '';
+  replyEl.className = 'reply ' + (ok ? 'ok' : 'fail');
+}}
+function paneDelta(before, after) {{
+  const a = after || '';
+  const b = before || '';
+  if (a.startsWith(b)) return a.slice(b.length).trim();
+  const lines = a.trim().split('\\n').filter(Boolean);
+  return lines.slice(-24).join('\\n');
+}}
 
 function logLine(kind, text) {{
   const row = document.createElement('div');
@@ -277,6 +325,12 @@ function pick(name) {{
   lastOp = lastRun = '';
   waiting = false;
   pollQuiet = 0;
+  opAtSend = '';
+  setPollBusy(false);
+  setLamp(lampOp, row.op_live ? 'green' : 'red');
+  setLamp(lampRun, row.run_live ? 'green' : 'red');
+  finalOp = row.op_live ? 'green' : 'red';
+  finalRun = row.run_live ? 'green' : 'red';
   logLine('pick', '已选定 ' + name + ' · ' + row.op + ' / ' + row.run);
   tick();
 }}
@@ -320,6 +374,9 @@ async function tick() {{
   const opState = j.op_live ? (j.op_cmd || 'live') : 'down';
   const runState = j.run_live ? (j.run_cmd || 'live') : 'down';
   if (waiting) {{
+    setLamp(lampOp, 'yellow');
+    setLamp(lampRun, j.run_live ? 'yellow' : 'red');
+    setPollBusy(true);
     if (opChanged) {{
       const tail = (j.op_text || '').trim().split('\\n').filter(Boolean).slice(-1)[0] || 'trigger 有输出';
       logLine('poll', tail.slice(0, 120));
@@ -328,13 +385,30 @@ async function tick() {{
       pollQuiet += 1;
       if (pollQuiet === 1) logLine('poll', '等待 trigger · op=' + opState + ' run=' + runState);
       if (pollQuiet >= 8) {{
-        logLine('done', '本轮轮询结束 · op=' + opState + ' run=' + runState);
+        const fail = !j.op_live;
+        const reply = fail
+          ? ('失败 · trigger ' + opState)
+          : (paneDelta(opAtSend, j.op_text) || 'trigger 本轮无新文本');
+        setReply(reply, !fail);
+        finalOp = fail ? 'red' : 'green';
+        finalRun = j.run_live ? 'green' : 'red';
+        setLamp(lampOp, finalOp);
+        setLamp(lampRun, finalRun);
+        setPollBusy(false);
+        logLine(fail ? 'err' : 'done', fail ? '本轮失败 · op=' + opState : '本轮结束 · 已刷新 trigger 回复');
         waiting = false;
         pollQuiet = 0;
       }}
     }}
-  }} else if (opChanged || runChanged) {{
-    logLine('poll', (opChanged ? 'trigger 更新' : 'bullet 更新') + ' · op=' + opState + ' run=' + runState);
+  }} else {{
+    setPollBusy(false);
+    if (!j.op_live) finalOp = 'red';
+    if (!j.run_live) finalRun = 'red';
+    setLamp(lampOp, finalOp);
+    setLamp(lampRun, finalRun);
+    if (opChanged || runChanged) {{
+      logLine('poll', (opChanged ? 'trigger 更新' : 'bullet 更新') + ' · op=' + opState + ' run=' + runState);
+    }}
   }}
 }}
 setInterval(tick, 1500);
@@ -345,9 +419,22 @@ sendf.addEventListener('submit', async (e) => {{
   if (!chosen || !box.value.trim()) return;
   const preview = box.value.trim().replace(/\\s+/g, ' ').slice(0, 80);
   logLine('send', preview || '(empty)');
+  opAtSend = lastOp;
+  setLamp(lampOp, 'yellow');
+  setLamp(lampRun, 'yellow');
+  setPollBusy(true);
   const body = new URLSearchParams({{ t: chosen, side: 'op', text: box.value }});
   const r = await fetch('/send', {{ method: 'POST', headers: {{ 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' }}, body }});
-  if (!r.ok) {{ logLine('err', await r.text()); return; }}
+  if (!r.ok) {{
+    const err = await r.text();
+    logLine('err', err);
+    setReply(err, false);
+    finalOp = 'red';
+    setLamp(lampOp, 'red');
+    setLamp(lampRun, finalRun);
+    setPollBusy(false);
+    return;
+  }}
   lastSent = Date.now();
   waiting = true;
   pollQuiet = 0;
