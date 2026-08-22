@@ -33,6 +33,11 @@ def test_admin_tabs_and_search(tmp_path, monkeypatch):
     assert 'lamp gray' in page
     assert "addBubble" in page
     assert "summarize" in page
+    assert "pollspin" in page
+    assert "op_parsed" in page or "addBubble" in page
     assert "dt-msg" in page
+    assert "btabs" in page
+    assert "tabadd" in page
+    assert "closeTab" in page
     names = [r["name"] for r in _tunnels()]
     assert names == ["dt-msg"]
