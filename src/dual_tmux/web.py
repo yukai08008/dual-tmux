@@ -154,7 +154,7 @@ h2 {{ margin:0 0 8px; font-size:13px; }}
 .models input {{ width:260px; padding:6px 8px; }}
 .models button {{ padding:6px 10px; }}
 .models .ghost {{ background:#fff; color:var(--acc); border:1px solid var(--acc); }}
-.mhits {{ position:absolute; left:0; right:0; top:100%; background:#fff; border:1px solid var(--line); border-radius:6px; max-height:220px; overflow:auto; z-index:6; display:none; }}
+.mhits {{ position:absolute; left:0; right:0; top:100%; background:#fff; border:1px solid var(--line); border-radius:6px; max-height:220px; overflow:auto; z-index:30; display:none; box-shadow:0 8px 20px rgba(0,0,0,.12); }}
 .mhits a {{ display:block; padding:6px 8px; text-decoration:none; color:var(--text); font:12px ui-monospace,Menlo,monospace; }}
 .mhits a:hover {{ background:#eff6ff; }}
 </style>
@@ -691,25 +691,33 @@ document.getElementById('btn-freeze').addEventListener('click', async () => {{
 function bindModelPicker(inputId, hitsId) {{
   const inp = document.getElementById(inputId);
   const box = document.getElementById(hitsId);
+  const wrap = inp.closest('.field');
   let timer = 0;
   async function show() {{
     const q = inp.value.trim();
-    const r = await fetch('/api/models?q=' + encodeURIComponent(q));
-    const list = await r.json();
-    box.innerHTML = (list || []).slice(0, 30).map(m => '<a href="#" data-m="'+m+'">'+m+'</a>').join('') || '<div class="sub" style="padding:8px">无匹配</div>';
+    try {{
+      const r = await fetch('/api/models?q=' + encodeURIComponent(q));
+      const list = await r.json();
+      box.innerHTML = (list || []).slice(0, 40).map(m => '<a href="#" data-m="'+m+'">'+m+'</a>').join('') || '<div class="sub" style="padding:8px">无匹配</div>';
+    }} catch (err) {{
+      box.innerHTML = '<div class="sub" style="padding:8px">加载失败</div>';
+    }}
     box.style.display = 'block';
   }}
   inp.addEventListener('focus', show);
+  inp.addEventListener('click', (e) => {{ e.stopPropagation(); show(); }});
   inp.addEventListener('input', () => {{ clearTimeout(timer); timer = setTimeout(show, 120); }});
+  box.addEventListener('mousedown', (e) => e.preventDefault());
   box.addEventListener('click', (e) => {{
     const a = e.target.closest('a[data-m]');
     if (!a) return;
     e.preventDefault();
+    e.stopPropagation();
     inp.value = a.dataset.m;
     box.style.display = 'none';
   }});
   document.addEventListener('click', (e) => {{
-    if (!e.target.closest('.field')) box.style.display = 'none';
+    if (!wrap.contains(e.target)) box.style.display = 'none';
   }});
 }}
 bindModelPicker('m-op', 'mh-op');
