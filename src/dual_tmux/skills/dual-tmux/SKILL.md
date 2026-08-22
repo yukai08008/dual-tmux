@@ -25,4 +25,6 @@ If bullet asks to rebuild / replace its workspace container: **you** do that on 
 
 Architecture and flow questions: send to bullet; require mermaid diagrams **filed in the workspace**, not only in chat. See `tmux-trigger`.
 
+Structured facts: shared `~/.dual-tmux/MEMORY.json` (`dt mem`) and this agent `ops/<op_*>/MEMORY.json` (`dt mem <dt>`). Day-scoped / FTS notes: `dt note` / `dt notes` against `memory.sqlite`.
+
 Bindings live in `dt inspect`. Another Client: `dt pull` then `dt resume` (imports trigger persist JSON locally; bullet `-s` at the jump sqlite). Hub lock: only one Client active; `dt drop` kills local tmux and releases. `dt push` does not copy `config.toml`. Container names are not persist sources.

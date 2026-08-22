@@ -36,6 +36,7 @@ from .store import (
 from . import activity
 from . import cron as cron_ops
 from . import hotfix as hotfix_ops
+from . import memory as mem_ops
 from . import log as ev
 from . import opsdir
 from . import tmux as tmux_ops
@@ -789,6 +790,64 @@ def cmd_cron(args: argparse.Namespace) -> None:
         ui.skip(f"already  {cron_ops.line()}")
 
 
+def _print_facts(data: dict, label: str) -> None:
+    ui.info(label)
+    facts = data.get("facts") or {}
+    if not facts:
+        ui.skip("(empty facts)")
+        return
+    print(json.dumps(facts, ensure_ascii=False, indent=2))
+
+
+def cmd_mem(args: argparse.Namespace) -> None:
+    name = args.name or ""
+    action = args.action or "get"
+    if action == "set":
+        if not args.key:
+            raise SystemExit("usage: dt mem [name] set <key> <value>")
+        data = mem_ops.put_fact(args.key, args.value, name or None)
+        ui.ok(f"set {args.key}")
+        _print_facts(data, f"{name or 'shared'}  {mem_ops.agent_memory_path(name) if name else mem_ops.global_memory_path()}")
+        return
+    if name:
+        mem_ops.ensure_agent(name)
+        _print_facts(mem_ops.get_memory(name), str(mem_ops.agent_memory_path(name)))
+        return
+    _print_facts(mem_ops.get_memory(), str(mem_ops.global_memory_path()))
+
+
+def cmd_note(args: argparse.Namespace) -> None:
+    row = mem_ops.add_note(
+        args.name,
+        args.body,
+        title=args.title or "",
+        kind=args.kind or "note",
+        day=args.day or "",
+    )
+    ui.ok(f"note {row['id']}  {row['day']}  {row['kind']}")
+
+
+def cmd_notes(args: argparse.Namespace) -> None:
+    rows = mem_ops.query_notes(
+        args.name,
+        day=args.day or "",
+        since=args.since or "",
+        until=args.until or "",
+        q=args.q or "",
+        limit=args.limit,
+    )
+    if not rows:
+        ui.skip("(no notes)")
+        return
+    for row in rows:
+        title = row.get("title") or ""
+        head = f"#{row['id']}  {row['day']}  {row['kind']}"
+        if title:
+            head += f"  {title}"
+        ui.info(head)
+        print(row.get("body") or "")
+
+
 def cmd_hotfix(_: argparse.Namespace) -> None:
     if not config_path().is_file():
         ui.warn("no config; dt config --init first")
@@ -926,6 +985,27 @@ def build_parser() -> argparse.ArgumentParser:
     p_log.add_argument("--kind", default="", help="prefix filter, e.g. freeze")
     p_log.add_argument("--name", default="", help="filter by DT name")
 
+    p_mem = sub.add_parser("mem", help="shared or per-agent MEMORY.json facts")
+    p_mem.add_argument("name", nargs="?", default="", help="dt name; omit for shared ~/.dual-tmux/MEMORY.json")
+    p_mem.add_argument("action", nargs="?", default="get", choices=["get", "set"])
+    p_mem.add_argument("key", nargs="?", default="")
+    p_mem.add_argument("value", nargs="?", default="")
+
+    p_note = sub.add_parser("note", help="append a sqlite note for one agent")
+    p_note.add_argument("name", help="dt name")
+    p_note.add_argument("body")
+    p_note.add_argument("--title", default="")
+    p_note.add_argument("--kind", default="note")
+    p_note.add_argument("--day", default="", help="YYYY-MM-DD (default today)")
+
+    p_notes = sub.add_parser("notes", help="list/search agent sqlite notes (day + FTS)")
+    p_notes.add_argument("name", help="dt name")
+    p_notes.add_argument("--day", default="", help="YYYY-MM-DD")
+    p_notes.add_argument("--since", default="")
+    p_notes.add_argument("--until", default="")
+    p_notes.add_argument("--q", default="", help="FTS5 MATCH query")
+    p_notes.add_argument("-n", "--limit", type=int, default=40)
+
     sub.add_parser("doctor", help="check config, tmux, ssh; apply persist tenant hotfix")
     sub.add_parser("hotfix", help="apply persist tenant hotfix without upgrading")
     sub.add_parser("upgrade", help="upgrade via uv tool, then exec dt hotfix")
@@ -945,7 +1025,21 @@ def main() -> None:
         ensure_ready()
         cmd_enter(argparse.Namespace(name=None))
         return
-    if command not in {"config", "doctor", "hotfix", "upgrade", "ls", "show", "inspect", "log", "tick", "cron"}:
+    if command not in {
+        "config",
+        "doctor",
+        "hotfix",
+        "upgrade",
+        "ls",
+        "show",
+        "inspect",
+        "log",
+        "tick",
+        "cron",
+        "mem",
+        "note",
+        "notes",
+    }:
         if not config_path().is_file():
             prompt_init()
         ensure_ready()
@@ -975,6 +1069,9 @@ def main() -> None:
         "cron": cmd_cron,
         "log": cmd_log,
         "doctor": cmd_doctor,
+        "mem": cmd_mem,
+        "note": cmd_note,
+        "notes": cmd_notes,
         "hotfix": cmd_hotfix,
         "upgrade": cmd_upgrade,
     }
