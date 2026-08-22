@@ -118,6 +118,13 @@ def test_ops_launch(monkeypatch, tmp_path):
     assert "run_msg" in agents
     assert "ses_b" in agents
     assert (skills_dir() / "dual-tmux" / "SKILL.md").is_file()
+    assert (dest / ".opencode" / "skills" / "dual-tmux" / "SKILL.md").is_file()
+    assert (dest / ".opencode" / "skills" / "tmux-trigger" / "SKILL.md").is_file()
+    oc = (dest / "opencode.json").read_text()
+    assert ".opencode/skills/dual-tmux/SKILL.md" in oc
+    assert ".opencode/skills/tmux-trigger/SKILL.md" in oc
+    assert "immediately Read these files" in agents
+    assert ".opencode/skills/dual-tmux/SKILL.md" in agents
     assert "tmux send-keys -t run_msg" in agents
     assert "rebuild/replace the workspace container" in agents
     assert "mermaid filed in the workspace" in agents
