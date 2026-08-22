@@ -111,9 +111,9 @@ h2 {{ margin:0 0 8px; font-size:13px; }}
 .pollhead .spin {{ width:10px; height:10px; border-radius:50%; background:#9ca3af; }}
 .pollhead.busy .spin {{ background:#f59e0b; animation:blink 0.9s ease-in-out infinite; }}
 .bubble .meta {{ font-size:11px; color:#6b7280; margin-top:6px; }}
-.h2row h2 {{ margin:0; flex:1; }}
-.lamps {{ display:flex; gap:14px; margin-left:auto; }}
-.lamp-wrap {{ display:flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); }}
+.h2row h2 {{ margin:0; }}
+.lamps {{ display:flex; gap:10px; }}
+.lamp-wrap {{ display:flex; align-items:center; gap:5px; font-size:12px; color:var(--muted); }}
 .lamp {{ width:12px; height:12px; border-radius:50%; background:#9ca3af; box-shadow:0 0 0 2px #e5e7eb; }}
 .lamp.gray {{ background:#9ca3af; box-shadow:0 0 0 2px #e5e7eb; }}
 .lamp.red {{ background:#dc2626; box-shadow:0 0 0 2px #fecaca; }}
@@ -217,8 +217,8 @@ def tunnels_page(selected: str = "") -> str:
         <div class="h2row">
           <h2>发给 trigger（op_*）</h2>
           <div class="lamps">
-            <span class="lamp-wrap">trigger <i class="lamp gray" id="lamp-op"></i></span>
-            <span class="lamp-wrap">bullet <i class="lamp gray" id="lamp-run"></i></span>
+            <span class="lamp-wrap"><i class="lamp gray" id="lamp-op"></i> trigger</span>
+            <span class="lamp-wrap"><i class="lamp gray" id="lamp-run"></i> bullet</span>
           </div>
         </div>
         <form id="sendf">
