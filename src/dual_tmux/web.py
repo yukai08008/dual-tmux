@@ -132,6 +132,20 @@ h2 {{ margin:0 0 8px; font-size:13px; }}
 .bubble.ans .who {{ color:#047857; }}
 .bubble.fail {{ align-self:flex-start; background:#fef2f2; color:#991b1b; }}
 .bubble.fail .who {{ color:#dc2626; }}
+.btabs {{ display:flex; align-items:flex-end; gap:0; border-bottom:1px solid var(--line); overflow-x:auto; }}
+.btab {{ display:flex; align-items:center; gap:8px; padding:8px 10px 8px 12px; border:1px solid var(--line); border-bottom:none; border-radius:8px 8px 0 0; background:#e5e7eb; color:#4b5563; cursor:pointer; margin-right:4px; white-space:nowrap; }}
+.btab.active {{ background:#fff; color:var(--text); font-weight:600; }}
+.btab .dot {{ width:8px; height:8px; border-radius:50%; background:#9ca3af; flex:0 0 auto; }}
+.btab.gray .dot {{ background:#9ca3af; }}
+.btab.red .dot {{ background:#dc2626; }}
+.btab.green .dot {{ background:#059669; }}
+.btab.yellow .dot {{ background:#f59e0b; animation:blink 0.9s ease-in-out infinite; }}
+.btab.gray {{ background:#e5e7eb; }}
+.btab.red {{ background:#fee2e2; }}
+.btab.green {{ background:#d1fae5; }}
+.btab.yellow {{ background:#fef3c7; }}
+.btab .x {{ border:0; background:transparent; color:#6b7280; cursor:pointer; font-size:14px; padding:0 2px; }}
+.btab-add {{ border:1px dashed var(--line); background:#fff; color:var(--muted); padding:8px 12px; border-radius:8px 8px 0 0; cursor:pointer; }}
 </style>
 </head>
 <body>
@@ -212,6 +226,7 @@ def tunnels_page(selected: str = "") -> str:
         <input id="q" type="search" placeholder="输入名称模糊搜索…" value="{sel}" autocomplete="off">
         <div class="hits" id="hits"></div>
         <div class="meta" id="meta" style="margin-top:8px">{meta}</div>
+        <div class="btabs" id="btabs" style="margin-top:12px"></div>
       </div>
       <div class="card">
         <div class="h2row">
@@ -264,17 +279,84 @@ const lampOp = document.getElementById('lamp-op');
 const lampRun = document.getElementById('lamp-run');
 const threadEl = document.getElementById('thread');
 let chosen = {json.dumps(selected)};
-let lastOp = '', lastRun = '';
-let lastSent = 0;
-let waiting = false;
-let pollQuiet = 0;
-let opAtSend = '';
-let lastAsk = '';
-let lastPollKey = '';
-let finalOp = 'gray';
-let finalRun = 'gray';
 const LOG_MAX = 200;
 const THREAD_MAX = 40;
+let tabSeq = 1;
+const tabs = [];
+let activeTab = null;
+
+function emptyState(name) {{
+  return {{
+    id: tabSeq++,
+    name: name || '',
+    lastOp: '', lastRun: '', lastSent: 0, waiting: false, pollQuiet: 0,
+    opAtSend: '', lastAsk: '', lastPollKey: '',
+    finalOp: 'gray', finalRun: 'gray',
+    thread: [], log: [],
+  }};
+}}
+function colorOf(st) {{
+  if (!st || !st.name) return 'gray';
+  if (st.waiting) return 'yellow';
+  if (st.finalOp === 'red' || st.finalRun === 'red') return 'red';
+  if (st.finalOp === 'green' || st.finalRun === 'green') return 'green';
+  return 'gray';
+}}
+function renderTabs() {{
+  const el = document.getElementById('btabs');
+  el.innerHTML = tabs.map(st => {{
+    const on = st === activeTab ? ' active' : '';
+    const c = colorOf(st);
+    const label = st.name || '未选隧道';
+    return '<div class="btab '+c+on+'" data-id="'+st.id+'"><i class="dot"></i><span>'+label+'</span><button class="x" data-close="'+st.id+'" type="button">×</button></div>';
+  }}).join('') + '<button class="btab-add" id="tabadd" type="button">+</button>';
+}}
+function applyState(st) {{
+  chosen = st.name;
+  tname.value = st.name || '';
+  q.value = st.name || '';
+  box.disabled = !st.name;
+  sendf.querySelector('button').disabled = !st.name;
+  const row = rows.find(r => r.name === st.name);
+  if (row) {{
+    oplabel.textContent = row.op;
+    runlabel.textContent = row.run;
+    meta.innerHTML = st.name+' · op=<code>'+row.op+'</code> · run=<code>'+row.run+'</code> · DST='+(row.dst?'yes':'no');
+  }} else {{
+    oplabel.textContent = 'op_*';
+    runlabel.textContent = 'run_*';
+    meta.textContent = st.name ? st.name : '未选隧道';
+  }}
+  setLamp(lampOp, st.waiting ? 'yellow' : st.finalOp);
+  setLamp(lampRun, st.waiting ? 'yellow' : st.finalRun);
+  setPollBusy(st.waiting);
+  threadEl.innerHTML = '';
+  (st.thread || []).forEach(item => addBubble(item.kind, item.text, item.extra, true));
+  logEl.innerHTML = '';
+  (st.log || []).forEach(item => logLine(item.kind, item.text, true));
+  history.replaceState(null, '', st.name ? ('/tunnels?t='+encodeURIComponent(st.name)) : '/tunnels');
+}}
+function activate(st) {{
+  activeTab = st;
+  renderTabs();
+  applyState(st);
+  if (st.name) tick();
+}}
+function addTab(name) {{
+  const st = emptyState(name || '');
+  tabs.push(st);
+  activate(st);
+  return st;
+}}
+function closeTab(id) {{
+  const i = tabs.findIndex(t => t.id === id);
+  if (i < 0) return;
+  const was = tabs[i] === activeTab;
+  tabs.splice(i, 1);
+  if (!tabs.length) addTab('');
+  else if (was) activate(tabs[Math.max(0, i-1)]);
+  else renderTabs();
+}}
 
 function setLamp(el, color) {{
   el.className = 'lamp ' + color;
@@ -284,7 +366,7 @@ function setPollBusy(on) {{
   const head = document.getElementById('pollhead');
   if (head) head.className = 'h2row pollhead ' + (on ? 'busy' : 'idle');
 }}
-function addBubble(kind, text, extra) {{
+function addBubble(kind, text, extra, skipSave) {{
   const b = document.createElement('div');
   b.className = 'bubble ' + kind;
   const who = document.createElement('div');
@@ -307,6 +389,11 @@ function addBubble(kind, text, extra) {{
   threadEl.appendChild(b);
   while (threadEl.children.length > THREAD_MAX) threadEl.removeChild(threadEl.firstChild);
   threadEl.scrollTop = threadEl.scrollHeight;
+  if (!skipSave && activeTab) {{
+    activeTab.thread = activeTab.thread || [];
+    activeTab.thread.push({{kind, text, extra: extra || {{}}}});
+    if (activeTab.thread.length > THREAD_MAX) activeTab.thread.shift();
+  }}
 }}
 function summarize(text) {{
   const lines = (text || '').split('\\n').map(s => s.trim()).filter(Boolean);
@@ -324,7 +411,7 @@ function paneDelta(before, after) {{
   return lines.slice(-24).join('\\n');
 }}
 
-function logLine(kind, text) {{
+function logLine(kind, text, skipSave) {{
   const row = document.createElement('div');
   row.className = 'row';
   const tag = document.createElement('span');
@@ -338,9 +425,12 @@ function logLine(kind, text) {{
   logEl.appendChild(row);
   while (logEl.children.length > LOG_MAX) logEl.removeChild(logEl.firstChild);
   logEl.scrollTop = logEl.scrollHeight;
+  if (!skipSave && activeTab) {{
+    activeTab.log = activeTab.log || [];
+    activeTab.log.push({{kind, text}});
+    if (activeTab.log.length > LOG_MAX) activeTab.log.shift();
+  }}
 }}
-if (chosen) logLine('pick', '已选定 ' + chosen);
-else logLine('idle', '先选定隧道');
 
 function match(row, s) {{
   s = (s || '').toLowerCase();
@@ -361,29 +451,20 @@ function renderHits() {{
 function pick(name) {{
   const row = rows.find(r => r.name === name);
   if (!row) return;
-  chosen = name;
-  tname.value = name;
-  q.value = name;
   hits.style.display = 'none';
-  box.disabled = false;
-  sendf.querySelector('button').disabled = false;
-  oplabel.textContent = row.op;
-  runlabel.textContent = row.run;
-  meta.innerHTML = name+' · op=<code>'+row.op+'</code> · run=<code>'+row.run+'</code> · DST='+(row.dst?'yes':'no');
-  history.replaceState(null, '', '/tunnels?t='+encodeURIComponent(name));
-  lastOp = lastRun = '';
-  waiting = false;
-  pollQuiet = 0;
-  opAtSend = '';
-  lastAsk = '';
-  lastPollKey = '';
-  setPollBusy(false);
-  finalOp = 'gray';
-  finalRun = 'gray';
-  setLamp(lampOp, 'gray');
-  setLamp(lampRun, 'gray');
+  if (!activeTab) addTab(name);
+  const st = activeTab;
+  st.name = name;
+  st.lastOp = st.lastRun = '';
+  st.waiting = false;
+  st.pollQuiet = 0;
+  st.opAtSend = '';
+  st.lastAsk = '';
+  st.lastPollKey = '';
+  st.finalOp = 'gray';
+  st.finalRun = 'gray';
+  activate(st);
   logLine('pick', '已选定 ' + name + ' · ' + row.op + ' / ' + row.run);
-  tick();
 }}
 q.addEventListener('focus', renderHits);
 q.addEventListener('input', renderHits);
@@ -411,97 +492,116 @@ function snap(el, next) {{
 }}
 
 async function tick() {{
-  if (!chosen) return;
-  const r = await fetch('/api/tunnel?t=' + encodeURIComponent(chosen));
+  const st = activeTab;
+  if (!st || !st.name) return;
+  const r = await fetch('/api/tunnel?t=' + encodeURIComponent(st.name));
   const j = await r.json();
   if (j.error) {{ logLine('err', j.error); return; }}
   snap(opout, j.op_text || '');
   snap(runout, j.run_text || '');
-  const opChanged = j.op_text !== lastOp;
-  const runChanged = j.run_text !== lastRun;
-  lastOp = j.op_text || '';
-  lastRun = j.run_text || '';
+  const opChanged = j.op_text !== st.lastOp;
+  const runChanged = j.run_text !== st.lastRun;
+  st.lastOp = j.op_text || '';
+  st.lastRun = j.run_text || '';
   const opState = j.op_live ? (j.op_cmd || 'live') : 'down';
   const runState = j.run_live ? (j.run_cmd || 'live') : 'down';
-  if (waiting) {{
+  if (st.waiting) {{
     setLamp(lampOp, 'yellow');
     setLamp(lampRun, j.run_live ? 'yellow' : 'red');
     setPollBusy(true);
     const parsed = (j.op_parsed || {{}});
     if (opChanged) {{
-      const sum = parsed.body ? parsed.body.replace(/\\s+/g, ' ').slice(0, 140) : summarize(paneDelta(opAtSend, j.op_text) || j.op_text);
+      const sum = parsed.body ? parsed.body.replace(/\\s+/g, ' ').slice(0, 140) : summarize(paneDelta(st.opAtSend, j.op_text) || j.op_text);
       const key = (parsed.model || '') + '|' + sum;
-      if (key !== lastPollKey) {{
+      if (key !== st.lastPollKey) {{
         const extra = parsed.model ? (' · ' + parsed.model + (parsed.elapsed ? ' · ' + parsed.elapsed : '')) : '';
         logLine('poll', sum + extra);
-        lastPollKey = key;
+        st.lastPollKey = key;
       }}
-      pollQuiet = 0;
+      st.pollQuiet = 0;
     }} else {{
-      pollQuiet += 1;
-      if (pollQuiet === 1) logLine('poll', '等待 trigger · op=' + opState);
-      if (pollQuiet >= 8) {{
+      st.pollQuiet += 1;
+      if (st.pollQuiet === 1) logLine('poll', '等待 trigger · op=' + opState);
+      if (st.pollQuiet >= 8) {{
         const fail = !j.op_live;
         const reply = fail
           ? ('失败 · trigger ' + opState)
-          : (parsed.body || paneDelta(opAtSend, j.op_text) || '本轮无新文本');
+          : (parsed.body || paneDelta(st.opAtSend, j.op_text) || '本轮无新文本');
         addBubble(fail ? 'fail' : 'ans', reply, parsed);
-        finalOp = fail ? 'red' : 'green';
-        finalRun = j.run_live ? 'green' : 'red';
-        setLamp(lampOp, finalOp);
-        setLamp(lampRun, finalRun);
+        st.finalOp = fail ? 'red' : 'green';
+        st.finalRun = j.run_live ? 'green' : 'red';
+        setLamp(lampOp, st.finalOp);
+        setLamp(lampRun, st.finalRun);
         setPollBusy(false);
         const doneMsg = fail
           ? ('本轮失败 · op=' + opState)
           : ('本轮结束 · ' + (parsed.model || '') + (parsed.elapsed ? ' · ' + parsed.elapsed : '') + (parsed.body ? ' · ' + parsed.body.replace(/\\s+/g, ' ').slice(0, 80) : ''));
         logLine(fail ? 'err' : 'done', doneMsg.trim());
-        waiting = false;
-        pollQuiet = 0;
-        lastPollKey = '';
+        st.waiting = false;
+        st.pollQuiet = 0;
+        st.lastPollKey = '';
+        renderTabs();
       }}
     }}
   }} else {{
     setPollBusy(false);
-    setLamp(lampOp, finalOp);
-    setLamp(lampRun, finalRun);
+    setLamp(lampOp, st.finalOp);
+    setLamp(lampRun, st.finalRun);
     if (opChanged || runChanged) {{
       logLine('poll', (opChanged ? 'trigger 更新' : 'bullet 更新') + ' · op=' + opState + ' run=' + runState);
     }}
   }}
+  renderTabs();
 }}
 setInterval(tick, 1500);
-if (chosen) tick();
 
+document.getElementById('btabs').addEventListener('click', (e) => {{
+  const close = e.target.closest('[data-close]');
+  if (close) {{ e.stopPropagation(); closeTab(Number(close.dataset.close)); return; }}
+  if (e.target.closest('#tabadd')) {{ addTab(''); return; }}
+  const tab = e.target.closest('.btab');
+  if (!tab) return;
+  const st = tabs.find(t => t.id === Number(tab.dataset.id));
+  if (st) activate(st);
+}});
 sendf.addEventListener('submit', async (e) => {{
   e.preventDefault();
-  if (!chosen || !box.value.trim()) return;
-  lastAsk = box.value.trim();
-  const preview = lastAsk.replace(/\\s+/g, ' ').slice(0, 80);
-  addBubble('ask', lastAsk);
+  const st = activeTab;
+  if (!st || !st.name || !box.value.trim()) return;
+  st.lastAsk = box.value.trim();
+  const preview = st.lastAsk.replace(/\\s+/g, ' ').slice(0, 80);
+  addBubble('ask', st.lastAsk);
   logLine('send', preview || '(empty)');
-  opAtSend = lastOp;
+  st.opAtSend = st.lastOp;
+  st.waiting = true;
+  st.pollQuiet = 0;
   setLamp(lampOp, 'yellow');
   setLamp(lampRun, 'yellow');
   setPollBusy(true);
-  const body = new URLSearchParams({{ t: chosen, side: 'op', text: box.value }});
+  renderTabs();
+  const body = new URLSearchParams({{ t: st.name, side: 'op', text: box.value }});
   const r = await fetch('/send', {{ method: 'POST', headers: {{ 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' }}, body }});
   if (!r.ok) {{
     const err = await r.text();
     logLine('err', err);
     addBubble('fail', err);
-    finalOp = 'red';
+    st.finalOp = 'red';
+    st.waiting = false;
     setLamp(lampOp, 'red');
-    setLamp(lampRun, finalRun);
+    setLamp(lampRun, st.finalRun);
     setPollBusy(false);
+    renderTabs();
     return;
   }}
-  lastSent = Date.now();
-  waiting = true;
-  pollQuiet = 0;
+  st.lastSent = Date.now();
+  st.waiting = true;
+  st.pollQuiet = 0;
   box.value = '';
   logLine('send', '已提交到 trigger，开始轮询');
+  renderTabs();
   tick();
 }});
+addTab({json.dumps(selected)});
 </script>
     """
     return _shell(_nav("tunnels"), body, "dt web · 隧道")
