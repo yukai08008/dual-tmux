@@ -43,6 +43,7 @@ def agents_text(data: dict) -> str:
         "Do not ssh / docker exec the coding task yourself.\n"
         "If bullet asks to rebuild/replace the workspace container, you do that on the "
         "host (outside the container), then `dt re`. Bullet must not recreate the box it runs in.\n"
+        "Architecture and flow: dispatch to bullet; require mermaid filed in the workspace, not chat-only.\n"
         "\n"
         "## Read first\n"
         "\n"

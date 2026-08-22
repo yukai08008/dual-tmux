@@ -42,3 +42,15 @@ If bullet says the container is gone, stale, needs a new image, or asks to rebui
 3. After the new container exists, `dt re <dt>` (or rewrite `runtime.cmd`) and resume bullet with `--auto -s <id>` in the new pane.
 
 Host-level docker/ssh is trigger. In-container coding is bullet.
+
+## Architecture and flow → bullet mermaid, filed
+
+If the work is **architecture**, **data/control flow**, **handoff between services**, or **how a request moves**, trigger does **not** write prose diagrams in `op_*`.
+
+Dispatch to bullet (`tmux send-keys -t <run_*>`) and require:
+
+1. **Mermaid** (`flowchart` / `sequenceDiagram` / `stateDiagram`) for the structure and the flow.
+2. **File it in the workspace** (markdown next to the code, e.g. `docs/` or the feature dir). Do not leave it only in the chat.
+3. Poll until the file exists; then continue.
+
+Trigger may rephrase the ask. Trigger must not substitute ASCII/prose for the mermaid file.

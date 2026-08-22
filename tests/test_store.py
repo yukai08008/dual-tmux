@@ -120,8 +120,10 @@ def test_ops_launch(monkeypatch, tmp_path):
     assert (skills_dir() / "dual-tmux" / "SKILL.md").is_file()
     assert "tmux send-keys -t run_msg" in agents
     assert "rebuild/replace the workspace container" in agents
+    assert "mermaid filed in the workspace" in agents
     trigger_skill = (skills_dir() / "tmux-trigger" / "SKILL.md").read_text()
     assert "Container rebuild is trigger work" in trigger_skill
+    assert "Architecture and flow → bullet mermaid" in trigger_skill
 
 
 def test_remove_dt(monkeypatch, tmp_path):
