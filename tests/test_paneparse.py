@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from dual_tmux.paneparse import (
     list_parsers,
     parse_opencode,
@@ -6,35 +8,50 @@ from dual_tmux.paneparse import (
     resolve_parser_id,
 )
 
+FIXTURE = Path(__file__).parent / "fixtures" / "opencode_1_18_portal.txt"
 
-SAMPLE = """
+RABBIT = """
 ░▒▓ ~/.du/o/op_msg2  opencode --model xs-grok/grok-4.6
-     OpenCode 有全局配置
-  ┃  帮我看下 rabbitmq admin的密码
-     Thought: 1.1s
-     The user wants to know
-     dev 实例 rabbit_mq_dev：
+     Thought: 650ms
+     The user asked for the RabbitMQ admin password.
+     dev 实例 rabbit_mq_dev_24637_24638：
      - 用户：admin
      - 密码：andy@2026
      ▣  Build · Grok 4.6 · 1m 8s
   ┃  Build · Grok 4.6 XS CP Gateway
+   /Users/andy/.dual-tmux/ops/op_msg2    235.3K  ctrl+p commands    • OpenCode 1.18.18
 """
 
 
-def test_parse_opencode_extracts_body_model_elapsed():
-    got = parse_opencode(SAMPLE)
-    assert got.tool == "opencode"
+def test_portal_fixture_is_reply_not_footer():
+    text = FIXTURE.read_text()
+    got = parse_opencode(text)
     assert got.parser == "opencode@1.18"
+    assert got.model == "Grok 4.6"
+    assert got.elapsed == "2.5s"
+    assert "你好" in got.body
+    assert "有任务直接说" in got.body
+    assert "ctrl+p" not in got.body.lower()
+    assert "OpenCode 1.18" not in got.body
+    assert "/Users/" not in got.body
+    assert "34.3K" not in got.body
+    assert "Thought:" not in got.body
+    assert "The user" not in got.body
+
+
+def test_rabbitmq_sample_keeps_answer_and_timing():
+    got = parse_opencode(RABBIT)
     assert "Grok 4.6" in got.model
     assert "1m 8s" in got.elapsed
     assert "admin" in got.body
     assert "andy@2026" in got.body
     assert "Thought:" not in got.body
-    assert "▣" not in got.body
+    assert "The user asked" not in got.body
+    assert "ctrl+p" not in got.body
 
 
-def test_parse_pane_dispatches_tool():
-    got = parse_pane("hello\\nworld", "other")
+def test_parse_pane_unknown_tool_is_plain():
+    got = parse_pane("hello\nworld", "other")
     assert got.parser == "plain"
     assert "hello" in got.body
 
