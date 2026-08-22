@@ -12,6 +12,7 @@ from . import oc as oc_ops
 from . import tmux as tmux_ops
 from .paneparse import parse_pane, parser_id_for_side
 from .config import load_config
+from .paths import home_dir
 from .store import find_dt, iter_dt_files, load, normalize_dt
 
 HOST = "127.0.0.1"
@@ -73,6 +74,10 @@ def _sync_info(data: dict) -> dict:
     oc_json = sessions / "opencode" / source / f"{slug}.json" if slug else Path()
     tmux_dir = sessions / "tmux" / source
     last_link = tmux_dir / "last"
+    oc_lock = home_dir() / "locks" / "persist-opencode"
+    tmux_lock = home_dir() / "locks" / "persist-tmux"
+    oc_busy = oc_lock.is_dir()
+    tmux_busy = tmux_lock.is_dir()
     return {
         "source": source,
         "op": op,
@@ -84,6 +89,9 @@ def _sync_info(data: dict) -> dict:
         "oc_mtime": _mtime_iso(oc_json) if slug else "",
         "tmux_last": _mtime_iso(last_link),
         "tmux_dir": str(tmux_dir),
+        "oc_busy": oc_busy,
+        "tmux_busy": tmux_busy,
+        "busy": oc_busy or tmux_busy,
     }
 
 
@@ -198,6 +206,15 @@ h2 {{ margin:0 0 8px; font-size:13px; }}
 .sync .k {{ flex:0 0 88px; color:var(--muted); }}
 .sync .v {{ flex:1; font-family:ui-monospace,Menlo,monospace; }}
 .sync .chg {{ color:#059669; font-size:11px; }}
+.syncbar {{ display:flex; gap:16px; align-items:center; flex-wrap:wrap; }}
+.sess {{ display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-radius:8px; background:#f3f4f6; border:1px solid var(--line); font-family:ui-monospace,Menlo,monospace; }}
+.sess .spin {{ width:10px; height:10px; border:2px solid #e5e7eb; border-top-color:#f59e0b; border-radius:50%; }}
+.sess.busy {{ background:#fffbeb; border-color:#f59e0b; color:#92400e; }}
+.sess.busy .spin {{ animation:spin 0.8s linear infinite; }}
+.sess.ok {{ background:#ecfdf5; border-color:#059669; color:#065f46; }}
+.sess.ok .spin {{ display:none; }}
+.sess.ok::before {{ content:""; width:8px; height:8px; border-radius:50%; background:#059669; }}
+@keyframes spin {{ to {{ transform:rotate(360deg); }} }}
 .mhits {{ position:absolute; left:0; right:0; top:100%; background:#fff; border:1px solid var(--line); border-radius:6px; max-height:220px; overflow:auto; z-index:30; display:none; box-shadow:0 8px 20px rgba(0,0,0,.12); }}
 .mhits a {{ display:block; padding:6px 8px; text-decoration:none; color:var(--text); font:12px ui-monospace,Menlo,monospace; }}
 .mhits a:hover {{ background:#eff6ff; }}
@@ -282,6 +299,7 @@ def tunnels_page(selected: str = "") -> str:
         <div class="hits" id="hits"></div>
         <div class="meta" id="meta" style="margin-top:8px">{meta}</div>
         <div class="btabs" id="btabs" style="margin-top:12px"></div>
+        <div class="sync" id="syncbox" style="margin-top:10px">选定隧道后显示会话同步</div>
         <div class="models" id="models">
           <div class="field"><label>trigger 模型</label><input id="m-op" placeholder="模糊搜索 provider/id" autocomplete="off"><div class="mhits" id="mh-op"></div></div>
           <div class="field"><label>bullet 模型</label><input id="m-run" placeholder="模糊搜索 provider/id" autocomplete="off"><div class="mhits" id="mh-run"></div></div>
@@ -322,10 +340,6 @@ def tunnels_page(selected: str = "") -> str:
       <div class="card">
         <h2>bullet 会话 · <span id="runlabel">{html.escape(run or "run_*")}</span></h2>
         <pre class="out" id="runout">{bullet_out}</pre>
-      </div>
-      <div class="card">
-        <h2>会话同步</h2>
-        <div class="sync" id="syncbox">选定隧道后显示 op / run 名称与 persist 时间</div>
       </div>
     </div>
 <script>
@@ -558,21 +572,24 @@ q.addEventListener('keydown', (e) => {{
 }});
 
 let lastSync = {{}};
+function sessChip(name, live, busy, prevMtime, mtime, kind) {{
+  const cls = busy ? 'busy' : 'ok';
+  const label = busy ? '同步中' : '已同步';
+  const chg = prevMtime && mtime && prevMtime !== mtime ? ' · 更新' : '';
+  const liveS = live ? 'live' : 'down';
+  return '<span class="sess '+cls+'"><i class="spin"></i><b>'+ (name || '—') +'</b> '+label+chg+' · '+liveS+(mtime ? ' · '+mtime : '')+'</span>';
+}}
 function renderSync(s) {{
   if (!s) return;
   const el = document.getElementById('syncbox');
-  const marks = [];
-  function line(k, v, prev) {{
-    const chg = prev && v && prev !== v ? '<span class="chg">更新</span>' : '';
-    marks.push('<div class="row"><span class="k">'+k+'</span><span class="v">'+(v || '—')+' '+chg+'</span></div>');
-  }}
-  line('op 会话', s.op + (s.op_live ? ' · live' : ' · down'), lastSync.op);
-  line('run 会话', s.run + (s.run_live ? ' · live' : ' · down'), lastSync.run);
-  line('oc slug', s.oc_slug, lastSync.oc_slug);
-  line('oc 快照', s.oc_mtime, lastSync.oc_mtime);
-  line('tmux last', s.tmux_last, lastSync.tmux_last);
-  line('来源', s.source, lastSync.source);
-  el.innerHTML = marks.join('');
+  const ocBusy = !!s.oc_busy;
+  const tmBusy = !!s.tmux_busy;
+  el.innerHTML =
+    '<div class="syncbar">' +
+    sessChip(s.op, s.op_live, ocBusy || tmBusy, lastSync.tmux_last, s.tmux_last, 'op') +
+    sessChip(s.run, s.run_live, ocBusy || tmBusy, lastSync.oc_mtime, s.oc_mtime, 'run') +
+    '</div>' +
+    '<div class="row" style="margin-top:6px"><span class="k">oc 快照</span><span class="v">'+(s.oc_slug || '—')+' '+(s.oc_mtime || '')+(lastSync.oc_mtime && s.oc_mtime && lastSync.oc_mtime !== s.oc_mtime ? ' <span class="chg">更新</span>' : '')+'</span></div>';
   lastSync = s;
 }}
 function snap(el, next) {{
