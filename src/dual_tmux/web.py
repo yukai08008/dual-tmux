@@ -150,9 +150,13 @@ h2 {{ margin:0 0 8px; font-size:13px; }}
 .btab-add {{ border:1px dashed var(--line); background:#fff; color:var(--muted); padding:8px 12px; border-radius:8px 8px 0 0; cursor:pointer; }}
 .models {{ display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end; margin-top:10px; }}
 .models label {{ margin:0; font-size:11px; color:var(--muted); }}
-.models input {{ width:220px; padding:6px 8px; }}
+.models .field {{ position:relative; }}
+.models input {{ width:260px; padding:6px 8px; }}
 .models button {{ padding:6px 10px; }}
 .models .ghost {{ background:#fff; color:var(--acc); border:1px solid var(--acc); }}
+.mhits {{ position:absolute; left:0; right:0; top:100%; background:#fff; border:1px solid var(--line); border-radius:6px; max-height:220px; overflow:auto; z-index:6; display:none; }}
+.mhits a {{ display:block; padding:6px 8px; text-decoration:none; color:var(--text); font:12px ui-monospace,Menlo,monospace; }}
+.mhits a:hover {{ background:#eff6ff; }}
 </style>
 </head>
 <body>
@@ -235,8 +239,8 @@ def tunnels_page(selected: str = "") -> str:
         <div class="meta" id="meta" style="margin-top:8px">{meta}</div>
         <div class="btabs" id="btabs" style="margin-top:12px"></div>
         <div class="models" id="models">
-          <div><label>trigger 模型</label><input id="m-op" placeholder="provider/id"></div>
-          <div><label>bullet 模型</label><input id="m-run" placeholder="provider/id"></div>
+          <div class="field"><label>trigger 模型</label><input id="m-op" placeholder="模糊搜索 provider/id" autocomplete="off"><div class="mhits" id="mh-op"></div></div>
+          <div class="field"><label>bullet 模型</label><input id="m-run" placeholder="模糊搜索 provider/id" autocomplete="off"><div class="mhits" id="mh-run"></div></div>
           <button type="button" id="btn-model-op">切换 trigger</button>
           <button type="button" id="btn-model-run">切换 bullet</button>
           <button type="button" class="ghost" id="btn-freeze">Freeze</button>
@@ -684,6 +688,32 @@ document.getElementById('btn-freeze').addEventListener('click', async () => {{
     applyState(st);
   }} catch (err) {{ logLine('err', String(err.message || err)); }}
 }});
+function bindModelPicker(inputId, hitsId) {{
+  const inp = document.getElementById(inputId);
+  const box = document.getElementById(hitsId);
+  let timer = 0;
+  async function show() {{
+    const q = inp.value.trim();
+    const r = await fetch('/api/models?q=' + encodeURIComponent(q));
+    const list = await r.json();
+    box.innerHTML = (list || []).slice(0, 30).map(m => '<a href="#" data-m="'+m+'">'+m+'</a>').join('') || '<div class="sub" style="padding:8px">无匹配</div>';
+    box.style.display = 'block';
+  }}
+  inp.addEventListener('focus', show);
+  inp.addEventListener('input', () => {{ clearTimeout(timer); timer = setTimeout(show, 120); }});
+  box.addEventListener('click', (e) => {{
+    const a = e.target.closest('a[data-m]');
+    if (!a) return;
+    e.preventDefault();
+    inp.value = a.dataset.m;
+    box.style.display = 'none';
+  }});
+  document.addEventListener('click', (e) => {{
+    if (!e.target.closest('.field')) box.style.display = 'none';
+  }});
+}}
+bindModelPicker('m-op', 'mh-op');
+bindModelPicker('m-run', 'mh-run');
 addTab({json.dumps(selected)});
 </script>
     """
@@ -735,6 +765,14 @@ class Handler(BaseHTTPRequestHandler):
                 "bullet_model": (data.get("bullet") or {}).get("model") or "",
             }
             self._send(200, json.dumps(payload), "application/json; charset=utf-8")
+            return
+        if parsed.path == "/api/models":
+            q = ((qs.get("q") or [""])[0] or "").lower()
+            models = oc_ops.list_models()
+            if q:
+                parts = [p for p in q.split() if p]
+                models = [m for m in models if all(p in m.lower() for p in parts)]
+            self._send(200, json.dumps(models[:80]), "application/json; charset=utf-8")
             return
         if parsed.path in {"/", "/dashboard"}:
             self._send(200, dashboard_page())

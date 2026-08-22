@@ -431,6 +431,10 @@ def apply_model(name: str, model: str, sides: list[str]) -> dict:
     model = (model or "").strip()
     if not model:
         raise SystemExit("usage: dt model <name> [--run|--op] <provider/id>")
+    ok, detail = oc_ops.probe_model(model)
+    if not ok:
+        raise SystemExit(f"[err] model probe failed {model}: {detail}")
+    ui.ok(f"probe {model}")
     if not sides:
         sides = ["bullet"]
     path = find_dt(data["name"])
