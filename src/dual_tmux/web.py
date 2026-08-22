@@ -50,7 +50,7 @@ def _capture(name: str) -> str:
         return "(no pane)"
     if not tmux_ops.has_session(name):
         return f"(tmux {name} not running)"
-    return tmux_ops.capture_pane(name, -120) or "(empty pane)"
+    return tmux_ops.capture_pane(name, -500) or "(empty pane)"
 
 
 def _shell(nav: str, body: str, title: str) -> str:
@@ -84,7 +84,7 @@ html,body {{ margin:0; height:100%; background:var(--bg); color:var(--text); fon
 .stat span {{ color:var(--muted); font-size:12px; }}
 label {{ display:block; font-weight:600; margin-bottom:6px; }}
 input[type=search], textarea {{ width:100%; border:1px solid var(--line); border-radius:6px; padding:8px 10px; font:13px ui-sans-serif,system-ui; }}
-textarea {{ min-height:72px; font:13px ui-monospace,Menlo,monospace; resize:vertical; }}
+textarea {{ min-height:16em; height:16em; font:13px ui-monospace,Menlo,monospace; resize:vertical; }}
 button {{ background:var(--acc); color:#fff; border:0; border-radius:6px; padding:8px 14px; font-weight:600; cursor:pointer; }}
 .pick {{ position:relative; }}
 .hits {{ position:absolute; left:0; right:0; top:100%; background:#fff; border:1px solid var(--line); border-radius:6px; max-height:240px; overflow:auto; z-index:5; display:none; }}
@@ -92,9 +92,18 @@ button {{ background:var(--acc); color:#fff; border:0; border-radius:6px; paddin
 .hits a:hover, .hits a.active {{ background:#eff6ff; }}
 .hits .sub {{ color:var(--muted); font-size:11px; }}
 .meta {{ color:var(--muted); font-size:12px; }}
-.status {{ min-height:40px; color:var(--muted); font-size:12px; white-space:pre-wrap; }}
-.status.busy {{ color:var(--ok); }}
-.out {{ margin:0; height:220px; overflow:auto; background:#0b1220; color:#dbeafe; padding:10px; border-radius:6px; font:11px/1.4 ui-monospace,Menlo,monospace; white-space:pre-wrap; word-break:break-word; }}
+.log {{ height:180px; overflow:auto; background:#f8fafc; border:1px solid var(--line); border-radius:6px; padding:6px 8px; font:12px/1.45 ui-sans-serif,system-ui; }}
+.log .row {{ display:flex; gap:8px; padding:3px 0; border-bottom:1px solid #eef2f7; }}
+.log .row:last-child {{ border-bottom:0; }}
+.log .tag {{ flex:0 0 64px; font-size:10px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:#fff; background:#6b7280; border-radius:4px; text-align:center; padding:2px 0; height:fit-content; }}
+.log .tag.send {{ background:#2563eb; }}
+.log .tag.poll {{ background:#0891b2; }}
+.log .tag.idle {{ background:#6b7280; }}
+.log .tag.done {{ background:#059669; }}
+.log .tag.err {{ background:#dc2626; }}
+.log .tag.pick {{ background:#7c3aed; }}
+.log .msg {{ color:#374151; flex:1; }}
+.out {{ margin:0; height:380px; overflow:auto; background:#0b1220; color:#dbeafe; padding:12px 14px; border-radius:6px; font:13px/1.5 ui-monospace,Menlo,monospace; white-space:pre-wrap; word-break:break-word; }}
 h2 {{ margin:0 0 8px; font-size:13px; }}
 </style>
 </head>
@@ -181,13 +190,13 @@ def tunnels_page(selected: str = "") -> str:
         <h2>发给 trigger（op_*）</h2>
         <form id="sendf">
           <input type="hidden" name="t" id="tname" value="{sel}">
-          <textarea name="text" id="box" placeholder="提交后 send-keys 到 trigger pane" {"disabled" if not selected else ""}></textarea>
+          <textarea name="text" id="box" rows="10" placeholder="提交后 send-keys 到 trigger pane" {"disabled" if not selected else ""}></textarea>
           <div style="margin-top:8px"><button type="submit" {"disabled" if not selected else ""}>提交</button></div>
         </form>
       </div>
       <div class="card">
         <h2>轮询状态</h2>
-        <div class="status" id="status">{'等待提交…' if selected else '先选定隧道'}</div>
+        <div class="log" id="log"></div>
       </div>
       <div class="card">
         <h2>trigger 会话 · <span id="oplabel">{html.escape(op or "op_*")}</span></h2>
@@ -204,7 +213,7 @@ const hits = document.getElementById('hits');
 const q = document.getElementById('q');
 const tname = document.getElementById('tname');
 const meta = document.getElementById('meta');
-const status = document.getElementById('status');
+const logEl = document.getElementById('log');
 const box = document.getElementById('box');
 const opout = document.getElementById('opout');
 const runout = document.getElementById('runout');
@@ -214,6 +223,27 @@ const sendf = document.getElementById('sendf');
 let chosen = {json.dumps(selected)};
 let lastOp = '', lastRun = '';
 let lastSent = 0;
+let waiting = false;
+let pollQuiet = 0;
+const LOG_MAX = 200;
+
+function logLine(kind, text) {{
+  const row = document.createElement('div');
+  row.className = 'row';
+  const tag = document.createElement('span');
+  tag.className = 'tag ' + kind;
+  tag.textContent = kind;
+  const msg = document.createElement('span');
+  msg.className = 'msg';
+  msg.textContent = text;
+  row.appendChild(tag);
+  row.appendChild(msg);
+  logEl.appendChild(row);
+  while (logEl.children.length > LOG_MAX) logEl.removeChild(logEl.firstChild);
+  logEl.scrollTop = logEl.scrollHeight;
+}}
+if (chosen) logLine('pick', '已选定 ' + chosen);
+else logLine('idle', '先选定隧道');
 
 function match(row, s) {{
   s = (s || '').toLowerCase();
@@ -245,8 +275,9 @@ function pick(name) {{
   meta.innerHTML = name+' · op=<code>'+row.op+'</code> · run=<code>'+row.run+'</code> · DST='+(row.dst?'yes':'no');
   history.replaceState(null, '', '/tunnels?t='+encodeURIComponent(name));
   lastOp = lastRun = '';
-  status.textContent = '已选定 '+name+'，轮询 op/run…';
-  status.className = 'status busy';
+  waiting = false;
+  pollQuiet = 0;
+  logLine('pick', '已选定 ' + name + ' · ' + row.op + ' / ' + row.run);
   tick();
 }}
 q.addEventListener('focus', renderHits);
@@ -279,22 +310,32 @@ async function tick() {{
   if (!chosen) return;
   const r = await fetch('/api/tunnel?t=' + encodeURIComponent(chosen));
   const j = await r.json();
-  if (j.error) {{ status.textContent = j.error; return; }}
+  if (j.error) {{ logLine('err', j.error); return; }}
   snap(opout, j.op_text || '');
   snap(runout, j.run_text || '');
   const opChanged = j.op_text !== lastOp;
   const runChanged = j.run_text !== lastRun;
   lastOp = j.op_text || '';
   lastRun = j.run_text || '';
-  const bits = [
-    'op '+ (j.op_live ? j.op_cmd || 'live' : 'down'),
-    'run '+ (j.run_live ? j.run_cmd || 'live' : 'down'),
-  ];
-  if (lastSent && Date.now() - lastSent < 15000) {{
-    bits.unshift(opChanged ? 'trigger 屏有更新' : '已提交，等待 trigger 输出');
+  const opState = j.op_live ? (j.op_cmd || 'live') : 'down';
+  const runState = j.run_live ? (j.run_cmd || 'live') : 'down';
+  if (waiting) {{
+    if (opChanged) {{
+      const tail = (j.op_text || '').trim().split('\\n').filter(Boolean).slice(-1)[0] || 'trigger 有输出';
+      logLine('poll', tail.slice(0, 120));
+      pollQuiet = 0;
+    }} else {{
+      pollQuiet += 1;
+      if (pollQuiet === 1) logLine('poll', '等待 trigger · op=' + opState + ' run=' + runState);
+      if (pollQuiet >= 8) {{
+        logLine('done', '本轮轮询结束 · op=' + opState + ' run=' + runState);
+        waiting = false;
+        pollQuiet = 0;
+      }}
+    }}
+  }} else if (opChanged || runChanged) {{
+    logLine('poll', (opChanged ? 'trigger 更新' : 'bullet 更新') + ' · op=' + opState + ' run=' + runState);
   }}
-  status.textContent = bits.join(' · ');
-  status.className = 'status' + ((j.op_live || j.run_live) ? ' busy' : '');
 }}
 setInterval(tick, 1500);
 if (chosen) tick();
@@ -302,14 +343,16 @@ if (chosen) tick();
 sendf.addEventListener('submit', async (e) => {{
   e.preventDefault();
   if (!chosen || !box.value.trim()) return;
-  status.textContent = '正在发给 trigger…';
+  const preview = box.value.trim().replace(/\\s+/g, ' ').slice(0, 80);
+  logLine('send', preview || '(empty)');
   const body = new URLSearchParams({{ t: chosen, side: 'op', text: box.value }});
   const r = await fetch('/send', {{ method: 'POST', headers: {{ 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' }}, body }});
-  if (!r.ok) {{ status.textContent = await r.text(); return; }}
+  if (!r.ok) {{ logLine('err', await r.text()); return; }}
   lastSent = Date.now();
+  waiting = true;
+  pollQuiet = 0;
   box.value = '';
-  status.textContent = '已提交到 trigger，轮询输出…';
-  status.className = 'status busy';
+  logLine('send', '已提交到 trigger，开始轮询');
   tick();
 }});
 </script>

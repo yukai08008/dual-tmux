@@ -24,7 +24,9 @@ def test_admin_tabs_and_search(tmp_path, monkeypatch):
     assert "选择隧道" in page
     assert "发给 trigger" in page
     assert "轮询状态" in page
+    assert 'rows="10"' in page
     assert "bullet 会话" in page
+    assert "logLine" in page
     assert "dt-msg" in page
     names = [r["name"] for r in _tunnels()]
     assert names == ["dt-msg"]
