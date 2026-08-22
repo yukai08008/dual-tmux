@@ -4,14 +4,15 @@ import shutil
 from pathlib import Path
 
 from .paths import home_dir, tunnels_dir
+from . import skillmgr
 
 
 def packaged_skills() -> Path:
-    return Path(__file__).resolve().parent / "skills"
+    return skillmgr.packaged_skills()
 
 
 def skills_dir() -> Path:
-    return home_dir() / "skills"
+    return skillmgr.catalog_dir()
 
 
 def ops_dir(op: str) -> Path:
@@ -19,37 +20,18 @@ def ops_dir(op: str) -> Path:
 
 
 def sync_skills() -> Path:
-    src = packaged_skills()
-    dest = skills_dir()
-    dest.mkdir(parents=True, exist_ok=True)
-    if src.is_dir():
-        shutil.copytree(src, dest, dirs_exist_ok=True)
-    return dest
+    skillmgr.seed_catalog()
+    return skillmgr.catalog_dir()
 
 
-def install_project_skills(dest: Path) -> Path:
-    """OpenCode only discovers .opencode/skills/<name>/SKILL.md from cwd."""
-    src = packaged_skills()
-    target = dest / ".opencode" / "skills"
-    target.mkdir(parents=True, exist_ok=True)
-    if src.is_dir():
-        shutil.copytree(src, target, dirs_exist_ok=True)
-    return target
+def install_project_skills(dest: Path, names: list[str] | None = None) -> Path:
+    names = names if names is not None else skillmgr.enabled("trigger")
+    return skillmgr.install_into(dest, names)
 
 
-def write_opencode_json(dest: Path) -> Path:
-    """AGENTS.md does not auto-load linked files; instructions does."""
-    path = dest / "opencode.json"
-    path.write_text(
-        "{\n"
-        '  "$schema": "https://opencode.ai/config.json",\n'
-        '  "instructions": [\n'
-        '    ".opencode/skills/dual-tmux/SKILL.md",\n'
-        '    ".opencode/skills/tmux-trigger/SKILL.md"\n'
-        "  ]\n"
-        "}\n"
-    )
-    return path
+def write_opencode_json(dest: Path, names: list[str] | None = None) -> Path:
+    names = names if names is not None else skillmgr.enabled("trigger")
+    return skillmgr.write_opencode_json(dest, names)
 
 
 def agents_text(data: dict) -> str:
@@ -59,7 +41,8 @@ def agents_text(data: dict) -> str:
     trigger = data.get("trigger") or {}
     bullet = data.get("bullet") or {}
     runtime = data.get("runtime") or {}
-    skills = skills_dir()
+    names = skillmgr.enabled("trigger")
+    skill_lines = "\n".join(f"- `.opencode/skills/{n}/SKILL.md`" for n in names)
     return (
         f"# Trigger for {name}\n"
         "\n"
@@ -75,10 +58,12 @@ def agents_text(data: dict) -> str:
         "CRITICAL: On startup, immediately Read these files with your Read tool "
         "(OpenCode does not auto-follow links in AGENTS.md):\n"
         "\n"
-        "- `.opencode/skills/dual-tmux/SKILL.md`\n"
-        "- `.opencode/skills/tmux-trigger/SKILL.md`\n"
+        f"{skill_lines}\n"
         "\n"
         "Treat them as mandatory. Same files are also listed in `opencode.json` `instructions`.\n"
+        "Catalog (all skills): `~/.dual-tmux/skills/`. Trigger uses the subset in `dt skill`.\n"
+        "After using a skill: `dt skill used <dt> <skill> --ok|--fail`.\n"
+        "Teach bullet: `dt skill teach <dt> <skill>`.\n"
         "\n"
         "## This tunnel\n"
         "\n"
@@ -108,8 +93,9 @@ def prepare(data: dict) -> Path:
     sync_skills()
     dest = ops_dir(data["op"])
     dest.mkdir(parents=True, exist_ok=True)
-    install_project_skills(dest)
-    write_opencode_json(dest)
+    names = skillmgr.enabled("trigger")
+    install_project_skills(dest, names)
+    write_opencode_json(dest, names)
     (dest / "AGENTS.md").write_text(agents_text(data), encoding="utf-8")
     mem.prepare_for_tunnel(data)
     return dest

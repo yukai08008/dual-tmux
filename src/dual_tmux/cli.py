@@ -37,6 +37,7 @@ from . import activity
 from . import cron as cron_ops
 from . import hotfix as hotfix_ops
 from . import memory as mem_ops
+from . import skillmgr
 from . import log as ev
 from . import opsdir
 from . import tmux as tmux_ops
@@ -873,6 +874,59 @@ def cmd_notes(args: argparse.Namespace) -> None:
         print(row.get("body") or "")
 
 
+def cmd_skill(args: argparse.Namespace) -> None:
+    action = args.skill_cmd or "ls"
+    if action == "ls":
+        rows = skillmgr.list_catalog()
+        if not rows:
+            ui.skip("no skills in ~/.dual-tmux/skills")
+            return
+        for row in rows:
+            flags = []
+            if row["trigger"]:
+                flags.append("trigger")
+            if row["bullet"]:
+                flags.append("bullet")
+            mark = ",".join(flags) or "-"
+            ui.info(f"{row['name']}  [{mark}]  {row['description'][:80]}")
+        return
+    if action == "import":
+        name = skillmgr.import_skill(args.path)
+        ui.ok(f"imported {name} → {skillmgr.catalog_dir() / name}")
+        return
+    if action == "enable":
+        skillmgr.set_enabled(args.name, args.who, True)
+        ui.ok(f"enable {args.name} on {args.who}")
+        return
+    if action == "disable":
+        skillmgr.set_enabled(args.name, args.who, False)
+        ui.ok(f"disable {args.name} on {args.who}")
+        return
+    if action == "teach":
+        from . import tmux as tmux_ops
+
+        data = _resolve(args.dt)
+        msg = skillmgr.teach(data["name"], args.skills, args.text or "")
+        tmux_ops.send_keys(data["run"], msg)
+        ui.ok(f"taught {', '.join(args.skills)} → {data['run']}")
+        return
+    if action == "used":
+        ok = True if args.ok else False if args.fail else True
+        skillmgr.log_use(args.dt, args.name, ok, args.detail or "")
+        ui.ok(f"logged {args.name}  ok={ok}")
+        return
+    if action == "log":
+        rows = skillmgr.read_log(limit=args.limit, skill=args.name or "", name=args.dt or "", ok=args.status or "")
+        if not rows:
+            ui.skip("(no skill usage)")
+            return
+        for row in rows:
+            flag = "ok" if row.get("ok") else "fail"
+            ui.info(f"{row.get('ts')}  {flag}  {row.get('dt')}  {row.get('who')}  {row.get('skill')}  {row.get('detail') or ''}")
+        return
+    raise SystemExit("usage: dt skill ls|import|enable|disable|teach|used|log")
+
+
 def cmd_hotfix(_: argparse.Namespace) -> None:
     if not config_path().is_file():
         ui.warn("no config; dt config --init first")
@@ -1039,6 +1093,32 @@ def build_parser() -> argparse.ArgumentParser:
     p_notes.add_argument("--q", default="", help="FTS5 MATCH query")
     p_notes.add_argument("-n", "--limit", type=int, default=40)
 
+    p_skill = sub.add_parser("skill", help="catalog in ~/.dual-tmux/skills; trigger subset; teach bullet")
+    sk = p_skill.add_subparsers(dest="skill_cmd")
+    sk.add_parser("ls", help="list catalog and who uses each skill")
+    p_imp = sk.add_parser("import", help="copy a SKILL.md directory into the catalog")
+    p_imp.add_argument("path")
+    p_en = sk.add_parser("enable", help="add skill to trigger or bullet subset")
+    p_en.add_argument("name")
+    p_en.add_argument("who", choices=["trigger", "bullet"])
+    p_dis = sk.add_parser("disable", help="remove skill from trigger or bullet subset")
+    p_dis.add_argument("name")
+    p_dis.add_argument("who", choices=["trigger", "bullet"])
+    p_teach = sk.add_parser("teach", help="enable on bullet and send-keys the skill names into run_*")
+    p_teach.add_argument("dt")
+    p_teach.add_argument("skills", nargs="+")
+    p_teach.add_argument("--text", default="", help="override message sent to bullet")
+    p_used = sk.add_parser("used", help="log that trigger used a skill")
+    p_used.add_argument("dt")
+    p_used.add_argument("name")
+    p_used.add_argument("--ok", action="store_true")
+    p_used.add_argument("--fail", action="store_true")
+    p_used.add_argument("--detail", default="")
+    p_slog = sk.add_parser("log", help="skill usage log (time, ok/fail)")
+    p_slog.add_argument("-n", "--limit", type=int, default=40)
+    p_slog.add_argument("--name", default="", help="filter skill")
+    p_slog.add_argument("--dt", default="")
+    p_slog.add_argument("--status", default="", help="yes|no")
     p_web = sub.add_parser("web", help="local admin UI for tunnel pane I/O")
     p_web.add_argument("--port", type=int, default=8787)
     sub.add_parser("doctor", help="check config, tmux, ssh; apply persist tenant hotfix")
@@ -1075,6 +1155,7 @@ def main() -> None:
         "note",
         "notes",
         "web",
+        "skill",
     }:
         if not config_path().is_file():
             prompt_init()
@@ -1110,6 +1191,7 @@ def main() -> None:
         "notes": cmd_notes,
         "hotfix": cmd_hotfix,
         "web": cmd_web,
+        "skill": cmd_skill,
         "upgrade": cmd_upgrade,
     }
     ev.emit("cmd.start", cmd=command)
