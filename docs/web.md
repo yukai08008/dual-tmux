@@ -6,7 +6,7 @@ CLI is enough for **one** tunnel. The web exists because there are **many** line
 dt web                 # 127.0.0.1 only, default :8787
 ```
 
-Admin layout: **left tabs**, **right content**. Same Client, same `~/.dual-tmux/`, same tmux. Not a second hub.
+Admin layout: **left tabs** (Dashboard, 隧道), **right content**. Same Client, same `~/.dual-tmux/`, same tmux. Not a second hub.
 
 ## v1 is the panes
 

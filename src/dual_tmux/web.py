@@ -27,8 +27,8 @@ def _tunnels() -> list[dict]:
                 "dst": oc_ops.is_dst(data),
                 "op": op,
                 "run": run,
-                "op_live": tmux_ops.has_session(op) if op else False,
-                "run_live": tmux_ops.has_session(run) if run else False,
+                "op_live": bool(op) and tmux_ops.has_session(op),
+                "run_live": bool(run) and tmux_ops.has_session(run),
                 "op_cmd": op_info.get("cmd") or "",
                 "run_cmd": run_info.get("cmd") or "",
                 "trigger": (data.get("trigger") or {}).get("slug") or "",
@@ -45,124 +45,276 @@ def _pane_name(data: dict, side: str) -> str:
     return data.get("run") or ""
 
 
-def _page(selected: str, side: str) -> str:
-    rows = _tunnels()
-    if not selected and rows:
-        selected = rows[0]["name"]
-    if side not in {"op", "run"}:
-        side = "run"
-    items = []
-    for row in rows:
-        cls = "nav-item"
-        if row["name"] == selected:
-            cls += " active"
-        live = "●" if (row["op_live"] or row["run_live"]) else "○"
-        dst = "DST" if row["dst"] else "DT"
-        items.append(
-            f'<a class="{cls}" href="/?t={html.escape(row["name"])}&side={html.escape(side)}">'
-            f'<span class="dot">{live}</span> {html.escape(row["name"])} '
-            f'<span class="tag">{dst}</span></a>'
-        )
-    nav = "\n".join(items) or '<div class="empty">no tunnels</div>'
-    meta = ""
-    out = "(select a tunnel)"
-    pane = ""
-    if selected:
-        try:
-            data = load(find_dt(selected))
-        except SystemExit:
-            data = {}
-        pane = _pane_name(data, side)
-        if pane and tmux_ops.has_session(pane):
-            out = tmux_ops.capture_pane(pane, -120) or "(empty pane)"
-        elif pane:
-            out = f"(tmux session {pane} not running)"
-        trigger = data.get("trigger") or {}
-        bullet = data.get("bullet") or {}
-        meta = (
-            f'{html.escape(selected)} · {html.escape(pane or "—")} · '
-            f'op={html.escape((tmux_ops.pane_info(data.get("op") or "").get("cmd") or "—"))} · '
-            f'run={html.escape((tmux_ops.pane_info(data.get("run") or "").get("cmd") or "—"))} · '
-            f'trigger={html.escape(trigger.get("slug") or "—")} · '
-            f'bullet={html.escape(bullet.get("slug") or "—")}'
-        )
-    op_cls = "tab active" if side == "op" else "tab"
-    run_cls = "tab active" if side == "run" else "tab"
-    sel = html.escape(selected)
+def _capture(name: str) -> str:
+    if not name:
+        return "(no pane)"
+    if not tmux_ops.has_session(name):
+        return f"(tmux {name} not running)"
+    return tmux_ops.capture_pane(name, -120) or "(empty pane)"
+
+
+def _shell(nav: str, body: str, title: str) -> str:
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>dt web</title>
+<title>{html.escape(title)}</title>
 <style>
-:root {{ --bg:#0f1419; --panel:#1a2332; --line:#2a3548; --text:#e7ecf3; --muted:#8b9bb4; --acc:#3d8bfd; --ok:#3dd68c; }}
+:root {{ --bg:#f4f6f9; --side:#1f2a37; --side2:#16202c; --acc:#2563eb; --line:#e5e7eb; --text:#111827; --muted:#6b7280; --ok:#059669; --card:#fff; }}
 * {{ box-sizing:border-box; }}
 html,body {{ margin:0; height:100%; background:var(--bg); color:var(--text); font:13px/1.45 ui-sans-serif,system-ui,sans-serif; }}
 .app {{ display:flex; height:100%; }}
-.side {{ width:220px; background:#121a26; border-right:1px solid var(--line); display:flex; flex-direction:column; }}
-.brand {{ padding:14px 16px; font-weight:700; letter-spacing:.04em; border-bottom:1px solid var(--line); }}
-.brand span {{ color:var(--muted); font-weight:400; }}
-.nav {{ flex:1; overflow:auto; padding:8px; }}
-.nav-item {{ display:flex; align-items:center; gap:8px; padding:8px 10px; color:var(--text); text-decoration:none; border-radius:6px; margin-bottom:2px; }}
-.nav-item:hover {{ background:#1e2a3d; }}
-.nav-item.active {{ background:#24344d; }}
-.dot {{ font-size:10px; color:var(--ok); width:12px; }}
-.tag {{ margin-left:auto; color:var(--muted); font-size:11px; }}
-.main {{ flex:1; display:flex; flex-direction:column; min-width:0; }}
-.bar {{ display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid var(--line); background:var(--panel); }}
-.tab {{ color:var(--muted); text-decoration:none; padding:4px 10px; border-radius:4px; border:1px solid transparent; }}
-.tab.active {{ color:var(--text); background:#24344d; border-color:var(--line); }}
-.meta {{ color:var(--muted); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
-.out {{ flex:1; margin:0; padding:12px 14px; overflow:auto; background:#0b1016; color:#d6e2f0; font:12px/1.4 ui-monospace,Menlo,monospace; white-space:pre-wrap; word-break:break-word; }}
-.form {{ display:flex; gap:8px; padding:10px 14px; border-top:1px solid var(--line); background:var(--panel); }}
-textarea {{ flex:1; min-height:64px; resize:vertical; background:#0b1016; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:8px; font:12px ui-monospace,Menlo,monospace; }}
-button {{ background:var(--acc); color:#fff; border:0; border-radius:6px; padding:0 16px; cursor:pointer; font-weight:600; }}
-.empty {{ color:var(--muted); padding:12px; }}
+.side {{ width:200px; background:var(--side); color:#e5e7eb; display:flex; flex-direction:column; }}
+.brand {{ padding:16px; font-weight:700; border-bottom:1px solid #2c3a4d; }}
+.brand span {{ display:block; font-weight:400; color:#9ca3af; font-size:11px; margin-top:2px; }}
+.nav {{ padding:8px; display:flex; flex-direction:column; gap:4px; }}
+.nav a {{ color:#d1d5db; text-decoration:none; padding:10px 12px; border-radius:6px; }}
+.nav a:hover {{ background:#2c3a4d; color:#fff; }}
+.nav a.active {{ background:var(--acc); color:#fff; }}
+.main {{ flex:1; min-width:0; display:flex; flex-direction:column; overflow:auto; }}
+.top {{ padding:14px 20px; background:var(--card); border-bottom:1px solid var(--line); }}
+.top h1 {{ margin:0; font-size:16px; }}
+.top p {{ margin:4px 0 0; color:var(--muted); }}
+.content {{ padding:16px 20px; flex:1; display:flex; flex-direction:column; gap:12px; min-height:0; }}
+.card {{ background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px; }}
+.grid {{ display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:10px; }}
+.stat {{ background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px 14px; }}
+.stat b {{ display:block; font-size:20px; }}
+.stat span {{ color:var(--muted); font-size:12px; }}
+label {{ display:block; font-weight:600; margin-bottom:6px; }}
+input[type=search], textarea {{ width:100%; border:1px solid var(--line); border-radius:6px; padding:8px 10px; font:13px ui-sans-serif,system-ui; }}
+textarea {{ min-height:72px; font:13px ui-monospace,Menlo,monospace; resize:vertical; }}
+button {{ background:var(--acc); color:#fff; border:0; border-radius:6px; padding:8px 14px; font-weight:600; cursor:pointer; }}
+.pick {{ position:relative; }}
+.hits {{ position:absolute; left:0; right:0; top:100%; background:#fff; border:1px solid var(--line); border-radius:6px; max-height:240px; overflow:auto; z-index:5; display:none; }}
+.hits a {{ display:block; padding:8px 10px; text-decoration:none; color:var(--text); }}
+.hits a:hover, .hits a.active {{ background:#eff6ff; }}
+.hits .sub {{ color:var(--muted); font-size:11px; }}
+.meta {{ color:var(--muted); font-size:12px; }}
+.status {{ min-height:40px; color:var(--muted); font-size:12px; white-space:pre-wrap; }}
+.status.busy {{ color:var(--ok); }}
+.out {{ margin:0; height:220px; overflow:auto; background:#0b1220; color:#dbeafe; padding:10px; border-radius:6px; font:11px/1.4 ui-monospace,Menlo,monospace; white-space:pre-wrap; word-break:break-word; }}
+h2 {{ margin:0 0 8px; font-size:13px; }}
 </style>
 </head>
 <body>
 <div class="app">
   <aside class="side">
-    <div class="brand">dt web <span>tunnels</span></div>
+    <div class="brand">dt web<span>local admin</span></div>
     <nav class="nav">{nav}</nav>
   </aside>
-  <section class="main">
-    <div class="bar">
-      <a class="{op_cls}" href="/?t={sel}&side=op">op / trigger</a>
-      <a class="{run_cls}" href="/?t={sel}&side=run">run / bullet</a>
-      <div class="meta">{meta}</div>
-    </div>
-    <pre class="out" id="out">{html.escape(out)}</pre>
-    <form class="form" method="post" action="/send">
-      <input type="hidden" name="t" value="{sel}">
-      <input type="hidden" name="side" value="{html.escape(side)}">
-      <textarea name="text" placeholder="send-keys → {html.escape(pane or "pane")}  (Enter+⌘/Ctrl 用按钮)" required></textarea>
-      <button type="submit">Send</button>
-    </form>
-  </section>
+  <section class="main">{body}</section>
 </div>
-<script>
-const t = {json.dumps(selected)};
-const side = {json.dumps(side)};
-const out = document.getElementById('out');
-async function tick() {{
-  if (!t) return;
-  const r = await fetch('/api/pane?t=' + encodeURIComponent(t) + '&side=' + encodeURIComponent(side));
-  const j = await r.json();
-  const next = j.text || '';
-  if (next !== out.textContent) {{
-    const stick = out.scrollHeight - out.scrollTop - out.clientHeight < 40;
-    out.textContent = next;
-    if (stick) out.scrollTop = out.scrollHeight;
-  }}
-}}
-setInterval(tick, 1500);
-tick();
-</script>
 </body>
 </html>
 """
+
+
+def _nav(page: str) -> str:
+    dash = "active" if page == "dashboard" else ""
+    tun = "active" if page == "tunnels" else ""
+    return (
+        f'<a class="{dash}" href="/">Dashboard</a>'
+        f'<a class="{tun}" href="/tunnels">隧道</a>'
+    )
+
+
+def dashboard_page() -> str:
+    rows = _tunnels()
+    live = sum(1 for r in rows if r["op_live"] or r["run_live"])
+    dst = sum(1 for r in rows if r["dst"])
+    cards = []
+    for r in rows:
+        live_s = "live" if (r["op_live"] or r["run_live"]) else "down"
+        kind = "DST" if r["dst"] else "DT"
+        cards.append(
+            f'<div class="stat"><b>{html.escape(r["name"])}</b>'
+            f'<span>{kind} · {live_s} · op {html.escape(r["op_cmd"] or "—")} · '
+            f'run {html.escape(r["run_cmd"] or "—")}</span></div>'
+        )
+    body = f"""
+    <div class="top"><h1>Dashboard</h1><p>本机隧道一览（dt ls）</p></div>
+    <div class="content">
+      <div class="grid">
+        <div class="stat"><b>{len(rows)}</b><span>tunnels</span></div>
+        <div class="stat"><b>{dst}</b><span>DST</span></div>
+        <div class="stat"><b>{live}</b><span>tmux live</span></div>
+      </div>
+      <div class="grid">{"".join(cards) or '<div class="meta">暂无隧道</div>'}</div>
+    </div>
+    """
+    return _shell(_nav("dashboard"), body, "dt web · dashboard")
+
+
+def tunnels_page(selected: str = "") -> str:
+    rows = _tunnels()
+    names = json.dumps(rows, ensure_ascii=False)
+    data = {}
+    if selected:
+        try:
+            data = load(find_dt(selected))
+        except SystemExit:
+            data = {}
+    op = data.get("op") or ""
+    run = data.get("run") or ""
+    trigger_out = html.escape(_capture(op)) if selected else "选定隧道后显示 trigger（op_*）"
+    bullet_out = html.escape(_capture(run)) if selected else "选定隧道后显示 bullet（run_*）"
+    meta = ""
+    if selected and data:
+        meta = (
+            f'{html.escape(selected)} · op=<code>{html.escape(op)}</code> · '
+            f'run=<code>{html.escape(run)}</code> · '
+            f'DST={"yes" if oc_ops.is_dst(data) else "no"}'
+        )
+    sel = html.escape(selected)
+    body = f"""
+    <div class="top"><h1>隧道</h1><p>模糊搜索选定 DT，向 trigger 提交，下方轮询 op / run 屏</p></div>
+    <div class="content">
+      <div class="card pick">
+        <label>选择隧道（dt ls）</label>
+        <input id="q" type="search" placeholder="输入名称模糊搜索…" value="{sel}" autocomplete="off">
+        <div class="hits" id="hits"></div>
+        <div class="meta" id="meta" style="margin-top:8px">{meta}</div>
+      </div>
+      <div class="card">
+        <h2>发给 trigger（op_*）</h2>
+        <form id="sendf">
+          <input type="hidden" name="t" id="tname" value="{sel}">
+          <textarea name="text" id="box" placeholder="提交后 send-keys 到 trigger pane" {"disabled" if not selected else ""}></textarea>
+          <div style="margin-top:8px"><button type="submit" {"disabled" if not selected else ""}>提交</button></div>
+        </form>
+      </div>
+      <div class="card">
+        <h2>轮询状态</h2>
+        <div class="status" id="status">{'等待提交…' if selected else '先选定隧道'}</div>
+      </div>
+      <div class="card">
+        <h2>trigger 会话 · <span id="oplabel">{html.escape(op or "op_*")}</span></h2>
+        <pre class="out" id="opout">{trigger_out}</pre>
+      </div>
+      <div class="card">
+        <h2>bullet 会话 · <span id="runlabel">{html.escape(run or "run_*")}</span></h2>
+        <pre class="out" id="runout">{bullet_out}</pre>
+      </div>
+    </div>
+<script>
+const rows = {names};
+const hits = document.getElementById('hits');
+const q = document.getElementById('q');
+const tname = document.getElementById('tname');
+const meta = document.getElementById('meta');
+const status = document.getElementById('status');
+const box = document.getElementById('box');
+const opout = document.getElementById('opout');
+const runout = document.getElementById('runout');
+const oplabel = document.getElementById('oplabel');
+const runlabel = document.getElementById('runlabel');
+const sendf = document.getElementById('sendf');
+let chosen = {json.dumps(selected)};
+let lastOp = '', lastRun = '';
+let lastSent = 0;
+
+function match(row, s) {{
+  s = (s || '').toLowerCase();
+  if (!s) return true;
+  const blob = [row.name, row.op, row.run, row.trigger, row.bullet].join(' ').toLowerCase();
+  return s.split(/\\s+/).every(p => blob.includes(p));
+}}
+function renderHits() {{
+  const s = q.value;
+  const list = rows.filter(r => match(r, s)).slice(0, 20);
+  hits.innerHTML = list.map(r => {{
+    const kind = r.dst ? 'DST' : 'DT';
+    const live = (r.op_live || r.run_live) ? 'live' : 'down';
+    return '<a href="#" data-name="'+r.name+'"><b>'+r.name+'</b> <span class="sub">'+kind+' · '+live+' · '+r.op+' / '+r.run+'</span></a>';
+  }}).join('') || '<div class="sub" style="padding:8px">无匹配</div>';
+  hits.style.display = 'block';
+}}
+function pick(name) {{
+  const row = rows.find(r => r.name === name);
+  if (!row) return;
+  chosen = name;
+  tname.value = name;
+  q.value = name;
+  hits.style.display = 'none';
+  box.disabled = false;
+  sendf.querySelector('button').disabled = false;
+  oplabel.textContent = row.op;
+  runlabel.textContent = row.run;
+  meta.innerHTML = name+' · op=<code>'+row.op+'</code> · run=<code>'+row.run+'</code> · DST='+(row.dst?'yes':'no');
+  history.replaceState(null, '', '/tunnels?t='+encodeURIComponent(name));
+  lastOp = lastRun = '';
+  status.textContent = '已选定 '+name+'，轮询 op/run…';
+  status.className = 'status busy';
+  tick();
+}}
+q.addEventListener('focus', renderHits);
+q.addEventListener('input', renderHits);
+hits.addEventListener('click', (e) => {{
+  const a = e.target.closest('a[data-name]');
+  if (!a) return;
+  e.preventDefault();
+  pick(a.dataset.name);
+}});
+document.addEventListener('click', (e) => {{
+  if (!e.target.closest('.pick')) hits.style.display = 'none';
+}});
+q.addEventListener('keydown', (e) => {{
+  if (e.key === 'Enter') {{
+    e.preventDefault();
+    const first = hits.querySelector('a[data-name]');
+    if (first) pick(first.dataset.name);
+  }}
+}});
+
+function snap(el, next) {{
+  if (next === el.textContent) return;
+  const stick = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+  el.textContent = next;
+  if (stick) el.scrollTop = el.scrollHeight;
+}}
+
+async function tick() {{
+  if (!chosen) return;
+  const r = await fetch('/api/tunnel?t=' + encodeURIComponent(chosen));
+  const j = await r.json();
+  if (j.error) {{ status.textContent = j.error; return; }}
+  snap(opout, j.op_text || '');
+  snap(runout, j.run_text || '');
+  const opChanged = j.op_text !== lastOp;
+  const runChanged = j.run_text !== lastRun;
+  lastOp = j.op_text || '';
+  lastRun = j.run_text || '';
+  const bits = [
+    'op '+ (j.op_live ? j.op_cmd || 'live' : 'down'),
+    'run '+ (j.run_live ? j.run_cmd || 'live' : 'down'),
+  ];
+  if (lastSent && Date.now() - lastSent < 15000) {{
+    bits.unshift(opChanged ? 'trigger 屏有更新' : '已提交，等待 trigger 输出');
+  }}
+  status.textContent = bits.join(' · ');
+  status.className = 'status' + ((j.op_live || j.run_live) ? ' busy' : '');
+}}
+setInterval(tick, 1500);
+if (chosen) tick();
+
+sendf.addEventListener('submit', async (e) => {{
+  e.preventDefault();
+  if (!chosen || !box.value.trim()) return;
+  status.textContent = '正在发给 trigger…';
+  const body = new URLSearchParams({{ t: chosen, side: 'op', text: box.value }});
+  const r = await fetch('/send', {{ method: 'POST', headers: {{ 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' }}, body }});
+  if (!r.ok) {{ status.textContent = await r.text(); return; }}
+  lastSent = Date.now();
+  box.value = '';
+  status.textContent = '已提交到 trigger，轮询输出…';
+  status.className = 'status busy';
+  tick();
+}});
+</script>
+    """
+    return _shell(_nav("tunnels"), body, "dt web · 隧道")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -181,21 +333,37 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
-        if parsed.path == "/api/pane":
+        if parsed.path == "/api/tunnels":
+            self._send(200, json.dumps(_tunnels()), "application/json; charset=utf-8")
+            return
+        if parsed.path == "/api/tunnel":
             name = (qs.get("t") or [""])[0]
-            side = (qs.get("side") or ["run"])[0]
             try:
                 data = load(find_dt(name))
-                pane = _pane_name(data, side)
-                text = tmux_ops.capture_pane(pane, -120) if pane and tmux_ops.has_session(pane) else f"(no session {pane})"
-                self._send(200, json.dumps({"pane": pane, "text": text}), "application/json; charset=utf-8")
             except SystemExit as exc:
                 self._send(404, json.dumps({"error": str(exc)}), "application/json; charset=utf-8")
+                return
+            op = data.get("op") or ""
+            run = data.get("run") or ""
+            payload = {
+                "name": data.get("name"),
+                "op": op,
+                "run": run,
+                "dst": oc_ops.is_dst(data),
+                "op_live": bool(op) and tmux_ops.has_session(op),
+                "run_live": bool(run) and tmux_ops.has_session(run),
+                "op_cmd": tmux_ops.pane_info(op).get("cmd") if op else "",
+                "run_cmd": tmux_ops.pane_info(run).get("cmd") if run else "",
+                "op_text": _capture(op),
+                "run_text": _capture(run),
+            }
+            self._send(200, json.dumps(payload), "application/json; charset=utf-8")
             return
-        if parsed.path in {"/", "/index.html"}:
-            selected = (qs.get("t") or [""])[0]
-            side = (qs.get("side") or ["run"])[0]
-            self._send(200, _page(selected, side))
+        if parsed.path in {"/", "/dashboard"}:
+            self._send(200, dashboard_page())
+            return
+        if parsed.path in {"/tunnels", "/t"}:
+            self._send(200, tunnels_page((qs.get("t") or [""])[0]))
             return
         self._send(404, "not found")
 
@@ -208,7 +376,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, "not found")
             return
         name = (form.get("t") or [""])[0]
-        side = (form.get("side") or ["run"])[0]
+        side = (form.get("side") or ["op"])[0]
         text = (form.get("text") or [""])[0]
         try:
             data = load(find_dt(name))
@@ -219,8 +387,12 @@ class Handler(BaseHTTPRequestHandler):
         except SystemExit as exc:
             self._send(400, str(exc), "text/plain; charset=utf-8")
             return
+        accept = self.headers.get("Accept") or ""
+        if "application/json" in accept or self.headers.get("X-Requested-With"):
+            self._send(200, json.dumps({"ok": True, "pane": pane}), "application/json; charset=utf-8")
+            return
         self.send_response(303)
-        self.send_header("Location", f"/?t={normalize_dt(name)}&side={side}")
+        self.send_header("Location", f"/tunnels?t={normalize_dt(name)}")
         self.end_headers()
 
 
