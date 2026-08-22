@@ -27,6 +27,31 @@ def sync_skills() -> Path:
     return dest
 
 
+def install_project_skills(dest: Path) -> Path:
+    """OpenCode only discovers .opencode/skills/<name>/SKILL.md from cwd."""
+    src = packaged_skills()
+    target = dest / ".opencode" / "skills"
+    target.mkdir(parents=True, exist_ok=True)
+    if src.is_dir():
+        shutil.copytree(src, target, dirs_exist_ok=True)
+    return target
+
+
+def write_opencode_json(dest: Path) -> Path:
+    """AGENTS.md does not auto-load linked files; instructions does."""
+    path = dest / "opencode.json"
+    path.write_text(
+        "{\n"
+        '  "$schema": "https://opencode.ai/config.json",\n'
+        '  "instructions": [\n'
+        '    ".opencode/skills/dual-tmux/SKILL.md",\n'
+        '    ".opencode/skills/tmux-trigger/SKILL.md"\n'
+        "  ]\n"
+        "}\n"
+    )
+    return path
+
+
 def agents_text(data: dict) -> str:
     name = data.get("name") or ""
     op = data.get("op") or ""
@@ -47,8 +72,13 @@ def agents_text(data: dict) -> str:
         "\n"
         "## Read first\n"
         "\n"
-        f"- `{skills / 'dual-tmux' / 'SKILL.md'}`\n"
-        f"- `{skills / 'tmux-trigger' / 'SKILL.md'}`\n"
+        "CRITICAL: On startup, immediately Read these files with your Read tool "
+        "(OpenCode does not auto-follow links in AGENTS.md):\n"
+        "\n"
+        "- `.opencode/skills/dual-tmux/SKILL.md`\n"
+        "- `.opencode/skills/tmux-trigger/SKILL.md`\n"
+        "\n"
+        "Treat them as mandatory. Same files are also listed in `opencode.json` `instructions`.\n"
         "\n"
         "## This tunnel\n"
         "\n"
@@ -78,6 +108,8 @@ def prepare(data: dict) -> Path:
     sync_skills()
     dest = ops_dir(data["op"])
     dest.mkdir(parents=True, exist_ok=True)
+    install_project_skills(dest)
+    write_opencode_json(dest)
     (dest / "AGENTS.md").write_text(agents_text(data), encoding="utf-8")
     mem.prepare_for_tunnel(data)
     return dest
