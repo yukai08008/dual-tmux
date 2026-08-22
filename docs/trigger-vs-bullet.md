@@ -22,3 +22,12 @@ Bullet must not. Recreating the box it is sitting in kills its own pane and sqli
 4. In the new pane: `opencode --auto -s <bullet-session-id>` (or `dt resume`).
 
 Packaged skills (`tmux-trigger`, `dual-tmux`) and `ops/<op_*>/AGENTS.md` repeat this so trigger sessions read it on launch.
+
+## Architecture and flow
+
+Trigger does not sketch architecture in `op_*`. Send it to bullet and require:
+
+- mermaid (`flowchart` / `sequenceDiagram` / `stateDiagram`)
+- a file in the workspace (not chat-only)
+
+Then poll. Continue only after the file is there.
