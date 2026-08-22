@@ -110,15 +110,23 @@ h2 {{ margin:0 0 8px; font-size:13px; }}
 .lamps {{ display:flex; gap:14px; margin-left:auto; }}
 .lamp-wrap {{ display:flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); }}
 .lamp {{ width:12px; height:12px; border-radius:50%; background:#9ca3af; box-shadow:0 0 0 2px #e5e7eb; }}
+.lamp.gray {{ background:#9ca3af; box-shadow:0 0 0 2px #e5e7eb; }}
 .lamp.red {{ background:#dc2626; box-shadow:0 0 0 2px #fecaca; }}
 .lamp.green {{ background:#059669; box-shadow:0 0 0 2px #a7f3d0; }}
 .lamp.yellow {{ background:#f59e0b; box-shadow:0 0 0 2px #fde68a; animation:blink 0.9s ease-in-out infinite; }}
 @keyframes blink {{ 50% {{ opacity:0.3; }} }}
 .log.busy {{ border-color:#f59e0b; background:#fffbeb; }}
 .log.idle {{ border-color:var(--line); background:#f3f4f6; }}
-.reply {{ min-height:88px; max-height:180px; overflow:auto; background:#f8fafc; border:1px solid var(--line); border-radius:6px; padding:10px; white-space:pre-wrap; font:13px/1.45 ui-sans-serif,system-ui; color:#374151; }}
-.reply.ok {{ border-color:#059669; background:#ecfdf5; }}
-.reply.fail {{ border-color:#dc2626; background:#fef2f2; }}
+.thread {{ height:240px; overflow:auto; background:#f8fafc; border:1px solid var(--line); border-radius:6px; padding:8px; display:flex; flex-direction:column; gap:8px; }}
+.bubble {{ border-radius:8px; padding:8px 10px; max-width:92%; }}
+.bubble .who {{ font-size:10px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; margin-bottom:4px; }}
+.bubble .body {{ white-space:pre-wrap; word-break:break-word; font:13px/1.45 ui-sans-serif,system-ui; }}
+.bubble.ask {{ align-self:flex-end; background:#dbeafe; color:#1e3a8a; }}
+.bubble.ask .who {{ color:#1d4ed8; }}
+.bubble.ans {{ align-self:flex-start; background:#ecfdf5; color:#065f46; }}
+.bubble.ans .who {{ color:#047857; }}
+.bubble.fail {{ align-self:flex-start; background:#fef2f2; color:#991b1b; }}
+.bubble.fail .who {{ color:#dc2626; }}
 </style>
 </head>
 <body>
@@ -204,8 +212,8 @@ def tunnels_page(selected: str = "") -> str:
         <div class="h2row">
           <h2>发给 trigger（op_*）</h2>
           <div class="lamps">
-            <span class="lamp-wrap">trigger <i class="lamp red" id="lamp-op"></i></span>
-            <span class="lamp-wrap">bullet <i class="lamp red" id="lamp-run"></i></span>
+            <span class="lamp-wrap">trigger <i class="lamp gray" id="lamp-op"></i></span>
+            <span class="lamp-wrap">bullet <i class="lamp gray" id="lamp-run"></i></span>
           </div>
         </div>
         <form id="sendf">
@@ -215,8 +223,8 @@ def tunnels_page(selected: str = "") -> str:
         </form>
       </div>
       <div class="card">
-        <h2>trigger 回复</h2>
-        <div class="reply" id="reply">选定隧道并提交后，这里显示 trigger 最新一次回复</div>
+        <h2>trigger 问答</h2>
+        <div class="thread" id="thread"></div>
       </div>
       <div class="card">
         <h2>轮询状态</h2>
@@ -246,16 +254,19 @@ const runlabel = document.getElementById('runlabel');
 const sendf = document.getElementById('sendf');
 const lampOp = document.getElementById('lamp-op');
 const lampRun = document.getElementById('lamp-run');
-const replyEl = document.getElementById('reply');
+const threadEl = document.getElementById('thread');
 let chosen = {json.dumps(selected)};
 let lastOp = '', lastRun = '';
 let lastSent = 0;
 let waiting = false;
 let pollQuiet = 0;
 let opAtSend = '';
-let finalOp = 'red';
-let finalRun = 'red';
+let lastAsk = '';
+let lastPollKey = '';
+let finalOp = 'gray';
+let finalRun = 'gray';
 const LOG_MAX = 200;
+const THREAD_MAX = 40;
 
 function setLamp(el, color) {{
   el.className = 'lamp ' + color;
@@ -263,9 +274,28 @@ function setLamp(el, color) {{
 function setPollBusy(on) {{
   logEl.className = 'log ' + (on ? 'busy' : 'idle');
 }}
-function setReply(text, ok) {{
-  replyEl.textContent = text || '';
-  replyEl.className = 'reply ' + (ok ? 'ok' : 'fail');
+function addBubble(kind, text) {{
+  const b = document.createElement('div');
+  b.className = 'bubble ' + kind;
+  const who = document.createElement('div');
+  who.className = 'who';
+  who.textContent = kind === 'ask' ? '提问' : (kind === 'fail' ? '失败' : '回复');
+  const body = document.createElement('div');
+  body.className = 'body';
+  body.textContent = text || '';
+  b.appendChild(who);
+  b.appendChild(body);
+  threadEl.appendChild(b);
+  while (threadEl.children.length > THREAD_MAX) threadEl.removeChild(threadEl.firstChild);
+  threadEl.scrollTop = threadEl.scrollHeight;
+}}
+function summarize(text) {{
+  const lines = (text || '').split('\\n').map(s => s.trim()).filter(Boolean);
+  const skip = /^(ok |skip |· |err |Build |% |░|▒|▓|┌|└|│)/;
+  const good = lines.filter(l => !skip.test(l) && l.length > 8);
+  const pick = good.slice(-3);
+  if (pick.length) return pick.join(' / ').slice(0, 160);
+  return (lines.slice(-1)[0] || 'trigger 有输出').slice(0, 120);
 }}
 function paneDelta(before, after) {{
   const a = after || '';
@@ -326,11 +356,13 @@ function pick(name) {{
   waiting = false;
   pollQuiet = 0;
   opAtSend = '';
+  lastAsk = '';
+  lastPollKey = '';
   setPollBusy(false);
-  setLamp(lampOp, row.op_live ? 'green' : 'red');
-  setLamp(lampRun, row.run_live ? 'green' : 'red');
-  finalOp = row.op_live ? 'green' : 'red';
-  finalRun = row.run_live ? 'green' : 'red';
+  finalOp = 'gray';
+  finalRun = 'gray';
+  setLamp(lampOp, 'gray');
+  setLamp(lampRun, 'gray');
   logLine('pick', '已选定 ' + name + ' · ' + row.op + ' / ' + row.run);
   tick();
 }}
@@ -378,32 +410,36 @@ async function tick() {{
     setLamp(lampRun, j.run_live ? 'yellow' : 'red');
     setPollBusy(true);
     if (opChanged) {{
-      const tail = (j.op_text || '').trim().split('\\n').filter(Boolean).slice(-1)[0] || 'trigger 有输出';
-      logLine('poll', tail.slice(0, 120));
+      const delta = paneDelta(opAtSend, j.op_text);
+      const sum = summarize(delta || j.op_text);
+      if (sum !== lastPollKey) {{
+        logLine('poll', sum);
+        lastPollKey = sum;
+      }}
       pollQuiet = 0;
     }} else {{
       pollQuiet += 1;
-      if (pollQuiet === 1) logLine('poll', '等待 trigger · op=' + opState + ' run=' + runState);
+      if (pollQuiet === 1) logLine('poll', '等待 trigger · op=' + opState);
       if (pollQuiet >= 8) {{
         const fail = !j.op_live;
+        const delta = paneDelta(opAtSend, j.op_text);
         const reply = fail
           ? ('失败 · trigger ' + opState)
-          : (paneDelta(opAtSend, j.op_text) || 'trigger 本轮无新文本');
-        setReply(reply, !fail);
+          : (summarize(delta) || delta || '本轮无新文本');
+        addBubble(fail ? 'fail' : 'ans', reply);
         finalOp = fail ? 'red' : 'green';
         finalRun = j.run_live ? 'green' : 'red';
         setLamp(lampOp, finalOp);
         setLamp(lampRun, finalRun);
         setPollBusy(false);
-        logLine(fail ? 'err' : 'done', fail ? '本轮失败 · op=' + opState : '本轮结束 · 已刷新 trigger 回复');
+        logLine(fail ? 'err' : 'done', fail ? '本轮失败 · op=' + opState : '本轮结束 · ' + (summarize(delta) || '已写入问答'));
         waiting = false;
         pollQuiet = 0;
+        lastPollKey = '';
       }}
     }}
   }} else {{
     setPollBusy(false);
-    if (!j.op_live) finalOp = 'red';
-    if (!j.run_live) finalRun = 'red';
     setLamp(lampOp, finalOp);
     setLamp(lampRun, finalRun);
     if (opChanged || runChanged) {{
@@ -417,7 +453,9 @@ if (chosen) tick();
 sendf.addEventListener('submit', async (e) => {{
   e.preventDefault();
   if (!chosen || !box.value.trim()) return;
-  const preview = box.value.trim().replace(/\\s+/g, ' ').slice(0, 80);
+  lastAsk = box.value.trim();
+  const preview = lastAsk.replace(/\\s+/g, ' ').slice(0, 80);
+  addBubble('ask', lastAsk);
   logLine('send', preview || '(empty)');
   opAtSend = lastOp;
   setLamp(lampOp, 'yellow');
@@ -428,7 +466,7 @@ sendf.addEventListener('submit', async (e) => {{
   if (!r.ok) {{
     const err = await r.text();
     logLine('err', err);
-    setReply(err, false);
+    addBubble('fail', err);
     finalOp = 'red';
     setLamp(lampOp, 'red');
     setLamp(lampRun, finalRun);

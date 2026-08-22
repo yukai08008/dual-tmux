@@ -28,8 +28,11 @@ def test_admin_tabs_and_search(tmp_path, monkeypatch):
     assert "bullet 会话" in page
     assert "logLine" in page
     assert "lamp-op" in page
-    assert "trigger 回复" in page
+    assert "trigger 问答" in page
     assert "setPollBusy" in page
+    assert 'lamp gray' in page
+    assert "addBubble" in page
+    assert "summarize" in page
     assert "dt-msg" in page
     names = [r["name"] for r in _tunnels()]
     assert names == ["dt-msg"]
