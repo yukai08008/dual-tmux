@@ -34,6 +34,8 @@ def _tunnels() -> list[dict]:
                 "run_cmd": run_info.get("cmd") or "",
                 "trigger": (data.get("trigger") or {}).get("slug") or "",
                 "bullet": (data.get("bullet") or {}).get("slug") or "",
+                "trigger_model": (data.get("trigger") or {}).get("model") or "",
+                "bullet_model": (data.get("bullet") or {}).get("model") or "",
             }
         )
     rows.sort(key=lambda r: r["name"])
@@ -146,6 +148,11 @@ h2 {{ margin:0 0 8px; font-size:13px; }}
 .btab.yellow {{ background:#fef3c7; }}
 .btab .x {{ border:0; background:transparent; color:#6b7280; cursor:pointer; font-size:14px; padding:0 2px; }}
 .btab-add {{ border:1px dashed var(--line); background:#fff; color:var(--muted); padding:8px 12px; border-radius:8px 8px 0 0; cursor:pointer; }}
+.models {{ display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end; margin-top:10px; }}
+.models label {{ margin:0; font-size:11px; color:var(--muted); }}
+.models input {{ width:220px; padding:6px 8px; }}
+.models button {{ padding:6px 10px; }}
+.models .ghost {{ background:#fff; color:var(--acc); border:1px solid var(--acc); }}
 </style>
 </head>
 <body>
@@ -227,6 +234,13 @@ def tunnels_page(selected: str = "") -> str:
         <div class="hits" id="hits"></div>
         <div class="meta" id="meta" style="margin-top:8px">{meta}</div>
         <div class="btabs" id="btabs" style="margin-top:12px"></div>
+        <div class="models" id="models">
+          <div><label>trigger 模型</label><input id="m-op" placeholder="provider/id"></div>
+          <div><label>bullet 模型</label><input id="m-run" placeholder="provider/id"></div>
+          <button type="button" id="btn-model-op">切换 trigger</button>
+          <button type="button" id="btn-model-run">切换 bullet</button>
+          <button type="button" class="ghost" id="btn-freeze">Freeze</button>
+        </div>
       </div>
       <div class="card">
         <div class="h2row">
@@ -318,11 +332,17 @@ function applyState(st) {{
   box.disabled = !st.name;
   sendf.querySelector('button').disabled = !st.name;
   const row = rows.find(r => r.name === st.name);
+  const mop = document.getElementById('m-op');
+  const mrun = document.getElementById('m-run');
   if (row) {{
     oplabel.textContent = row.op;
     runlabel.textContent = row.run;
+    mop.value = row.trigger_model || '';
+    mrun.value = row.bullet_model || '';
     meta.innerHTML = st.name+' · op=<code>'+row.op+'</code> · run=<code>'+row.run+'</code> · DST='+(row.dst?'yes':'no');
   }} else {{
+    mop.value = '';
+    mrun.value = '';
     oplabel.textContent = 'op_*';
     runlabel.textContent = 'run_*';
     meta.textContent = st.name ? st.name : '未选隧道';
@@ -499,6 +519,17 @@ async function tick() {{
   if (j.error) {{ logLine('err', j.error); return; }}
   snap(opout, j.op_text || '');
   snap(runout, j.run_text || '');
+  if (j.trigger_model != null) {{
+    const row = rows.find(r => r.name === st.name);
+    if (row) {{
+      row.trigger_model = j.trigger_model || row.trigger_model;
+      row.bullet_model = j.bullet_model || row.bullet_model;
+      if (document.activeElement !== document.getElementById('m-op'))
+        document.getElementById('m-op').value = row.trigger_model || '';
+      if (document.activeElement !== document.getElementById('m-run'))
+        document.getElementById('m-run').value = row.bullet_model || '';
+    }}
+  }}
   const opChanged = j.op_text !== st.lastOp;
   const runChanged = j.run_text !== st.lastRun;
   st.lastOp = j.op_text || '';
@@ -601,6 +632,58 @@ sendf.addEventListener('submit', async (e) => {{
   renderTabs();
   tick();
 }});
+async function postForm(url, fields) {{
+  const body = new URLSearchParams(fields);
+  const r = await fetch(url, {{ method: 'POST', headers: {{ 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' }}, body }});
+  const text = await r.text();
+  if (!r.ok) throw new Error(text);
+  try {{ return JSON.parse(text); }} catch {{ return {{ ok:true }}; }}
+}}
+function syncRowModels(j) {{
+  const st = activeTab;
+  if (!st || !st.name) return;
+  const row = rows.find(r => r.name === st.name);
+  if (!row) return;
+  if (j.trigger_model != null) row.trigger_model = j.trigger_model;
+  if (j.bullet_model != null) row.bullet_model = j.bullet_model;
+  document.getElementById('m-op').value = row.trigger_model || '';
+  document.getElementById('m-run').value = row.bullet_model || '';
+}}
+document.getElementById('btn-model-op').addEventListener('click', async () => {{
+  const st = activeTab;
+  const model = document.getElementById('m-op').value.trim();
+  if (!st || !st.name || !model) return;
+  logLine('send', '切换 trigger 模型 ' + model);
+  try {{
+    const j = await postForm('/api/model', {{ t: st.name, side: 'op', model }});
+    syncRowModels(j);
+    logLine('done', 'trigger 模型 ' + (j.model || model));
+  }} catch (err) {{ logLine('err', String(err.message || err)); }}
+}});
+document.getElementById('btn-model-run').addEventListener('click', async () => {{
+  const st = activeTab;
+  const model = document.getElementById('m-run').value.trim();
+  if (!st || !st.name || !model) return;
+  logLine('send', '切换 bullet 模型 ' + model);
+  try {{
+    const j = await postForm('/api/model', {{ t: st.name, side: 'run', model }});
+    syncRowModels(j);
+    logLine('done', 'bullet 模型 ' + (j.model || model));
+  }} catch (err) {{ logLine('err', String(err.message || err)); }}
+}});
+document.getElementById('btn-freeze').addEventListener('click', async () => {{
+  const st = activeTab;
+  if (!st || !st.name) return;
+  logLine('send', 'freeze ' + st.name);
+  try {{
+    const j = await postForm('/api/freeze', {{ t: st.name }});
+    syncRowModels(j);
+    const row = rows.find(r => r.name === st.name);
+    if (row) row.dst = !!j.dst;
+    logLine('done', 'freeze 完成 · DST=' + (j.dst ? 'yes' : 'no'));
+    applyState(st);
+  }} catch (err) {{ logLine('err', String(err.message || err)); }}
+}});
 addTab({json.dumps(selected)});
 </script>
     """
@@ -648,6 +731,8 @@ class Handler(BaseHTTPRequestHandler):
                 "run_text": _capture(run),
                 "op_parsed": parse_pane(_capture(op), parser_id_for_side(data.get("trigger"))).as_dict(),
                 "run_parsed": parse_pane(_capture(run), parser_id_for_side(data.get("bullet"))).as_dict(),
+                "trigger_model": (data.get("trigger") or {}).get("model") or "",
+                "bullet_model": (data.get("bullet") or {}).get("model") or "",
             }
             self._send(200, json.dumps(payload), "application/json; charset=utf-8")
             return
@@ -664,10 +749,56 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length") or 0)
         raw = self.rfile.read(length).decode("utf-8")
         form = parse_qs(raw)
+        name = (form.get("t") or [""])[0]
+        if parsed.path == "/api/model":
+            side = (form.get("side") or ["op"])[0]
+            model = (form.get("model") or [""])[0]
+            which = ["trigger"] if side == "op" else ["bullet"]
+            try:
+                from .cli import apply_model
+
+                data = apply_model(name, model, which)
+            except SystemExit as exc:
+                self._send(400, str(exc), "text/plain; charset=utf-8")
+                return
+            info = data.get("trigger") if side == "op" else data.get("bullet")
+            self._send(
+                200,
+                json.dumps(
+                    {
+                        "ok": True,
+                        "model": (info or {}).get("model") or model,
+                        "trigger_model": (data.get("trigger") or {}).get("model") or "",
+                        "bullet_model": (data.get("bullet") or {}).get("model") or "",
+                    }
+                ),
+                "application/json; charset=utf-8",
+            )
+            return
+        if parsed.path == "/api/freeze":
+            try:
+                from .cli import apply_freeze
+
+                data = apply_freeze(name)
+            except SystemExit as exc:
+                self._send(400, str(exc), "text/plain; charset=utf-8")
+                return
+            self._send(
+                200,
+                json.dumps(
+                    {
+                        "ok": True,
+                        "dst": oc_ops.is_dst(data),
+                        "trigger_model": (data.get("trigger") or {}).get("model") or "",
+                        "bullet_model": (data.get("bullet") or {}).get("model") or "",
+                    }
+                ),
+                "application/json; charset=utf-8",
+            )
+            return
         if parsed.path != "/send":
             self._send(404, "not found")
             return
-        name = (form.get("t") or [""])[0]
         side = (form.get("side") or ["op"])[0]
         text = (form.get("text") or [""])[0]
         try:

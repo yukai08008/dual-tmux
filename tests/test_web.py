@@ -39,5 +39,8 @@ def test_admin_tabs_and_search(tmp_path, monkeypatch):
     assert "btabs" in page
     assert "tabadd" in page
     assert "closeTab" in page
+    assert "btn-freeze" in page
+    assert "m-op" in page
+    assert "/api/model" in page
     names = [r["name"] for r in _tunnels()]
     assert names == ["dt-msg"]

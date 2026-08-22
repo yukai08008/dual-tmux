@@ -425,17 +425,14 @@ def freeze_sides(data: dict, sides: list[str], tool: str = "opencode", wait: boo
         _freeze_one(data, "bullet", data["run"], tool, wait)
 
 
-def cmd_model(args: argparse.Namespace) -> None:
-    data = _resolve(args.name)
+def apply_model(name: str, model: str, sides: list[str]) -> dict:
+    data = _resolve(name)
     hub.require_active(data)
-    model = (getattr(args, "model_flag", "") or args.model or "").strip()
+    model = (model or "").strip()
     if not model:
         raise SystemExit("usage: dt model <name> [--run|--op] <provider/id>")
-    sides: list[str] = []
-    if args.op:
-        sides.append("trigger")
-    if args.run or (not args.op and not args.run):
-        sides.append("bullet")
+    if not sides:
+        sides = ["bullet"]
     path = find_dt(data["name"])
     for side in sides:
         tmux_name = data["op"] if side == "trigger" else data["run"]
@@ -454,20 +451,17 @@ def cmd_model(args: argparse.Namespace) -> None:
     freeze_sides(data, sides, "opencode", wait=True)
     wp.stamp(data, "freeze_at")
     save(path, data)
-    print_inspect(data)
     hub.push_best_effort(wait=True)
+    return load(path)
 
 
-def cmd_freeze(args: argparse.Namespace) -> None:
-    data = _resolve(args.name)
+def apply_freeze(name: str, sides: list[str] | None = None, tool: str = "opencode") -> dict:
+    data = _resolve(name)
     path = find_dt(data["name"])
-    sides: list[str] = []
-    if args.trigger or (not args.trigger and not args.bullet):
-        sides.append("trigger")
-    if args.bullet or (not args.trigger and not args.bullet):
-        sides.append("bullet")
+    if not sides:
+        sides = ["trigger", "bullet"]
     span = ev.timed("freeze", name=data["name"], sides=",".join(sides))
-    freeze_sides(data, sides, getattr(args, "tool", "") or "opencode")
+    freeze_sides(data, sides, tool or "opencode")
     wp.stamp(data, "freeze_at")
     save(path, data)
     dst = oc_ops.is_dst(data)
@@ -476,11 +470,33 @@ def cmd_freeze(args: argparse.Namespace) -> None:
         trigger=(data.get("trigger") or {}).get("session_id") or "",
         bullet=(data.get("bullet") or {}).get("session_id") or "",
     )
+    hub.push_best_effort(wait=True)
+    return load(path)
+
+
+def cmd_model(args: argparse.Namespace) -> None:
+    model = (getattr(args, "model_flag", "") or args.model or "").strip()
+    sides: list[str] = []
+    if args.op:
+        sides.append("trigger")
+    if args.run or (not args.op and not args.run):
+        sides.append("bullet")
+    data = apply_model(args.name, model, sides)
+    print_inspect(data)
+
+
+def cmd_freeze(args: argparse.Namespace) -> None:
+    sides: list[str] = []
+    if args.trigger or (not args.trigger and not args.bullet):
+        sides.append("trigger")
+    if args.bullet or (not args.trigger and not args.bullet):
+        sides.append("bullet")
+    data = apply_freeze(args.name, sides, getattr(args, "tool", "") or "opencode")
+    dst = oc_ops.is_dst(data)
     ui.ok(f"freeze {data['name']}  IS_DST={'yes' if dst else 'no'}")
     if not dst:
         ui.warn("DST needs both op-oc and run-oc session ids")
     print_inspect(data)
-    hub.push_best_effort(wait=True)
 
 
 def cmd_capture(args: argparse.Namespace) -> None:
