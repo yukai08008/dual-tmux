@@ -8,6 +8,18 @@ Parser = Callable[[str], "ParsedTurn"]
 
 DEFAULT_PARSER = "opencode@1.18"
 
+BUILD_RE = re.compile(
+    r"Build\s*[·•]\s*(.+?)\s*[·•]\s*((?:\d+m\s*)?\d+(?:\.\d+)?s)",
+    re.IGNORECASE,
+)
+THOUGHT_RE = re.compile(r"^\s*Thought:\s*", re.IGNORECASE)
+REASON_RE = re.compile(r"^\s*The user\b", re.IGNORECASE)
+FOOTER_RE = re.compile(r"ctrl\+p commands|OpenCode \d|tokens\b|\$[\d.]+ spent", re.IGNORECASE)
+CHROME_RE = re.compile(
+    r"^(ok |skip |err |· |% |░|▒|▓|┌|└|│|▀|━|╹|OpenCode |Context$|MCP$|LSP$|"
+    r"Build auto|Connected$|LSPs are|问候$|▼ MCP)",
+)
+
 
 @dataclass
 class ParsedTurn:
@@ -27,12 +39,28 @@ def _plain_tail(text: str, n: int = 24) -> str:
     return "\n".join(keep[-n:]).strip()
 
 
-def _trim(lines: list[str]) -> list[str]:
-    while lines and not lines[0].strip():
-        lines = lines[1:]
-    while lines and not lines[-1].strip():
-        lines = lines[:-1]
-    return lines
+def _left_col(line: str) -> str:
+    line = line.replace("\xa0", " ").rstrip()
+    parts = re.split(r" {6,}", line, maxsplit=1)
+    return parts[0].rstrip()
+
+
+def _is_chrome(s: str) -> bool:
+    t = s.strip()
+    if not t:
+        return True
+    if set(t) <= set("▀━╹─│┌┐└┘┃ "):
+        return True
+    if t.startswith("┃"):
+        return True
+    if CHROME_RE.match(t) or FOOTER_RE.search(t):
+        return True
+    if t.startswith("/") and "opencode" in t.lower():
+        return True
+    if t.startswith("~/") or t.startswith("/Users/") or t.startswith("/root/"):
+        if "ctrl+p" in t.lower() or "OpenCode" in t:
+            return True
+    return False
 
 
 def parse_plain(text: str, tool: str = "plain") -> ParsedTurn:
@@ -40,53 +68,26 @@ def parse_plain(text: str, tool: str = "plain") -> ParsedTurn:
 
 
 def parse_opencode_1_18(text: str) -> ParsedTurn:
-    """OpenCode TUI ~1.18: `Build · Model · 1m 8s`, Thought:, box-drawing chrome."""
+    """OpenCode TUI 1.18: assistant text sits above `▣ Build · Model · elapsed`."""
     text = text or ""
-    build_re = re.compile(
-        r"Build\s*[·•]\s*(.+?)\s*[·•]\s*((?:\d+m\s*)?\d+(?:\.\d+)?s)",
-        re.IGNORECASE,
-    )
-    model_only_re = re.compile(
-        r"Build\s*[·•]\s*([A-Za-z][A-Za-z0-9 ._+-]{1,40})",
-        re.IGNORECASE,
-    )
-    model_flag_re = re.compile(r"opencode\s+--model\s+(\S+)")
-    thought_re = re.compile(r"^\s*Thought:\s*", re.IGNORECASE)
-    noise_re = re.compile(
-        r"^(ok |skip |err |· |% |░|▒|▓|┌|└|│|▀|━|╹|OpenCode |Context$|MCP$|LSP$|"
-        r"Build auto|ctrl\+p|tokens|used$|spent$|Connected$|LSPs are)",
-    )
+    matches = list(BUILD_RE.finditer(text))
     model, elapsed = "", ""
-    for m in build_re.finditer(text):
-        model = m.group(1).strip()
-        elapsed = (m.group(2) or "").strip()
-    if not model:
-        only = list(model_only_re.finditer(text))
-        if only:
-            model = only[-1].group(1).strip()
-    if not model:
-        flag = model_flag_re.search(text)
-        if flag:
-            model = flag.group(1)
-    lines = text.splitlines()
-    chunks: list[list[str]] = [[]]
-    for ln in lines:
-        s = ln.replace("\xa0", " ").rstrip()
-        if "▣" in s and "Build" in s:
-            chunks.append([])
+    if matches:
+        last = matches[-1]
+        model = last.group(1).strip()
+        elapsed = last.group(2).strip()
+        start = matches[-2].end() if len(matches) > 1 else 0
+        chunk = text[start:last.start()]
+    else:
+        chunk = text
+    body_lines: list[str] = []
+    for ln in chunk.splitlines():
+        s = _left_col(ln)
+        if _is_chrome(s) or THOUGHT_RE.match(s) or REASON_RE.match(s):
             continue
-        if thought_re.match(s):
-            continue
-        if s.strip().startswith("┃"):
-            continue
-        if noise_re.match(s.lstrip()) or set(s.strip()) <= set("▀━╹─│┌┐└┘ "):
-            continue
-        if "tokens" in s.lower() and "used" in s.lower():
-            continue
-        chunks[-1].append(s)
-    bodies = ["\n".join(_trim(c)).strip() for c in chunks]
-    bodies = [b for b in bodies if len(b) > 8]
-    body = bodies[-1] if bodies else ""
+        if s.strip():
+            body_lines.append(s.strip())
+    body = "\n".join(body_lines).strip()
     return ParsedTurn(
         tool="opencode",
         parser="opencode@1.18",
