@@ -13,7 +13,7 @@ Packaged copies of `dual-tmux` and `tmux-trigger` seed the catalog if missing. C
 
 ```sh
 dt skill ls
-dt skill import ~/path/to/my-skill     # dir with SKILL.md
+dt skill import ~/path/to/my-skill     # folder, SKILL.md, or .zip
 dt skill enable my-skill trigger
 dt skill enable my-skill bullet
 dt skill disable my-skill bullet

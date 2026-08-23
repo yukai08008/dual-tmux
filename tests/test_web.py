@@ -1,4 +1,4 @@
-from dual_tmux.web import _pane_name, _tunnels, dashboard_page, tunnels_page
+from dual_tmux.web import _pane_name, _tunnels, dashboard_page, skills_page, tunnels_page
 from dual_tmux.store import save, tunnels_dir
 from dual_tmux.config import AppConfig, write_config
 
@@ -48,3 +48,7 @@ def test_admin_tabs_and_search(tmp_path, monkeypatch):
     assert "syncbox" in page
     names = [r["name"] for r in _tunnels()]
     assert names == ["dt-msg"]
+    skills = skills_page()
+    assert "Skills" in skills
+    assert "btn-import" in skills
+    assert "/api/skill-preview" in skills

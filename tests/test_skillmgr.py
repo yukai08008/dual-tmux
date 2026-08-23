@@ -55,3 +55,26 @@ def test_prepare_uses_trigger_subset(tmp_path, monkeypatch):
     oc = (dest / "opencode.json").read_text()
     assert "dual-tmux" in oc
     assert "dt skill used" in (dest / "AGENTS.md").read_text()
+
+
+def test_import_md_and_zip(tmp_path, monkeypatch):
+    import zipfile
+
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
+    write_config(AppConfig(client="tm_box", server="tom7r", user="andy"))
+    md = tmp_path / "solo.md"
+    md.write_text("---\nname: solo-md\ndescription: from markdown\n---\n# hi\n")
+    preview = skillmgr.preview_source(str(md))
+    assert preview["kind"] == "md"
+    assert preview["name"] == "solo-md"
+    assert skillmgr.import_skill(str(md)) == "solo-md"
+    zdir = tmp_path / "pack"
+    zdir.mkdir()
+    (zdir / "SKILL.md").write_text("---\nname: zip-skill\ndescription: from zip\n---\n# z\n")
+    zpath = tmp_path / "pack.zip"
+    with zipfile.ZipFile(zpath, "w") as zf:
+        zf.write(zdir / "SKILL.md", "SKILL.md")
+    assert skillmgr.preview_source(str(zpath))["name"] == "zip-skill"
+    assert skillmgr.import_skill(str(zpath)) == "zip-skill"
+    names = {r["name"] for r in skillmgr.list_catalog()}
+    assert "solo-md" in names and "zip-skill" in names

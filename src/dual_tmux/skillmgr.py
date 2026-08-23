@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import tempfile
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -123,20 +125,103 @@ def list_catalog() -> list[dict]:
     return rows
 
 
+def _find_skill_md(root: Path) -> Path | None:
+    direct = root / "SKILL.md"
+    if direct.is_file():
+        return direct
+    hits = list(root.rglob("SKILL.md"))
+    if len(hits) == 1:
+        return hits[0]
+    return None
+
+
+def preview_source(src: str) -> dict:
+    """Inspect folder / SKILL.md / zip without importing."""
+    path = Path(src).expanduser().resolve()
+    kind = "unknown"
+    md = None
+    files: list[str] = []
+    tmp = None
+    try:
+        if path.is_file() and path.suffix.lower() == ".zip":
+            kind = "zip"
+            tmp = Path(tempfile.mkdtemp(prefix="dt-skill-"))
+            with zipfile.ZipFile(path) as zf:
+                zf.extractall(tmp)
+            md = _find_skill_md(tmp)
+            files = sorted(str(p.relative_to(tmp)) for p in tmp.rglob("*") if p.is_file())[:40]
+        elif path.is_file() and path.suffix.lower() in {".md", ".markdown"}:
+            kind = "md"
+            md = path
+            files = [path.name]
+        elif path.is_dir():
+            kind = "folder"
+            md = _find_skill_md(path)
+            files = sorted(str(p.relative_to(path)) for p in path.rglob("*") if p.is_file())[:40]
+        else:
+            raise SystemExit(f"[err] not a skill source (folder, SKILL.md, or zip): {src}")
+        if md is None or not md.is_file():
+            raise SystemExit("[err] no SKILL.md in source")
+        text = md.read_text(encoding="utf-8", errors="replace")
+        meta = parse_frontmatter(text)
+        name = meta.get("name") or (md.parent.name if kind != "md" else path.stem)
+        return {
+            "kind": kind,
+            "name": name,
+            "description": meta.get("description") or "",
+            "files": files,
+            "body": text[:8000],
+            "path": str(path),
+        }
+    finally:
+        if tmp and tmp.exists():
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 def import_skill(src: str) -> str:
     seed_catalog()
     path = Path(src).expanduser().resolve()
-    if path.is_file() and path.name == "SKILL.md":
-        path = path.parent
-    if not path.is_dir() or not (path / "SKILL.md").is_file():
-        raise SystemExit(f"[err] not a skill dir (need SKILL.md): {src}")
-    meta = parse_frontmatter((path / "SKILL.md").read_text())
-    name = meta.get("name") or path.name
-    dest = catalog_dir() / name
-    if dest.exists():
-        shutil.rmtree(dest)
-    shutil.copytree(path, dest)
-    return name
+    tmp = None
+    try:
+        if path.is_file() and path.suffix.lower() == ".zip":
+            tmp = Path(tempfile.mkdtemp(prefix="dt-skill-"))
+            with zipfile.ZipFile(path) as zf:
+                zf.extractall(tmp)
+            md = _find_skill_md(tmp)
+            if md is None:
+                raise SystemExit("[err] zip has no SKILL.md")
+            path = md.parent
+        elif path.is_file() and path.suffix.lower() in {".md", ".markdown"}:
+            meta = parse_frontmatter(path.read_text(encoding="utf-8", errors="replace"))
+            name = meta.get("name") or path.stem
+            dest = catalog_dir() / name
+            dest.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, dest / "SKILL.md")
+            return name
+        elif path.is_file() and path.name == "SKILL.md":
+            path = path.parent
+        if not path.is_dir() or not (path / "SKILL.md").is_file():
+            md = _find_skill_md(path) if path.is_dir() else None
+            if md is None:
+                raise SystemExit(f"[err] not a skill source (folder, SKILL.md, or zip): {src}")
+            path = md.parent
+        meta = parse_frontmatter((path / "SKILL.md").read_text(encoding="utf-8", errors="replace"))
+        name = meta.get("name") or path.name
+        dest = catalog_dir() / name
+        if dest.exists():
+            shutil.rmtree(dest)
+        shutil.copytree(path, dest)
+        return name
+    finally:
+        if tmp and tmp.exists():
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+def skill_body(name: str) -> str:
+    path = catalog_dir() / name / "SKILL.md"
+    if not path.is_file():
+        raise SystemExit(f"[err] unknown skill: {name}")
+    return path.read_text(encoding="utf-8", errors="replace")
 
 
 def set_enabled(name: str, who: str, on: bool) -> dict:

@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from . import oc as oc_ops
+from . import skillmgr
 from . import tmux as tmux_ops
 from .paneparse import parse_pane, parser_id_for_side
 from .config import load_config
@@ -236,9 +237,11 @@ h2 {{ margin:0 0 8px; font-size:13px; }}
 def _nav(page: str) -> str:
     dash = "active" if page == "dashboard" else ""
     tun = "active" if page == "tunnels" else ""
+    sk = "active" if page == "skills" else ""
     return (
         f'<a class="{dash}" href="/">Dashboard</a>'
         f'<a class="{tun}" href="/tunnels">隧道</a>'
+        f'<a class="{sk}" href="/skills">Skills</a>'
     )
 
 
@@ -267,6 +270,113 @@ def dashboard_page() -> str:
     </div>
     """
     return _shell(_nav("dashboard"), body, "dt web · dashboard")
+
+
+def skills_page() -> str:
+    tunnels = json.dumps([r["name"] for r in _tunnels()], ensure_ascii=False)
+    body = f"""
+    <div class="top"><h1>Skills</h1><p>全集 ~/.dual-tmux/skills · trigger 子集进 op_* · 可传授给 bullet</p></div>
+    <div class="content">
+      <div class="card">
+        <h2>导入（folder / SKILL.md / zip）</h2>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input id="src" type="text" placeholder="本机路径：目录、SKILL.md 或 .zip" style="flex:1;padding:8px;border:1px solid var(--line);border-radius:6px">
+          <button type="button" id="btn-preview">预览</button>
+          <button type="button" id="btn-import">导入</button>
+        </div>
+        <pre class="out" id="preview" style="height:180px;margin-top:10px;background:#111827">预览 frontmatter + 正文</pre>
+      </div>
+      <div class="card">
+        <h2>目录</h2>
+        <div id="cat"></div>
+      </div>
+      <div class="card">
+        <h2>使用日志</h2>
+        <div id="ulog" class="log idle" style="height:160px"></div>
+      </div>
+    </div>
+<script>
+const tunnels = {tunnels};
+async function jget(url) {{ const r = await fetch(url); return r.json(); }}
+async function jpost(url, fields) {{
+  const r = await fetch(url, {{ method:'POST', headers:{{'Content-Type':'application/x-www-form-urlencoded','Accept':'application/json'}}, body: new URLSearchParams(fields) }});
+  const t = await r.text();
+  if (!r.ok) throw new Error(t);
+  try {{ return JSON.parse(t); }} catch {{ return {{ok:true}}; }}
+}}
+function esc(s) {{ return (s||'').replace(/[&<>]/g, c => ({{'&':'&amp;','<':'&lt;','>':'&gt;'}})[c]); }}
+async function loadCat() {{
+  const rows = await jget('/api/skills');
+  const dtOpts = tunnels.map(n => '<option value="'+n+'">'+n+'</option>').join('');
+  document.getElementById('cat').innerHTML = rows.map(r => `
+    <div class="row" style="display:flex;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)">
+      <div style="flex:1"><b>${{esc(r.name)}}</b><div class="meta">${{esc(r.description)}}</div></div>
+      <label style="font-weight:400"><input type="checkbox" data-en="${{r.name}}" data-who="trigger" ${{r.trigger?'checked':''}}> trigger</label>
+      <label style="font-weight:400"><input type="checkbox" data-en="${{r.name}}" data-who="bullet" ${{r.bullet?'checked':''}}> bullet</label>
+      <select data-teach="${{r.name}}"><option value="">teach →</option>${{dtOpts}}</select>
+      <button type="button" data-view="${{r.name}}">正文</button>
+      <button type="button" data-ok="${{r.name}}">used ok</button>
+      <button type="button" data-fail="${{r.name}}">used fail</button>
+    </div>`).join('') || '<div class="meta">空目录</div>';
+}}
+async function loadLog() {{
+  const rows = await jget('/api/skill-log?n=40');
+  document.getElementById('ulog').innerHTML = rows.map(r =>
+    '<div class="row"><span class="tag '+(r.ok?'done':'err')+'">'+(r.ok?'ok':'fail')+'</span><span class="msg">'+esc(r.ts)+' · '+esc(r.dt)+' · '+esc(r.who)+' · '+esc(r.skill)+' · '+esc(r.detail||'')+'</span></div>'
+  ).join('') || '<div class="meta">暂无使用记录</div>';
+}}
+document.getElementById('btn-preview').onclick = async () => {{
+  const src = document.getElementById('src').value.trim();
+  if (!src) return;
+  try {{
+    const p = await jget('/api/skill-preview?src='+encodeURIComponent(src));
+    document.getElementById('preview').textContent = '['+p.kind+'] '+p.name+'\\n'+p.description+'\\nfiles: '+(p.files||[]).join(', ')+'\\n\\n'+(p.body||'');
+  }} catch (e) {{ document.getElementById('preview').textContent = String(e.message||e); }}
+}};
+document.getElementById('btn-import').onclick = async () => {{
+  const src = document.getElementById('src').value.trim();
+  if (!src) return;
+  try {{
+    const j = await jpost('/api/skill-import', {{src}});
+    document.getElementById('preview').textContent = 'imported '+j.name;
+    loadCat();
+  }} catch (e) {{ document.getElementById('preview').textContent = String(e.message||e); }}
+}};
+document.getElementById('cat').addEventListener('change', async (e) => {{
+  const cb = e.target.closest('input[data-en]');
+  if (cb) {{
+    await jpost('/api/skill-enable', {{name: cb.dataset.en, who: cb.dataset.who, on: cb.checked ? '1' : '0'}});
+    loadCat();
+    return;
+  }}
+  const sel = e.target.closest('select[data-teach]');
+  if (sel && sel.value) {{
+    await jpost('/api/skill-teach', {{dt: sel.value, skill: sel.dataset.teach}});
+    sel.value = '';
+    loadLog();
+  }}
+}});
+document.getElementById('cat').addEventListener('click', async (e) => {{
+  const view = e.target.closest('[data-view]');
+  if (view) {{
+    const p = await jget('/api/skill-body?name='+encodeURIComponent(view.dataset.view));
+    document.getElementById('preview').textContent = p.body || '';
+    return;
+  }}
+  const ok = e.target.closest('[data-ok]');
+  const fail = e.target.closest('[data-fail]');
+  const btn = ok || fail;
+  if (!btn) return;
+  const dt = tunnels[0] || '';
+  if (!dt) return;
+  await jpost('/api/skill-used', {{dt, name: btn.dataset.ok || btn.dataset.fail, ok: ok ? '1' : '0'}});
+  loadLog();
+}});
+loadCat();
+loadLog();
+</script>
+    """
+    return _shell(_nav("skills"), body, "dt web · skills")
 
 
 def tunnels_page(selected: str = "") -> str:
@@ -873,6 +983,30 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path in {"/tunnels", "/t"}:
             self._send(200, tunnels_page((qs.get("t") or [""])[0]))
             return
+        if parsed.path in {"/skills"}:
+            self._send(200, skills_page())
+            return
+        if parsed.path == "/api/skills":
+            self._send(200, json.dumps(skillmgr.list_catalog()), "application/json; charset=utf-8")
+            return
+        if parsed.path == "/api/skill-preview":
+            src = (qs.get("src") or [""])[0]
+            try:
+                self._send(200, json.dumps(skillmgr.preview_source(src)), "application/json; charset=utf-8")
+            except SystemExit as exc:
+                self._send(400, json.dumps({"error": str(exc)}), "application/json; charset=utf-8")
+            return
+        if parsed.path == "/api/skill-body":
+            name = (qs.get("name") or [""])[0]
+            try:
+                self._send(200, json.dumps({"body": skillmgr.skill_body(name)}), "application/json; charset=utf-8")
+            except SystemExit as exc:
+                self._send(404, json.dumps({"error": str(exc)}), "application/json; charset=utf-8")
+            return
+        if parsed.path == "/api/skill-log":
+            n = int((qs.get("n") or ["40"])[0] or 40)
+            self._send(200, json.dumps(skillmgr.read_log(limit=n)), "application/json; charset=utf-8")
+            return
         self._send(404, "not found")
 
     def do_POST(self) -> None:
@@ -881,6 +1015,50 @@ class Handler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length).decode("utf-8")
         form = parse_qs(raw)
         name = (form.get("t") or [""])[0]
+        if parsed.path == "/api/skill-import":
+            try:
+                imported = skillmgr.import_skill((form.get("src") or [""])[0])
+            except SystemExit as exc:
+                self._send(400, str(exc), "text/plain; charset=utf-8")
+                return
+            self._send(200, json.dumps({"ok": True, "name": imported}), "application/json; charset=utf-8")
+            return
+        if parsed.path == "/api/skill-enable":
+            try:
+                skillmgr.set_enabled(
+                    (form.get("name") or [""])[0],
+                    (form.get("who") or ["trigger"])[0],
+                    (form.get("on") or ["1"])[0] != "0",
+                )
+            except SystemExit as exc:
+                self._send(400, str(exc), "text/plain; charset=utf-8")
+                return
+            self._send(200, json.dumps({"ok": True}), "application/json; charset=utf-8")
+            return
+        if parsed.path == "/api/skill-teach":
+            try:
+                from . import tmux as tmux_send
+                from .cli import _resolve
+
+                dtname = (form.get("dt") or [""])[0]
+                sk = (form.get("skill") or [""])[0]
+                data = _resolve(dtname)
+                msg = skillmgr.teach(data["name"], [sk])
+                tmux_send.send_keys(data["run"], msg)
+            except SystemExit as exc:
+                self._send(400, str(exc), "text/plain; charset=utf-8")
+                return
+            self._send(200, json.dumps({"ok": True}), "application/json; charset=utf-8")
+            return
+        if parsed.path == "/api/skill-used":
+            skillmgr.log_use(
+                (form.get("dt") or [""])[0],
+                (form.get("name") or [""])[0],
+                (form.get("ok") or ["1"])[0] != "0",
+                (form.get("detail") or [""])[0],
+            )
+            self._send(200, json.dumps({"ok": True}), "application/json; charset=utf-8")
+            return
         if parsed.path == "/api/model":
             side = (form.get("side") or ["op"])[0]
             model = (form.get("model") or [""])[0]
