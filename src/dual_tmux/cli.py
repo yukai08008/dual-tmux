@@ -1096,7 +1096,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_skill = sub.add_parser("skill", help="catalog in ~/.dual-tmux/skills; trigger subset; teach bullet")
     sk = p_skill.add_subparsers(dest="skill_cmd")
     sk.add_parser("ls", help="list catalog and who uses each skill")
-    p_imp = sk.add_parser("import", help="copy a SKILL.md directory into the catalog")
+    p_imp = sk.add_parser("import", help="import folder, SKILL.md, or zip into the catalog")
     p_imp.add_argument("path")
     p_en = sk.add_parser("enable", help="add skill to trigger or bullet subset")
     p_en.add_argument("name")
