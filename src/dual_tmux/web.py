@@ -3,7 +3,10 @@ from __future__ import annotations
 import html
 import json
 import os
+import zipfile
 from datetime import datetime
+from email import policy
+from email.parser import BytesParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -18,6 +21,24 @@ from .store import find_dt, iter_dt_files, load, normalize_dt
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8787
+
+
+def _multipart(raw: bytes, content_type: str) -> tuple[dict[str, str], list[bytes]]:
+    message = BytesParser(policy=policy.default).parsebytes(
+        b"Content-Type: " + content_type.encode("ascii", "replace") + b"\r\nMIME-Version: 1.0\r\n\r\n" + raw
+    )
+    fields: dict[str, str] = {}
+    files: list[bytes] = []
+    if not message.is_multipart():
+        raise SystemExit("[err] invalid upload")
+    for part in message.iter_parts():
+        name = part.get_param("name", header="content-disposition") or ""
+        payload = part.get_payload(decode=True) or b""
+        if name == "files":
+            files.append(payload)
+        else:
+            fields[name] = payload.decode("utf-8", "replace")
+    return fields, files
 
 
 def _tunnels() -> list[dict]:
@@ -280,13 +301,17 @@ def skills_page() -> str:
       <div class="card">
         <h2>导入（folder / SKILL.md / zip）</h2>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <input id="src" type="text" placeholder="本机绝对路径（目录 / SKILL.md / .zip）" style="flex:1;min-width:220px;padding:8px;border:1px solid var(--line);border-radius:6px">
-          <button type="button" id="btn-preview">预览</button>
-          <button type="button" id="btn-import">导入</button>
+          <select id="pick-kind" aria-label="预览类型" style="padding:8px;border:1px solid var(--line);border-radius:6px">
+            <option value="folder">文件夹</option><option value="file">SKILL.md / ZIP</option>
+          </select>
+          <button type="button" id="btn-preview">选择并预览</button>
+          <button type="button" id="btn-import" disabled>确认导入</button>
+          <input id="pick-dir" type="file" webkitdirectory multiple hidden>
+          <input id="pick-file" type="file" accept=".md,.markdown,.zip,text/markdown,application/zip" hidden>
         </div>
         <div class="meta" id="prev-meta" style="margin-top:8px"></div>
         <div id="tree" style="margin-top:10px;max-height:280px;overflow:auto;border:1px solid var(--line);border-radius:6px;padding:8px;background:#fff;font:12px ui-monospace,Menlo,monospace"></div>
-        <pre class="out" id="preview" style="height:320px;margin-top:10px;background:#111827">点预览后先出文件树；再点 .md 在此渲染</pre>
+        <pre class="out" id="preview" style="height:320px;margin-top:10px;background:#111827">选择文件夹、SKILL.md 或 ZIP；预览不会上传，确认导入时才发送到本机 dt web</pre>
       </div>
       <div class="card">
         <h2>目录</h2>
@@ -306,7 +331,7 @@ async function jpost(url, fields) {{
   if (!r.ok) throw new Error(t);
   try {{ return JSON.parse(t); }} catch {{ return {{ok:true}}; }}
 }}
-function esc(s) {{ return (s||'').replace(/[&<>]/g, c => ({{'&':'&amp;','<':'&lt;','>':'&gt;'}})[c]); }}
+function esc(s) {{ return (s||'').replace(/[&<>"']/g, c => ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}})[c]); }}
 async function loadCat() {{
   const rows = await jget('/api/skills');
   const dtOpts = tunnels.map(n => '<option value="'+n+'">'+n+'</option>').join('');
@@ -327,41 +352,120 @@ async function loadLog() {{
     '<div class="row"><span class="tag '+(r.ok?'done':'err')+'">'+(r.ok?'ok':'fail')+'</span><span class="msg">'+esc(r.ts)+' · '+esc(r.dt)+' · '+esc(r.who)+' · '+esc(r.skill)+' · '+esc(r.detail||'')+'</span></div>'
   ).join('') || '<div class="meta">暂无使用记录</div>';
 }}
+let selectedSource = null;
 function renderTree(files) {{
   const el = document.getElementById('tree');
-  el.innerHTML = (files||[]).map(f => {{
-    const md = /\\.md$/i.test(f);
-    return '<div class="row" style="padding:3px 0">'+(md
-      ? '<a href="#" data-rel="'+esc(f)+'" style="color:#2563eb">'+esc(f)+'</a>'
-      : '<span class="meta">'+esc(f)+'</span>')+'</div>';
-  }}).join('') || '<div class="meta">空</div>';
+  el.innerHTML = (files||[]).map((f, i) => '<div class="row" style="padding:3px 0"><a href="#" data-file="'+i+'" style="color:#2563eb">'+esc(f.rel)+'</a></div>').join('') || '<div class="meta">空</div>';
 }}
-document.getElementById('btn-preview').onclick = async () => {{
-  const src = document.getElementById('src').value.trim();
-  if (!src) return;
+function zipEntries(buffer) {{
+  const v = new DataView(buffer); let eocd = -1;
+  for (let i=buffer.byteLength-22; i>=Math.max(0, buffer.byteLength-65557); i--) {{
+    if (v.getUint32(i,true) === 0x06054b50) {{ eocd=i; break; }}
+  }}
+  if (eocd < 0) throw new Error('不是有效的 ZIP');
+  const count=v.getUint16(eocd+10,true), decoder=new TextDecoder(), out=[];
+  let p=v.getUint32(eocd+16,true);
+  for (let i=0; i<count; i++) {{
+    if (v.getUint32(p,true) !== 0x02014b50) throw new Error('ZIP 目录损坏');
+    const method=v.getUint16(p+10,true), size=v.getUint32(p+20,true);
+    const nameLen=v.getUint16(p+28,true), extraLen=v.getUint16(p+30,true), commentLen=v.getUint16(p+32,true);
+    const rel=decoder.decode(new Uint8Array(buffer,p+46,nameLen));
+    if (!rel.endsWith('/')) out.push({{rel,method,size,offset:v.getUint32(p+42,true)}});
+    p += 46+nameLen+extraLen+commentLen;
+  }}
+  return out;
+}}
+async function readEntry(entry) {{
+  if (entry.handle) return await (await entry.handle.getFile()).text();
+  if (entry.file) return await entry.file.text();
+  const buffer=selectedSource.zipBuffer, v=new DataView(buffer), p=entry.offset;
+  if (v.getUint32(p,true) !== 0x04034b50) throw new Error('ZIP 文件项损坏');
+  const start=p+30+v.getUint16(p+26,true)+v.getUint16(p+28,true);
+  const bytes=new Uint8Array(buffer,start,entry.size);
+  if (entry.method === 0) return new TextDecoder().decode(bytes);
+  if (entry.method !== 8) throw new Error('暂不支持该 ZIP 压缩方式');
+  const stream=new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return new TextDecoder().decode(await new Response(stream).arrayBuffer());
+}}
+async function walkDirectory(handle, prefix='') {{
+  const out=[];
+  for await (const [name, child] of handle.entries()) {{
+    const rel=prefix ? prefix+'/'+name : name;
+    if (child.kind === 'directory') out.push(...await walkDirectory(child,rel));
+    else out.push({{rel,handle:child}});
+  }}
+  return out.sort((a,b)=>a.rel.localeCompare(b.rel));
+}}
+async function acceptDirectoryHandle(handle) {{
+  const entries=await walkDirectory(handle);
+  selectedSource={{kind:'folder',name:handle.name,entries}};
+  showSelection();
+}}
+function showSelection() {{
+  document.getElementById('prev-meta').textContent='['+selectedSource.kind+'] '+selectedSource.name+' · '+selectedSource.entries.length+' files · 尚未上传';
+  renderTree(selectedSource.entries);
+  document.getElementById('preview').textContent='点击上方文件查看内容；确认后再导入';
+  document.getElementById('btn-import').disabled=false;
+}}
+async function acceptSelection(kind, list) {{
+  const chosen=Array.from(list||[]); if (!chosen.length) return;
+  if (kind === 'folder') {{
+    const top=(chosen[0].webkitRelativePath||'').split('/')[0];
+    const entries=chosen.map(file => {{
+      const path=file.webkitRelativePath||file.name;
+      return {{file,path,rel:top && path.startsWith(top+'/') ? path.slice(top.length+1) : path}};
+    }}).sort((a,b)=>a.rel.localeCompare(b.rel));
+    selectedSource={{kind:'folder',name:top||'folder',entries,uploadFiles:chosen,uploadPaths:chosen.map(f=>f.webkitRelativePath||f.name)}};
+  }} else {{
+    const file=chosen[0], lower=file.name.toLowerCase();
+    if (!lower.endsWith('.md') && !lower.endsWith('.markdown') && !lower.endsWith('.zip')) throw new Error('请选择 SKILL.md、Markdown 或 ZIP');
+    if (lower.endsWith('.zip')) {{
+      const zipBuffer=await file.arrayBuffer();
+      selectedSource={{kind:'zip',name:file.name,zipBuffer,entries:zipEntries(zipBuffer),uploadFiles:[file],uploadPaths:[file.name]}};
+    }} else {{
+      selectedSource={{kind:'md',name:file.name,entries:[{{file,path:file.name,rel:file.name}}],uploadFiles:[file],uploadPaths:[file.name]}};
+    }}
+  }}
+  showSelection();
+}}
+document.getElementById('btn-preview').onclick=async () => {{
+  const kind=document.getElementById('pick-kind').value;
   try {{
-    const p = await jget('/api/skill-preview?src='+encodeURIComponent(src));
-    document.getElementById('prev-meta').textContent = '['+p.kind+'] '+p.name+' — '+(p.description||'');
-    renderTree(p.files||[]);
-    document.getElementById('preview').textContent = '点击上方树里的 .md 查看正文';
-  }} catch (e) {{ document.getElementById('preview').textContent = String(e.message||e); }}
+    if (kind === 'folder' && window.showDirectoryPicker) {{
+      await acceptDirectoryHandle(await window.showDirectoryPicker({{mode:'read'}}));
+      return;
+    }}
+    if (kind === 'file' && window.showOpenFilePicker) {{
+      const [handle]=await window.showOpenFilePicker({{multiple:false,types:[{{description:'Skill',accept:{{'text/markdown':['.md','.markdown'],'application/zip':['.zip']}}}}]}});
+      await acceptSelection('file',[await handle.getFile()]);
+      return;
+    }}
+    document.getElementById(kind === 'folder' ? 'pick-dir' : 'pick-file').click();
+  }} catch(x) {{ if (x.name !== 'AbortError') document.getElementById('preview').textContent=String(x.message||x); }}
 }};
-document.getElementById('tree').addEventListener('click', async (e) => {{
-  const a = e.target.closest('a[data-rel]');
-  if (!a) return;
-  e.preventDefault();
-  const src = document.getElementById('src').value.trim();
-  const p = await jget('/api/skill-file?src='+encodeURIComponent(src)+'&rel='+encodeURIComponent(a.dataset.rel));
-  document.getElementById('preview').textContent = p.body || '';
+document.getElementById('pick-dir').onchange=async e => {{ try {{ await acceptSelection('folder',e.target.files); }} catch(x) {{ document.getElementById('preview').textContent=String(x.message||x); }} }};
+document.getElementById('pick-file').onchange=async e => {{ try {{ await acceptSelection('file',e.target.files); }} catch(x) {{ document.getElementById('preview').textContent=String(x.message||x); }} }};
+document.getElementById('tree').addEventListener('click',async e => {{
+  const a=e.target.closest('a[data-file]'); if (!a) return; e.preventDefault();
+  try {{ document.getElementById('preview').textContent=(await readEntry(selectedSource.entries[Number(a.dataset.file)])).slice(0,20000); }}
+  catch(x) {{ document.getElementById('preview').textContent=String(x.message||x); }}
 }});
-document.getElementById('btn-import').onclick = async () => {{
-  const src = document.getElementById('src').value.trim();
-  if (!src) return;
+document.getElementById('btn-import').onclick=async () => {{
+  if (!selectedSource) return;
   try {{
-    const j = await jpost('/api/skill-import', {{src}});
-    document.getElementById('preview').textContent = 'imported '+j.name;
+    let uploadFiles=selectedSource.uploadFiles, uploadPaths=selectedSource.uploadPaths;
+    if (!uploadFiles) {{
+      uploadFiles=await Promise.all(selectedSource.entries.map(e=>e.handle.getFile()));
+      uploadPaths=selectedSource.entries.map(e=>selectedSource.name+'/'+e.rel);
+    }}
+    const data=new FormData(); data.append('kind',selectedSource.kind === 'folder' ? 'folder' : 'file'); data.append('paths',JSON.stringify(uploadPaths));
+    uploadFiles.forEach(f=>data.append('files',f,f.name));
+    const r=await fetch('/api/skill-upload',{{method:'POST',body:data,headers:{{'Accept':'application/json'}}}});
+    const body=await r.text(); if (!r.ok) throw new Error(body); const j=JSON.parse(body);
+    document.getElementById('preview').textContent='已导入 '+j.name;
+    document.getElementById('prev-meta').textContent=document.getElementById('prev-meta').textContent.replace('尚未上传','已上传并导入');
     loadCat();
-  }} catch (e) {{ document.getElementById('preview').textContent = String(e.message||e); }}
+  }} catch(e) {{ document.getElementById('preview').textContent=String(e.message||e); }}
 }};
 document.getElementById('cat').addEventListener('change', async (e) => {{
   const cb = e.target.closest('input[data-en]');
@@ -1042,7 +1146,23 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         length = int(self.headers.get("Content-Length") or 0)
-        raw = self.rfile.read(length).decode("utf-8")
+        if length > 30 * 1024 * 1024:
+            self._send(413, "[err] upload is too large", "text/plain; charset=utf-8")
+            return
+        raw_bytes = self.rfile.read(length)
+        if parsed.path == "/api/skill-upload":
+            try:
+                fields, files = _multipart(raw_bytes, self.headers.get("Content-Type") or "")
+                paths = json.loads(fields.get("paths") or "[]")
+                if not isinstance(paths, list) or not all(isinstance(p, str) for p in paths):
+                    raise SystemExit("[err] invalid upload paths")
+                imported = skillmgr.import_upload(fields.get("kind") or "", paths, files)
+            except (SystemExit, ValueError, zipfile.BadZipFile) as exc:
+                self._send(400, str(exc), "text/plain; charset=utf-8")
+                return
+            self._send(200, json.dumps({"ok": True, "name": imported}), "application/json; charset=utf-8")
+            return
+        raw = raw_bytes.decode("utf-8")
         form = parse_qs(raw)
         name = (form.get("t") or [""])[0]
         if parsed.path == "/api/skill-import":
