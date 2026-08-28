@@ -279,12 +279,16 @@ def skills_page() -> str:
     <div class="content">
       <div class="card">
         <h2>导入（folder / SKILL.md / zip）</h2>
-        <div style="display:flex;gap:8px;align-items:center">
-          <input id="src" type="text" placeholder="本机路径：目录、SKILL.md 或 .zip" style="flex:1;padding:8px;border:1px solid var(--line);border-radius:6px">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input id="src" type="text" placeholder="本机绝对路径，或用右侧选择" style="flex:1;min-width:220px;padding:8px;border:1px solid var(--line);border-radius:6px">
+          <label class="ghost" style="padding:8px 12px;border:1px solid var(--line);border-radius:6px;cursor:pointer">选文件夹<input id="pick-dir" type="file" webkitdirectory multiple style="display:none"></label>
+          <label class="ghost" style="padding:8px 12px;border:1px solid var(--line);border-radius:6px;cursor:pointer">选文件<input id="pick-file" type="file" accept=".md,.markdown,.zip,text/markdown" style="display:none"></label>
           <button type="button" id="btn-preview">预览</button>
           <button type="button" id="btn-import">导入</button>
         </div>
-        <pre class="out" id="preview" style="height:180px;margin-top:10px;background:#111827">预览 frontmatter + 正文</pre>
+        <div class="meta" id="prev-meta" style="margin-top:8px"></div>
+        <div id="tree" style="margin-top:10px;max-height:280px;overflow:auto;border:1px solid var(--line);border-radius:6px;padding:8px;background:#fff;font:12px ui-monospace,Menlo,monospace"></div>
+        <pre class="out" id="preview" style="height:320px;margin-top:10px;background:#111827">点预览后先出文件树；再点 .md 在此渲染</pre>
       </div>
       <div class="card">
         <h2>目录</h2>
@@ -325,14 +329,47 @@ async function loadLog() {{
     '<div class="row"><span class="tag '+(r.ok?'done':'err')+'">'+(r.ok?'ok':'fail')+'</span><span class="msg">'+esc(r.ts)+' · '+esc(r.dt)+' · '+esc(r.who)+' · '+esc(r.skill)+' · '+esc(r.detail||'')+'</span></div>'
   ).join('') || '<div class="meta">暂无使用记录</div>';
 }}
+function renderTree(files) {{
+  const el = document.getElementById('tree');
+  el.innerHTML = (files||[]).map(f => {{
+    const md = /\\.md$/i.test(f);
+    return '<div class="row" style="padding:3px 0">'+(md
+      ? '<a href="#" data-rel="'+esc(f)+'" style="color:#2563eb">'+esc(f)+'</a>'
+      : '<span class="meta">'+esc(f)+'</span>')+'</div>';
+  }}).join('') || '<div class="meta">空</div>';
+}}
+document.getElementById('pick-dir').addEventListener('change', (e) => {{
+  const f = e.target.files && e.target.files[0];
+  if (!f || !f.webkitRelativePath) return;
+  const top = f.webkitRelativePath.split('/')[0];
+  const guess = (f.path ? f.path.replace(f.webkitRelativePath,'') : '') + top;
+  if (f.path) document.getElementById('src').value = f.path.split('/'+top+'/')[0] + '/' + top;
+  else document.getElementById('src').value = guess;
+}});
+document.getElementById('pick-file').addEventListener('change', (e) => {{
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  if (f.path) document.getElementById('src').value = f.path;
+  else document.getElementById('src').value = f.name;
+}});
 document.getElementById('btn-preview').onclick = async () => {{
   const src = document.getElementById('src').value.trim();
   if (!src) return;
   try {{
     const p = await jget('/api/skill-preview?src='+encodeURIComponent(src));
-    document.getElementById('preview').textContent = '['+p.kind+'] '+p.name+'\\n'+p.description+'\\nfiles: '+(p.files||[]).join(', ')+'\\n\\n'+(p.body||'');
+    document.getElementById('prev-meta').textContent = '['+p.kind+'] '+p.name+' — '+(p.description||'');
+    renderTree(p.files||[]);
+    document.getElementById('preview').textContent = '点击上方树里的 .md 查看正文';
   }} catch (e) {{ document.getElementById('preview').textContent = String(e.message||e); }}
 }};
+document.getElementById('tree').addEventListener('click', async (e) => {{
+  const a = e.target.closest('a[data-rel]');
+  if (!a) return;
+  e.preventDefault();
+  const src = document.getElementById('src').value.trim();
+  const p = await jget('/api/skill-file?src='+encodeURIComponent(src)+'&rel='+encodeURIComponent(a.dataset.rel));
+  document.getElementById('preview').textContent = p.body || '';
+}});
 document.getElementById('btn-import').onclick = async () => {{
   const src = document.getElementById('src').value.trim();
   if (!src) return;
@@ -993,6 +1030,15 @@ class Handler(BaseHTTPRequestHandler):
             src = (qs.get("src") or [""])[0]
             try:
                 self._send(200, json.dumps(skillmgr.preview_source(src)), "application/json; charset=utf-8")
+            except SystemExit as exc:
+                self._send(400, json.dumps({"error": str(exc)}), "application/json; charset=utf-8")
+            return
+        if parsed.path == "/api/skill-file":
+            src = (qs.get("src") or [""])[0]
+            rel = (qs.get("rel") or [""])[0]
+            try:
+                body = skillmgr.read_source_file(src, rel)
+                self._send(200, json.dumps({"body": body, "rel": rel}), "application/json; charset=utf-8")
             except SystemExit as exc:
                 self._send(400, json.dumps({"error": str(exc)}), "application/json; charset=utf-8")
             return

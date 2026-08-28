@@ -135,12 +135,23 @@ def _find_skill_md(root: Path) -> Path | None:
     return None
 
 
+def _file_tree(root: Path, limit: int = 200) -> list[str]:
+    out: list[str] = []
+    for p in sorted(root.rglob("*")):
+        if not p.is_file():
+            continue
+        out.append(str(p.relative_to(root)))
+        if len(out) >= limit:
+            break
+    return out
+
+
 def preview_source(src: str) -> dict:
-    """Inspect folder / SKILL.md / zip without importing."""
+    """Inspect folder / SKILL.md / zip: tree first, no body until a file is opened."""
     path = Path(src).expanduser().resolve()
     kind = "unknown"
-    md = None
     files: list[str] = []
+    md = None
     tmp = None
     try:
         if path.is_file() and path.suffix.lower() == ".zip":
@@ -148,31 +159,65 @@ def preview_source(src: str) -> dict:
             tmp = Path(tempfile.mkdtemp(prefix="dt-skill-"))
             with zipfile.ZipFile(path) as zf:
                 zf.extractall(tmp)
+            files = _file_tree(tmp)
             md = _find_skill_md(tmp)
-            files = sorted(str(p.relative_to(tmp)) for p in tmp.rglob("*") if p.is_file())[:40]
         elif path.is_file() and path.suffix.lower() in {".md", ".markdown"}:
             kind = "md"
-            md = path
             files = [path.name]
+            md = path
         elif path.is_dir():
             kind = "folder"
+            files = _file_tree(path)
             md = _find_skill_md(path)
-            files = sorted(str(p.relative_to(path)) for p in path.rglob("*") if p.is_file())[:40]
         else:
             raise SystemExit(f"[err] not a skill source (folder, SKILL.md, or zip): {src}")
-        if md is None or not md.is_file():
-            raise SystemExit("[err] no SKILL.md in source")
-        text = md.read_text(encoding="utf-8", errors="replace")
-        meta = parse_frontmatter(text)
-        name = meta.get("name") or (md.parent.name if kind != "md" else path.stem)
+        name = path.stem if kind == "md" else path.name
+        description = ""
+        if md and md.is_file():
+            meta = parse_frontmatter(md.read_text(encoding="utf-8", errors="replace"))
+            name = meta.get("name") or name
+            description = meta.get("description") or ""
         return {
             "kind": kind,
             "name": name,
-            "description": meta.get("description") or "",
+            "description": description,
             "files": files,
-            "body": text[:8000],
             "path": str(path),
         }
+    finally:
+        if tmp and tmp.exists():
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+def read_source_file(src: str, rel: str) -> str:
+    """Read one file from a folder / zip / markdown source."""
+    path = Path(src).expanduser().resolve()
+    rel = rel.replace("\\", "/").lstrip("/")
+    if ".." in Path(rel).parts:
+        raise SystemExit("[err] bad path")
+    tmp = None
+    try:
+        if path.is_file() and path.suffix.lower() == ".zip":
+            tmp = Path(tempfile.mkdtemp(prefix="dt-skill-"))
+            with zipfile.ZipFile(path) as zf:
+                zf.extractall(tmp)
+            target = (tmp / rel).resolve()
+            tmp_r = tmp.resolve()
+            if target != tmp_r and tmp_r not in target.parents:
+                raise SystemExit("[err] bad path")
+        elif path.is_file() and path.suffix.lower() in {".md", ".markdown"}:
+            target = path if Path(rel).name == path.name else None
+            if target is None:
+                raise SystemExit("[err] file not in source")
+        elif path.is_dir():
+            target = (path / rel).resolve()
+            if path not in target.parents and target != path:
+                raise SystemExit("[err] bad path")
+        else:
+            raise SystemExit("[err] not a skill source")
+        if not target or not target.is_file():
+            raise SystemExit(f"[err] missing {rel}")
+        return target.read_text(encoding="utf-8", errors="replace")[:20000]
     finally:
         if tmp and tmp.exists():
             shutil.rmtree(tmp, ignore_errors=True)
