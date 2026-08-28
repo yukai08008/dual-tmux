@@ -280,9 +280,7 @@ def skills_page() -> str:
       <div class="card">
         <h2>导入（folder / SKILL.md / zip）</h2>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <input id="src" type="text" placeholder="本机绝对路径，或用右侧选择" style="flex:1;min-width:220px;padding:8px;border:1px solid var(--line);border-radius:6px">
-          <label class="ghost" style="padding:8px 12px;border:1px solid var(--line);border-radius:6px;cursor:pointer">选文件夹<input id="pick-dir" type="file" webkitdirectory multiple style="display:none"></label>
-          <label class="ghost" style="padding:8px 12px;border:1px solid var(--line);border-radius:6px;cursor:pointer">选文件<input id="pick-file" type="file" accept=".md,.markdown,.zip,text/markdown" style="display:none"></label>
+          <input id="src" type="text" placeholder="本机绝对路径（目录 / SKILL.md / .zip）" style="flex:1;min-width:220px;padding:8px;border:1px solid var(--line);border-radius:6px">
           <button type="button" id="btn-preview">预览</button>
           <button type="button" id="btn-import">导入</button>
         </div>
@@ -338,20 +336,6 @@ function renderTree(files) {{
       : '<span class="meta">'+esc(f)+'</span>')+'</div>';
   }}).join('') || '<div class="meta">空</div>';
 }}
-document.getElementById('pick-dir').addEventListener('change', (e) => {{
-  const f = e.target.files && e.target.files[0];
-  if (!f || !f.webkitRelativePath) return;
-  const top = f.webkitRelativePath.split('/')[0];
-  const guess = (f.path ? f.path.replace(f.webkitRelativePath,'') : '') + top;
-  if (f.path) document.getElementById('src').value = f.path.split('/'+top+'/')[0] + '/' + top;
-  else document.getElementById('src').value = guess;
-}});
-document.getElementById('pick-file').addEventListener('change', (e) => {{
-  const f = e.target.files && e.target.files[0];
-  if (!f) return;
-  if (f.path) document.getElementById('src').value = f.path;
-  else document.getElementById('src').value = f.name;
-}});
 document.getElementById('btn-preview').onclick = async () => {{
   const src = document.getElementById('src').value.trim();
   if (!src) return;
