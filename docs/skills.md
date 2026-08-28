@@ -27,3 +27,8 @@ dt skill log --name dual-tmux --status no
 Trigger OpenCode should log after using a skill (`AGENTS.md` says so). Web/CLI do not infer success from pane text.
 
 After changing the trigger subset, run `dt enter <dt>` (or resume) so `prepare` recopies skills into that `op_*` launch dir.
+
+In `dt web`, Skills → 导入 uses the browser's local file/directory picker. Selecting a folder,
+`SKILL.md`, or zip only builds the preview tree in the browser; files are sent to the local
+`127.0.0.1` server only after **确认导入**. Zip entries are also listed and opened locally before
+confirmation.

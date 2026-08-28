@@ -82,3 +82,18 @@ def test_import_md_and_zip(tmp_path, monkeypatch):
     assert skillmgr.import_skill(str(zpath)) == "zip-skill"
     names = {r["name"] for r in skillmgr.list_catalog()}
     assert "solo-md" in names and "zip-skill" in names
+
+
+def test_browser_upload_imports_only_when_confirmed(tmp_path, monkeypatch):
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
+    write_config(AppConfig(client="tm_box", server="tom7r", user="andy"))
+    paths = ["browser-skill/SKILL.md", "browser-skill/references/guide.md"]
+    payloads = [
+        b"---\nname: browser-skill\ndescription: chosen locally\n---\n# Skill\n",
+        b"# Guide\n",
+    ]
+    assert "browser-skill" not in {r["name"] for r in skillmgr.list_catalog()}
+    assert skillmgr.import_upload("folder", paths, payloads) == "browser-skill"
+    dest = skillmgr.catalog_dir() / "browser-skill"
+    assert (dest / "SKILL.md").is_file()
+    assert (dest / "references" / "guide.md").read_text() == "# Guide\n"

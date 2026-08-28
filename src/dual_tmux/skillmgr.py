@@ -146,6 +146,56 @@ def _file_tree(root: Path, limit: int = 200) -> list[str]:
     return out
 
 
+def _extract_zip(path: Path, dest: Path) -> None:
+    """Extract a zip without allowing members to escape the preview directory."""
+    root = dest.resolve()
+    with zipfile.ZipFile(path) as zf:
+        infos = zf.infolist()
+        if len(infos) > 500 or sum(info.file_size for info in infos) > 25 * 1024 * 1024:
+            raise SystemExit("[err] skill zip is too large")
+        for info in infos:
+            target = (root / info.filename).resolve()
+            if target != root and root not in target.parents:
+                raise SystemExit(f"[err] unsafe zip member: {info.filename}")
+        zf.extractall(root)
+
+
+def import_upload(kind: str, paths: list[str], payloads: list[bytes]) -> str:
+    """Import files selected in a browser after the user confirms the preview."""
+    if kind not in {"folder", "file"} or not payloads or len(paths) != len(payloads):
+        raise SystemExit("[err] invalid skill upload")
+    if len(payloads) > 500 or sum(len(p) for p in payloads) > 25 * 1024 * 1024:
+        raise SystemExit("[err] skill upload is too large")
+
+    root = Path(tempfile.mkdtemp(prefix="dt-skill-upload-"))
+    try:
+        if kind == "file":
+            if len(payloads) != 1:
+                raise SystemExit("[err] choose one SKILL.md or zip file")
+            name = Path(paths[0]).name
+            if Path(name).suffix.lower() not in {".md", ".markdown", ".zip"}:
+                raise SystemExit("[err] choose SKILL.md, markdown, or zip")
+            source = root / name
+            source.write_bytes(payloads[0])
+        else:
+            source = root / "folder"
+            source.mkdir()
+            for rel, payload in zip(paths, payloads):
+                rel_path = Path(rel.replace("\\", "/"))
+                if rel_path.is_absolute() or ".." in rel_path.parts:
+                    raise SystemExit(f"[err] unsafe upload path: {rel}")
+                # webkitRelativePath includes the selected top-level directory.
+                parts = rel_path.parts[1:] if len(rel_path.parts) > 1 else rel_path.parts
+                if not parts:
+                    continue
+                target = source.joinpath(*parts)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(payload)
+        return import_skill(str(source))
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
 def preview_source(src: str) -> dict:
     """Inspect folder / SKILL.md / zip: tree first, no body until a file is opened."""
     path = Path(src).expanduser().resolve()
@@ -157,8 +207,7 @@ def preview_source(src: str) -> dict:
         if path.is_file() and path.suffix.lower() == ".zip":
             kind = "zip"
             tmp = Path(tempfile.mkdtemp(prefix="dt-skill-"))
-            with zipfile.ZipFile(path) as zf:
-                zf.extractall(tmp)
+            _extract_zip(path, tmp)
             files = _file_tree(tmp)
             md = _find_skill_md(tmp)
         elif path.is_file() and path.suffix.lower() in {".md", ".markdown"}:
@@ -199,8 +248,7 @@ def read_source_file(src: str, rel: str) -> str:
     try:
         if path.is_file() and path.suffix.lower() == ".zip":
             tmp = Path(tempfile.mkdtemp(prefix="dt-skill-"))
-            with zipfile.ZipFile(path) as zf:
-                zf.extractall(tmp)
+            _extract_zip(path, tmp)
             target = (tmp / rel).resolve()
             tmp_r = tmp.resolve()
             if target != tmp_r and tmp_r not in target.parents:
@@ -230,8 +278,7 @@ def import_skill(src: str) -> str:
     try:
         if path.is_file() and path.suffix.lower() == ".zip":
             tmp = Path(tempfile.mkdtemp(prefix="dt-skill-"))
-            with zipfile.ZipFile(path) as zf:
-                zf.extractall(tmp)
+            _extract_zip(path, tmp)
             md = _find_skill_md(tmp)
             if md is None:
                 raise SystemExit("[err] zip has no SKILL.md")

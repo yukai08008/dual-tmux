@@ -51,8 +51,13 @@ def test_admin_tabs_and_search(tmp_path, monkeypatch):
     skills = skills_page()
     assert "Skills" in skills
     assert "btn-import" in skills
-    assert "/api/skill-preview" in skills
+    assert "选择并预览" in skills
+    assert "尚未上传" in skills
+    assert "/api/skill-upload" in skills
     assert "renderTree" in skills
-    assert "pick-dir" not in skills
-    assert "renderTree" in skills
-    assert "/api/skill-file" in skills
+    assert "pick-dir" in skills
+    assert "pick-file" in skills
+    assert "showDirectoryPicker" in skills
+    assert "showOpenFilePicker" in skills
+    assert "walkDirectory" in skills
+    assert "FormData" in skills
