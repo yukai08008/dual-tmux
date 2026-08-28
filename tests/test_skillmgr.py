@@ -74,7 +74,11 @@ def test_import_md_and_zip(tmp_path, monkeypatch):
     zpath = tmp_path / "pack.zip"
     with zipfile.ZipFile(zpath, "w") as zf:
         zf.write(zdir / "SKILL.md", "SKILL.md")
-    assert skillmgr.preview_source(str(zpath))["name"] == "zip-skill"
+    prev = skillmgr.preview_source(str(zpath))
+    assert prev["name"] == "zip-skill"
+    assert "SKILL.md" in prev["files"]
+    assert "body" not in prev or not prev.get("body")
+    assert "from zip" in skillmgr.read_source_file(str(zpath), "SKILL.md")
     assert skillmgr.import_skill(str(zpath)) == "zip-skill"
     names = {r["name"] for r in skillmgr.list_catalog()}
     assert "solo-md" in names and "zip-skill" in names
