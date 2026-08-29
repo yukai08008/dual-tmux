@@ -557,9 +557,10 @@ def cmd_make(args: argparse.Namespace) -> None:
     hub.push_best_effort(wait=True)
 
 
-def cmd_resume(args: argparse.Namespace) -> None:
-    data = _resolve(args.name)
-    hub.require_active(data, force=bool(getattr(args, "force", False)))
+def apply_resume(name: str | None, force: bool = False) -> dict:
+    """Resume a DST without attaching; shared by the CLI and local web UI."""
+    data = _resolve(name)
+    hub.require_active(data, force=force)
     opsdir.prepare(data)
     if not oc_ops.is_dst(data):
         raise SystemExit("[err] not a DST. Freeze both oc sessions first: dt freeze")
@@ -576,6 +577,11 @@ def cmd_resume(args: argparse.Namespace) -> None:
     save(find_dt(data["name"]), data)
     ev.emit("dt.resume", name=data["name"])
     hub.push_best_effort()
+    return data
+
+
+def cmd_resume(args: argparse.Namespace) -> None:
+    data = apply_resume(args.name, force=bool(getattr(args, "force", False)))
     ui.ok(f"resumed DST {data['name']}")
     if getattr(args, "attach", True):
         tmux_ops.attach(data["op"])

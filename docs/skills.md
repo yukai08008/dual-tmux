@@ -31,4 +31,8 @@ After changing the trigger subset, run `dt enter <dt>` (or resume) so `prepare` 
 In `dt web`, Skills → 导入 uses the browser's local file/directory picker. Selecting a folder,
 `SKILL.md`, or zip only builds the preview tree in the browser; files are sent to the local
 `127.0.0.1` server only after **确认导入**. Zip entries are also listed and opened locally before
-confirmation.
+confirmation. Folder previews omit hidden path components and render selectable folder/file trees;
+only checked files are included in the confirmed import.
+
+The installed catalog is browsable through the same document tree. **内容** opens a read-only tree
+for skills such as `dual-tmux`; each visible file can be opened without enabling the import action.
