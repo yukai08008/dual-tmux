@@ -77,6 +77,7 @@ def test_admin_tabs_and_search(tmp_path, monkeypatch):
     assert "最近访问" in page
     assert "visitHistory" in page
     assert "threadEl.scrollHeight-threadEl.scrollTop" in page
+    assert "preserveThreadScroll" in page
     assert "WAIT_MAX_MS" in page
     assert "j.op_auto === false" in page
     names = [r["name"] for r in _tunnels()]
