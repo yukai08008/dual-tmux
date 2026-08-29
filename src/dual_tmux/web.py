@@ -905,6 +905,9 @@ function renderTabs() {{
   saveTabs();
 }}
 function applyState(st) {{
+  const preserveThreadScroll = chosen===st.name && threadEl.children.length &&
+    threadEl.scrollHeight-threadEl.scrollTop-threadEl.clientHeight > 32;
+  const priorThreadScroll = threadEl.scrollTop;
   chosen = st.name;
   tname.value = st.name || '';
   q.value = st.name || '';
@@ -930,7 +933,8 @@ function applyState(st) {{
   setLamp(lampRun, st.waiting ? 'yellow' : st.finalRun);
   setPollBusy(st.waiting);
   threadEl.innerHTML = '';
-  (st.thread || []).forEach(item => addBubble(item.kind, item.text, item.extra, true));
+  (st.thread || []).forEach(item => addBubble(item.kind, item.text, item.extra, true, false));
+  threadEl.scrollTop = preserveThreadScroll ? priorThreadScroll : threadEl.scrollHeight;
   logEl.innerHTML = '';
   (st.log || []).forEach(item => logLine(item.kind, item.text, true));
   history.replaceState(null, '', st.name ? ('/tunnels?t='+encodeURIComponent(st.name)) : '/tunnels');
@@ -967,8 +971,10 @@ function setPollBusy(on) {{
   const head = document.getElementById('pollhead');
   if (head) head.className = 'h2row pollhead ' + (on ? 'busy' : 'idle');
 }}
-function addBubble(kind, text, extra, skipSave) {{
-  const follow = threadEl.scrollHeight-threadEl.scrollTop-threadEl.clientHeight <= 32;
+function addBubble(kind, text, extra, skipSave, forceFollow) {{
+  const follow = forceFollow === undefined
+    ? threadEl.scrollHeight-threadEl.scrollTop-threadEl.clientHeight <= 32
+    : forceFollow;
   const b = document.createElement('div');
   b.className = 'bubble ' + kind;
   const who = document.createElement('div');
