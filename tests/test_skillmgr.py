@@ -13,6 +13,10 @@ def test_catalog_seed_and_trigger_subset(tmp_path, monkeypatch):
     assert "tmux-trigger" in names
     trig = skillmgr.enabled("trigger")
     assert trig[:2] == ["dual-tmux", "tmux-trigger"] or set(trig) >= {"dual-tmux", "tmux-trigger"}
+    tree = skillmgr.skill_tree("dual-tmux")
+    assert tree["name"] == "dual-tmux"
+    assert "SKILL.md" in tree["files"]
+    assert "Dual tmux tunnels" in skillmgr.read_skill_file("dual-tmux", "SKILL.md")
 
 
 def test_import_enable_teach_and_usage_log(tmp_path, monkeypatch):
@@ -87,13 +91,15 @@ def test_import_md_and_zip(tmp_path, monkeypatch):
 def test_browser_upload_imports_only_when_confirmed(tmp_path, monkeypatch):
     monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
     write_config(AppConfig(client="tm_box", server="tom7r", user="andy"))
-    paths = ["browser-skill/SKILL.md", "browser-skill/references/guide.md"]
+    paths = ["browser-skill/SKILL.md", "browser-skill/references/guide.md", "browser-skill/.secret"]
     payloads = [
         b"---\nname: browser-skill\ndescription: chosen locally\n---\n# Skill\n",
         b"# Guide\n",
+        b"hidden\n",
     ]
     assert "browser-skill" not in {r["name"] for r in skillmgr.list_catalog()}
     assert skillmgr.import_upload("folder", paths, payloads) == "browser-skill"
     dest = skillmgr.catalog_dir() / "browser-skill"
     assert (dest / "SKILL.md").is_file()
     assert (dest / "references" / "guide.md").read_text() == "# Guide\n"
+    assert not (dest / ".secret").exists()

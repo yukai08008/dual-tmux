@@ -140,7 +140,10 @@ def _file_tree(root: Path, limit: int = 200) -> list[str]:
     for p in sorted(root.rglob("*")):
         if not p.is_file():
             continue
-        out.append(str(p.relative_to(root)))
+        rel = p.relative_to(root)
+        if any(part.startswith(".") for part in rel.parts):
+            continue
+        out.append(str(rel))
         if len(out) >= limit:
             break
     return out
@@ -184,6 +187,8 @@ def import_upload(kind: str, paths: list[str], payloads: list[bytes]) -> str:
                 rel_path = Path(rel.replace("\\", "/"))
                 if rel_path.is_absolute() or ".." in rel_path.parts:
                     raise SystemExit(f"[err] unsafe upload path: {rel}")
+                if any(part.startswith(".") for part in rel_path.parts):
+                    continue
                 # webkitRelativePath includes the selected top-level directory.
                 parts = rel_path.parts[1:] if len(rel_path.parts) > 1 else rel_path.parts
                 if not parts:
@@ -310,10 +315,38 @@ def import_skill(src: str) -> str:
 
 
 def skill_body(name: str) -> str:
-    path = catalog_dir() / name / "SKILL.md"
+    path = skill_root(name) / "SKILL.md"
     if not path.is_file():
         raise SystemExit(f"[err] unknown skill: {name}")
     return path.read_text(encoding="utf-8", errors="replace")
+
+
+def skill_root(name: str) -> Path:
+    seed_catalog()
+    if not name or Path(name).name != name or name.startswith("."):
+        raise SystemExit(f"[err] unknown skill: {name}")
+    root = (catalog_dir() / name).resolve()
+    catalog = catalog_dir().resolve()
+    if catalog not in root.parents or not (root / "SKILL.md").is_file():
+        raise SystemExit(f"[err] unknown skill: {name}")
+    return root
+
+
+def skill_tree(name: str) -> dict:
+    root = skill_root(name)
+    meta = parse_frontmatter((root / "SKILL.md").read_text(encoding="utf-8", errors="replace"))
+    return {
+        "kind": "installed",
+        "name": meta.get("name") or name,
+        "description": meta.get("description") or "",
+        "files": _file_tree(root),
+    }
+
+
+def read_skill_file(name: str, rel: str) -> str:
+    if any(part.startswith(".") for part in Path(rel.replace("\\", "/")).parts):
+        raise SystemExit("[err] hidden skill file")
+    return read_source_file(str(skill_root(name)), rel)
 
 
 def set_enabled(name: str, who: str, on: bool) -> dict:

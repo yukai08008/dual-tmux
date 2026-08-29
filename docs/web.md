@@ -48,6 +48,19 @@ Do **not** defer the pane UI. Do **not** start with a card board that only lists
 
 - Left **Tunnels**: every DT, live dot (tmux up?), IS_DST, last activity. Click = right pane pair.
 - Right default: **that tunnel’s I/O**. Toggle op vs run (or split view later).
+- Browser workspace tabs, their selected tunnel, Q&A thread, and compact poll log are kept in
+  `~/.dual-tmux/web-state.json` and restored after a refresh or browser change. Closing a tab keeps
+  its visit record and latest trigger Q&A; **最近访问** reopens it with that context. Pane snapshots
+  remain live data and are polled again.
+- The tunnel catalog is refreshed from `/api/tunnels` every five seconds and whenever search gains
+  focus, so DTs created after the page opened appear without a full browser reload.
+- Selecting an offline DST automatically runs the non-attaching resume path. It obeys the normal
+  hub lock and never forces takeover; ordinary DTs are not started automatically.
+- The **指南** tab groups common workflows and provides a command reference. All pages share an
+  inline SVG favicon, so the local console is identifiable in browser tabs without static assets.
+- Trigger Q&A follows new messages only while its scrollbar is already near the bottom, preserving
+  the reader's position while reviewing older turns. A non-`auto` OpenCode pane stops the web poll
+  with a manual-action message, and every submitted turn has a 90-second polling ceiling.
 - Other left tabs (Memory / Events / Doctor) are secondary. Lifecycle (freeze, resume, re) lives as a small bar on the tunnel page, **after** I/O works.
 
 ## Later tabs (not v1)
