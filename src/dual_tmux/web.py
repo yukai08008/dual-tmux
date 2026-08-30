@@ -7,6 +7,7 @@ import os
 import re
 import threading
 import time
+import webbrowser
 import zipfile
 from datetime import datetime
 from email import policy
@@ -1761,7 +1762,20 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
 
-def serve(host: str = HOST, port: int = DEFAULT_PORT) -> None:
+def _open_browser(url: str) -> None:
+    try:
+        webbrowser.open(url, new=2)
+    except Exception:
+        # The URL is already printed; headless and restricted environments may not have a browser.
+        pass
+
+
+def serve(host: str = HOST, port: int = DEFAULT_PORT, open_browser: bool = True) -> None:
     with WebHTTPServer((host, port), Handler) as httpd:
-        print(f"dt web  http://{host}:{port}  (Ctrl-C stop)")
+        url = f"http://{host}:{port}"
+        print(f"dt web  {url}  (Ctrl-C stop)")
+        if open_browser:
+            opener = threading.Timer(0.15, _open_browser, args=(url,))
+            opener.daemon = True
+            opener.start()
         httpd.serve_forever()

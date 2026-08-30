@@ -234,7 +234,7 @@ Freeze also records **work points** (`op_point` / `run_point`: kind, cwd, ssh, d
 | `dt mem [name] [set k v]` | shared or per-agent MEMORY.json facts |
 | `dt note <name> '…'` | append sqlite note for that agent |
 | `dt notes <name> [--day] [--q]` | list / FTS-search agent notes |
-| `dt web [--port 8787]` | local admin UI: tunnel list + pane capture/send |
+| `dt web [--port 8787] [--no-open]` | local admin UI; opens the default browser unless disabled |
 | `dt skill ls\|import\|enable\|teach\|used\|log` | catalog in ~/.dual-tmux/skills; trigger subset; teach bullet; usage log |
 
 ## Uninstall
