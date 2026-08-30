@@ -61,6 +61,9 @@ Do **not** defer the pane UI. Do **not** start with a card board that only lists
 - Trigger Q&A follows new messages only while its scrollbar is already near the bottom, preserving
   the reader's position while reviewing older turns. A non-`auto` OpenCode pane stops the web poll
   with a manual-action message, and every submitted turn has a 90-second polling ceiling.
+- When an online trigger is not in auto mode, the tunnel page offers **trigger 转为 auto**. It exits
+  that pane's current OpenCode process and resumes the frozen trigger session with `--auto -s`; it
+  never creates a replacement session ID.
 - Other left tabs (Memory / Events / Doctor) are secondary. Lifecycle (freeze, resume, re) lives as a small bar on the tunnel page, **after** I/O works.
 
 ## Later tabs (not v1)

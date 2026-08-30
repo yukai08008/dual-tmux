@@ -6,6 +6,7 @@ import json
 import os
 import re
 import threading
+import time
 import zipfile
 from datetime import datetime
 from email import policy
@@ -45,8 +46,9 @@ def _is_client_disconnect(exc: BaseException | None) -> bool:
 
 
 def _opencode_auto(text: str) -> bool:
-    """Return whether the captured OpenCode footer shows its auto agent."""
-    return bool(re.search(r"\bBuild\s+auto\b", text or "", re.IGNORECASE))
+    """Return whether the latest captured OpenCode Build footer is in auto mode."""
+    matches = list(re.finditer(r"\bBuild(?P<auto>\s+auto)?\s*[·•]", text or "", re.IGNORECASE))
+    return bool(matches and matches[-1].group("auto"))
 
 
 def _web_state_path() -> Path:
@@ -194,6 +196,33 @@ def _resume_tunnel(name: str) -> dict:
             "op_live": bool(op) and tmux_ops.has_session(op),
             "run_live": bool(run) and tmux_ops.has_session(run),
         }
+
+
+def _switch_trigger_auto(name: str) -> dict:
+    """Restart a tunnel's bound trigger session in OpenCode auto mode."""
+    with _RESUME_LOCK:
+        data = load(find_dt(name))
+        op = data.get("op") or ""
+        trigger = data.get("trigger") or {}
+        if not op or not tmux_ops.has_session(op):
+            raise SystemExit("[err] trigger pane is offline")
+        if (trigger.get("tool") or "opencode") != "opencode":
+            raise SystemExit("[err] trigger is not OpenCode")
+        if not trigger.get("session_id"):
+            raise SystemExit("[err] trigger has no frozen session id; run dt freeze first")
+        if _opencode_auto(_capture(op)):
+            return {"ok": True, "changed": False, "auto": True, "pane": op}
+        if tmux_ops.pane_command(op) == "opencode" and not tmux_ops.quit_opencode(op):
+            raise SystemExit("[err] failed to stop current trigger OpenCode")
+        tmux_ops.start_opencode(op, oc_ops.resume_cmd(trigger))
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            if _opencode_auto(_capture(op)):
+                return {"ok": True, "changed": True, "auto": True, "pane": op}
+            if not tmux_ops.has_session(op):
+                break
+            time.sleep(0.4)
+        raise SystemExit("[err] trigger auto mode did not become ready within 20 seconds")
 
 
 def _mtime_iso(path: Path) -> str:
@@ -754,6 +783,7 @@ def tunnels_page(selected: str = "") -> str:
           <div class="field"><label>bullet 模型</label><input id="m-run" placeholder="模糊搜索 provider/id" autocomplete="off"><div class="mhits" id="mh-run"></div></div>
           <button type="button" id="btn-model-op">切换 trigger</button>
           <button type="button" id="btn-model-run">切换 bullet</button>
+          <button type="button" class="ghost" id="btn-auto-op" hidden>trigger 转为 auto</button>
           <button type="button" class="ghost" id="btn-freeze">Freeze</button>
         </div>
       </div>
@@ -806,6 +836,7 @@ const runlabel = document.getElementById('runlabel');
 const sendf = document.getElementById('sendf');
 const lampOp = document.getElementById('lamp-op');
 const lampRun = document.getElementById('lamp-run');
+const autoOp = document.getElementById('btn-auto-op');
 const threadEl = document.getElementById('thread');
 let chosen = {json.dumps(selected)};
 const LOG_MAX = 200;
@@ -1193,6 +1224,7 @@ async function tick() {{
   snap(opout, j.op_text || '');
   snap(runout, j.run_text || '');
   if (j.sync) renderSync(j.sync);
+  autoOp.hidden = !st.name || j.op_auto !== false || !j.op_live;
   if (j.trigger_model != null) {{
     const row = rows.find(r => r.name === st.name);
     if (row) {{
@@ -1217,7 +1249,7 @@ async function tick() {{
     const parsed = (j.op_parsed || {{}});
     const timedOut = st.waitStartedAt && Date.now()-st.waitStartedAt >= WAIT_MAX_MS;
     if (j.op_auto === false) {{
-      const reply='trigger 当前不是 auto 模式；消息已发出，但可能在等待授权。前端已停止自动轮询，请到 '+(j.op||'op_*')+' 处理后再继续。';
+      const reply='trigger 当前不是 auto 模式；消息已发出，但可能在等待授权。前端已停止自动轮询，可点击上方“trigger 转为 auto”恢复原会话后继续。';
       addBubble('fail',reply,parsed);
       logLine('err','停止轮询 · trigger 非 auto 模式');
       st.finalOp='red'; st.finalRun=j.run_live?'green':'red';
@@ -1370,6 +1402,19 @@ document.getElementById('btn-model-run').addEventListener('click', async () => {
     syncRowModels(j);
     logLine('done', 'bullet 模型 ' + (j.model || model));
   }} catch (err) {{ logLine('err', String(err.message || err)); }}
+}});
+autoOp.addEventListener('click', async () => {{
+  const st=activeTab; if(!st||!st.name) return;
+  autoOp.disabled=true;
+  logLine('send','正在将 trigger 转为 auto 模式');
+  try {{
+    const j=await postForm('/api/trigger-auto',{{t:st.name}});
+    logLine('done',(j.changed?'已恢复原 trigger 会话并切换为 auto':'trigger 已是 auto 模式')+' · '+(j.pane||''));
+    st.finalOp='green'; setLamp(lampOp,'green');
+    await tick();
+  }} catch(err) {{
+    logLine('err','auto 转换失败 · '+String(err.message||err));
+  }} finally {{ autoOp.disabled=false; }}
 }});
 document.getElementById('btn-freeze').addEventListener('click', async () => {{
   const st = activeTab;
@@ -1590,6 +1635,14 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/resume":
             try:
                 result = _resume_tunnel(name)
+            except SystemExit as exc:
+                self._send(409, str(exc), "text/plain; charset=utf-8")
+                return
+            self._send(200, json.dumps(result), "application/json; charset=utf-8")
+            return
+        if parsed.path == "/api/trigger-auto":
+            try:
+                result = _switch_trigger_auto(name)
             except SystemExit as exc:
                 self._send(409, str(exc), "text/plain; charset=utf-8")
                 return
