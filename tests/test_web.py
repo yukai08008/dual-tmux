@@ -7,6 +7,7 @@ from dual_tmux.web import (
     _pane_name,
     _resume_tunnel,
     _save_web_state,
+    _switch_trigger_auto,
     _tunnels,
     dashboard_page,
     guide_page,
@@ -26,6 +27,8 @@ def test_pane_name():
 def test_opencode_auto_footer_detection():
     assert _opencode_auto("┃ Build auto · Grok 4.6") is True
     assert _opencode_auto("┃ Build · Grok 4.6") is False
+    assert _opencode_auto("Build auto · old\nBuild · current") is False
+    assert _opencode_auto("Build · old\nBuild auto · current") is True
 
 
 def test_expected_browser_disconnect_errors_are_quiet():
@@ -89,6 +92,8 @@ def test_admin_tabs_and_search(tmp_path, monkeypatch):
     assert "preserveThreadScroll" in page
     assert "WAIT_MAX_MS" in page
     assert "j.op_auto === false" in page
+    assert "btn-auto-op" in page
+    assert "/api/trigger-auto" in page
     names = [r["name"] for r in _tunnels()]
     assert names == ["dt-msg"]
     skills = skills_page()
@@ -175,3 +180,42 @@ def test_web_auto_resume_only_for_offline_dst(tmp_path, monkeypatch):
     live["value"] = False
     with pytest.raises(SystemExit, match="requires a DST"):
         _resume_tunnel("dt-msg")
+
+
+def test_web_switches_bound_trigger_to_auto(tmp_path, monkeypatch):
+    from dual_tmux import web
+
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
+    data = {
+        "name": "dt-msg",
+        "op": "op_msg",
+        "run": "run_msg",
+        "trigger": {"tool": "opencode", "session_id": "ses_trigger"},
+        "bullet": {"tool": "opencode", "session_id": "ses_bullet"},
+    }
+    save(tunnels_dir() / "dt-msg.json", data)
+    captures = iter(["Build · model", "Build auto · model"])
+    calls = []
+    monkeypatch.setattr(web, "_capture", lambda _: next(captures))
+    monkeypatch.setattr(web.tmux_ops, "has_session", lambda _: True)
+    monkeypatch.setattr(web.tmux_ops, "pane_command", lambda _: "opencode")
+    monkeypatch.setattr(web.tmux_ops, "quit_opencode", lambda pane: calls.append(("quit", pane)) or True)
+    monkeypatch.setattr(web.tmux_ops, "start_opencode", lambda pane, cmd: calls.append(("start", pane, cmd)))
+
+    result = _switch_trigger_auto("dt-msg")
+    assert result == {"ok": True, "changed": True, "auto": True, "pane": "op_msg"}
+    assert calls == [
+        ("quit", "op_msg"),
+        ("start", "op_msg", "opencode --auto -s ses_trigger"),
+    ]
+
+
+def test_web_trigger_auto_requires_frozen_session(tmp_path, monkeypatch):
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
+    save(
+        tunnels_dir() / "dt-msg.json",
+        {"name": "dt-msg", "op": "op_msg", "run": "run_msg", "trigger": {}, "bullet": {}},
+    )
+    monkeypatch.setattr("dual_tmux.web.tmux_ops.has_session", lambda _: True)
+    with pytest.raises(SystemExit, match="no frozen session id"):
+        _switch_trigger_auto("dt-msg")
