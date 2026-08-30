@@ -1,6 +1,7 @@
 import pytest
 
 from dual_tmux.web import (
+    _open_browser,
     _is_client_disconnect,
     _load_web_state,
     _opencode_auto,
@@ -37,6 +38,13 @@ def test_expected_browser_disconnect_errors_are_quiet():
     assert _is_client_disconnect(ConnectionResetError()) is True
     assert _is_client_disconnect(OSError(28, "No space left on device")) is False
     assert _is_client_disconnect(ValueError("application error")) is False
+
+
+def test_open_browser_uses_new_tab(monkeypatch):
+    calls = []
+    monkeypatch.setattr("dual_tmux.web.webbrowser.open", lambda url, new=0: calls.append((url, new)))
+    _open_browser("http://127.0.0.1:8787")
+    assert calls == [("http://127.0.0.1:8787", 2)]
 
 
 def test_admin_tabs_and_search(tmp_path, monkeypatch):

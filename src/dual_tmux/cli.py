@@ -946,7 +946,7 @@ def cmd_web(args: argparse.Namespace) -> None:
 
     port = int(args.port or DEFAULT_PORT)
     ui.info(f"http://{HOST}:{port}")
-    serve(HOST, port)
+    serve(HOST, port, open_browser=not args.no_open)
 
 
 def cmd_upgrade(_: argparse.Namespace) -> None:
@@ -1127,6 +1127,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_slog.add_argument("--status", default="", help="yes|no")
     p_web = sub.add_parser("web", help="local admin UI for tunnel pane I/O")
     p_web.add_argument("--port", type=int, default=8787)
+    p_web.add_argument("--no-open", action="store_true", help="do not open the default browser")
     sub.add_parser("doctor", help="check config, tmux, ssh; apply persist tenant hotfix")
     sub.add_parser("hotfix", help="apply persist tenant hotfix without upgrading")
     sub.add_parser("upgrade", help="upgrade via uv tool, then exec dt hotfix")

@@ -3,7 +3,8 @@
 CLI is enough for **one** tunnel. The web exists because there are **many** line-heads: you cannot scan op/run output, type the next send, and keep context if you have to `dt enter` / `dt work` one at a time.
 
 ```sh
-dt web                 # 127.0.0.1 only, default :8787
+dt web                 # 127.0.0.1 only, default :8787; opens the default browser
+dt web --no-open       # headless use: print URL without opening a browser
 ```
 
 Admin layout: **left tabs** (Dashboard, 隧道), **right content**. Same Client, same `~/.dual-tmux/`, same tmux. Not a second hub.
