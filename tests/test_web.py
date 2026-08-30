@@ -1,6 +1,7 @@
 import pytest
 
 from dual_tmux.web import (
+    _is_client_disconnect,
     _load_web_state,
     _opencode_auto,
     _pane_name,
@@ -25,6 +26,14 @@ def test_pane_name():
 def test_opencode_auto_footer_detection():
     assert _opencode_auto("┃ Build auto · Grok 4.6") is True
     assert _opencode_auto("┃ Build · Grok 4.6") is False
+
+
+def test_expected_browser_disconnect_errors_are_quiet():
+    assert _is_client_disconnect(OSError(9, "Bad file descriptor")) is True
+    assert _is_client_disconnect(BrokenPipeError()) is True
+    assert _is_client_disconnect(ConnectionResetError()) is True
+    assert _is_client_disconnect(OSError(28, "No space left on device")) is False
+    assert _is_client_disconnect(ValueError("application error")) is False
 
 
 def test_admin_tabs_and_search(tmp_path, monkeypatch):
