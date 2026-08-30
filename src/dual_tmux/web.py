@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import html
 import json
 import os
@@ -25,6 +26,22 @@ HOST = "127.0.0.1"
 DEFAULT_PORT = 8787
 _RESUME_LOCK = threading.Lock()
 _WEB_STATE_LOCK = threading.Lock()
+
+
+_CLIENT_DISCONNECT_ERRNOS = {
+    errno.EBADF,
+    errno.EPIPE,
+    errno.ECONNABORTED,
+    errno.ECONNRESET,
+    errno.ENOTCONN,
+}
+
+
+def _is_client_disconnect(exc: BaseException | None) -> bool:
+    """Recognize socket failures caused by a browser closing its request."""
+    return isinstance(exc, (BrokenPipeError, ConnectionAbortedError, ConnectionResetError)) or (
+        isinstance(exc, OSError) and exc.errno in _CLIENT_DISCONNECT_ERRNOS
+    )
 
 
 def _opencode_auto(text: str) -> bool:
@@ -1407,6 +1424,17 @@ restoreTabs({json.dumps(selected)});
     return _shell(_nav("tunnels"), body, "dt web · 隧道")
 
 
+class WebHTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def handle_error(self, request, client_address) -> None:
+        import sys
+
+        if _is_client_disconnect(sys.exc_info()[1]):
+            return
+        super().handle_error(request, client_address)
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args) -> None:
         return
@@ -1681,6 +1709,6 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def serve(host: str = HOST, port: int = DEFAULT_PORT) -> None:
-    httpd = ThreadingHTTPServer((host, port), Handler)
-    print(f"dt web  http://{host}:{port}  (Ctrl-C stop)")
-    httpd.serve_forever()
+    with WebHTTPServer((host, port), Handler) as httpd:
+        print(f"dt web  http://{host}:{port}  (Ctrl-C stop)")
+        httpd.serve_forever()
