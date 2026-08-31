@@ -6,7 +6,7 @@
 
 ### v0.4.48 (ACTIVE) — 飞书扫码 Web 与 tom7r 事件桥
 
-- **feature/v0.4.48-feishu-web-bridge** (CODE_COMPLETE): Web QR/绑定管理、tom7r mailbox bridge、飞书 callback/event、Client 离线可靠消费、outbox 回包合同与 Docker 部署模板已完成。159 tests、Browser E2E、编译/lint/build 全绿；等待 PR 合并。企业飞书真实 E2E 因缺 App 凭据/HTTPS callback 仍为 P1 发布门禁，合并后保持 ACTIVE、不创建 Release。
+- **feature/v0.4.48-feishu-web-bridge** (CODE_COMPLETE): Web QR/绑定管理、tom7r mailbox bridge、飞书 callback/event、Client 离线可靠消费、outbox 回包合同与 Docker 部署模板已完成。159 tests、Browser E2E、编译/lint/build、tom7r 容器 build/health 全绿；等待 PR 合并。企业飞书真实 E2E 因缺 App 凭据/HTTPS callback 仍为 P1 发布门禁，合并后保持 ACTIVE、不创建 Release。
 
 ### v0.4.47 (ARCHIVED) — 飞书绑定与鉴权 API
 
