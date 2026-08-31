@@ -1,12 +1,13 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-08-31 13:36 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-08-31 13:48 +08:00 | 更新者: Codex PM
 
 ## 状态树
 
 ### v0.4.40 (RELEASED) — Agent Adapter 与统一控制内核
 
 - **feature/v0.4.40-control-kernel** (MERGED): PR #4 已合并；三客户端真实能力注册表、CLI/Web/未来飞书共用 ControlService、能力/操作 Web API 已发布。
+  - **issue-bullet-session-cannot-resume** (FIXING): v0.4.41 hotfix；修复混合工作点、跳板竞态与本地 bullet persist import。
 
 > 版本编号说明：从本版本起，L1 与实际 Python 包版本/Git 标签保持一致。以下 `v0.04`～`v0.08` 是历史内部里程碑，仅作记录，不再延续编号。
 
@@ -35,7 +36,7 @@
 
 ## 当前焦点
 
-- `v0.4.40` 已正式发布；本机真实 `dt upgrade` 从 `0.4.39` 升到 `0.4.40`，配置和 tunnel 集合 SHA-256 均保持不变。下一阶段为 `v0.4.41` 三客户端原生生命周期适配。
+- 正在发布 `v0.4.41` hotfix：`dt-msg2` bullet session 已从完整 persist JSON 恢复，本地与中心 tunnel 已校正为真实本地工作点。
 
 ## 待办
 
@@ -44,7 +45,10 @@
 - [x] 完成 88 tests、浏览器 E2E、构建与封板报告
 - [x] 创建并合并 PR #4，发布 v0.4.40
 - [x] 本机真实执行 `dt upgrade` 并验证数据无损
-- [ ] 立项 v0.4.41：补齐 OpenCode、Codex、Claude 三客户端原生生命周期适配
+- [ ] 三客户端原生生命周期适配顺延到 v0.4.42（v0.4.41 被紧急 hotfix 占用）
+- [x] 定位 dt-msg2 bullet 接续失败并确认 session 数据未丢失
+- [x] 恢复 happy-circuit session，校正本地/中心工作点
+- [ ] 合并并发布 v0.4.41 hotfix，真实升级验证
 
 - [x] 核对本地、tom7r、另一 Client 三方数据事实
 - [x] 使用显式 `dt pull` 恢复本机缺失的 4 条隧道

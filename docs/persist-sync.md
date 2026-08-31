@@ -42,14 +42,14 @@ Client B
   dt resume
        ├─ trigger (op_*): local sqlite must contain session_id
        │     import JSON first, then `opencode --auto -s <id>`
-       └─ bullet  (run_*): replay jump, then `-s` in that pane
-             uses the sqlite at the work point (Server / container)
-             Client B does not import bullet JSON
+       └─ bullet  (run_*):
+             remote work point → replay jump, wait until stable, then `-s` there
+             local work point  → import JSON locally, then `-s` locally
 ```
 
 Trigger OpenCode lives on the Client. Another laptop has an empty sqlite → Session not found unless persist JSON is imported.
 
-Bullet OpenCode lives at the jump target. Resume re-enters the same `runtime.cmd` / hops and talks to that sqlite. Container name is irrelevant.
+Remote bullet OpenCode lives at the jump target. Resume re-enters the same `runtime.cmd` / hops and talks to that sqlite. A local-mode bullet uses the Client sqlite and persist import just like trigger. Freeze records the observed work point; if an old SSH connection has exited and the Agent is now local, stale server/container fields are cleared instead of creating a mixed binding.
 
 ## Persist cron (not this CLI)
 

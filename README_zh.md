@@ -120,7 +120,7 @@ dt pull
 dt resume dt-msg              # import trigger JSON，再 -s；bullet 在跳板对端 -s
 ```
 
-`dt pull` 只恢复绑定。`dt resume` 会把 **trigger** 的 persist JSON import 进本机 sqlite，再在 `op_*` 里 `opencode --auto -s <id>`。bullet 留在跳板对端的 sqlite：重放 `runtime.cmd` 后在那边 `-s`，不要把 bullet JSON 拉到笔记本。见 [docs/persist-sync.md](docs/persist-sync.md)。
+`dt pull` 只恢复绑定。`dt resume` 会把 **trigger** 的 persist JSON import 进本机 sqlite，再在 `op_*` 里 `opencode --auto -s <id>`。远端 bullet 会重放 `runtime.cmd`，等待跳板稳定后在目标 sqlite 执行 `-s`；纯本地 bullet 则把 JSON 导入 Client sqlite。见 [docs/persist-sync.md](docs/persist-sync.md)。
 
 同一时刻只有一台 Client：枢纽锁 `~/<user>/dual-tmux/locks/<dt-名>`（`client@epoch`，TTL 300s）。`enter` / `work` / `resume` 占锁。
 
