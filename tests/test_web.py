@@ -42,6 +42,8 @@ def test_opencode_auto_footer_detection():
     assert _opencode_auto("┃ Build · Grok 4.6") is False
     assert _opencode_auto("Build auto · old\nBuild · current") is False
     assert _opencode_auto("Build · old\nBuild auto · current") is True
+    running = "Build auto · old\nThought: 106ms\n▣ Build · grok-4.6\n■■■ esc interrupt"
+    assert _opencode_auto(running) is True
 
 
 def test_expected_browser_disconnect_errors_are_quiet():
@@ -294,7 +296,13 @@ def test_admin_tabs_and_search(tmp_path, monkeypatch):
     assert "visitHistory" in page
     assert "threadEl.scrollHeight-threadEl.scrollTop" in page
     assert "preserveThreadScroll" in page
-    assert "WAIT_MAX_MS" in page
+    assert "LONG_RUNNING_MS = 600000" in page
+    assert "STALLED_MS = 600000" in page
+    assert "ATTENTION_MS = 1800000" in page
+    assert "继续监测，不自动判失败" in page
+    assert "trigger 更新 · op=" not in page
+    assert "baseline.op_parsed" in page
+    assert "lastMeaningfulKey" in page
     assert "j.op_auto === false" in page
     assert "btn-auto-op" in page
     assert "/api/trigger-auto" in page

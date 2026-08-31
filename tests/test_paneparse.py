@@ -48,6 +48,17 @@ def test_rabbitmq_sample_keeps_answer_and_timing():
     assert "Thought:" not in got.body
     assert "The user asked" not in got.body
     assert "ctrl+p" not in got.body
+    assert got.phase == "idle"
+    assert got.completion_id
+
+
+def test_running_opencode_is_not_mistaken_for_a_completed_turn():
+    got = parse_opencode(
+        "┃ Build auto · Grok 4.6\nThought: 106ms\n▣ Build · grok-4.6\n■■■ esc interrupt"
+    )
+    assert got.phase == "running"
+    assert got.elapsed == ""
+    assert got.completion_id == ""
 
 
 def test_parse_pane_unknown_tool_is_plain():
