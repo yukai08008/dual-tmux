@@ -141,7 +141,10 @@ def parse_ssh_target(raw: str, config_path: Path | None = None) -> SshTarget:
         if part.startswith("-"):
             i += 1
             continue
-        dest = part
+        if not dest:
+            # The first positional token is the SSH destination. Everything
+            # after it is the remote command and must not overwrite the host.
+            dest = part
         i += 1
     user, host = _split_user_host(dest)
     if user_flag and not user:

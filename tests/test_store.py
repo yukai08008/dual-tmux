@@ -7,7 +7,12 @@ from dual_tmux.sshutil import list_ssh_hosts, parse_ssh_target
 from dual_tmux.oc import as_bind, empty_side, is_dst, parse_model, resume_cmd, start_cmd, OcSession
 from dual_tmux.store import default_names, normalize_dt, remove_dt, save, tunnels_dir
 from dual_tmux.log import emit, read_events
-from dual_tmux.workpoint import apply_runtime, empty_point, empty_times
+from dual_tmux.workpoint import (
+    apply_runtime,
+    canonical_runtime_point,
+    empty_point,
+    empty_times,
+)
 
 
 def test_names():
@@ -47,6 +52,8 @@ def test_parse_ssh_target():
     assert parse_ssh_target("root@1.2.3.4").dest == "root@1.2.3.4"
     assert parse_ssh_target("ssh -oPort=24500 root@1.2.3.4").port == 24500
     assert parse_ssh_target("ssh -o Port=24501 root@1.2.3.4").port == 24501
+    command = "ssh -p 24500 root@1.2.3.4 docker exec box bash"
+    assert parse_ssh_target(command).dest == "root@1.2.3.4"
 
 
 def test_cmd_with_port():
@@ -206,6 +213,29 @@ def test_direct_ssh_runtime_keeps_command_and_does_not_copy_local_cwd():
     assert data["runtime"]["ssh_port"] == 24500
     assert data["runtime"]["directory"] == "/workspace"
     assert data["runtime"]["cmd"] == "ssh -oPort=24500 root@106.75.97.247"
+
+
+def test_remote_point_uses_persisted_runtime_not_local_tmux_cwd():
+    data = {
+        "runtime": {
+            "server": "root@106.75.97.247",
+            "container": "me_andy_browser",
+            "directory": "/root/intro_v2",
+            "cmd": "ssh business docker exec me_andy_browser",
+        }
+    }
+    point = {
+        **empty_point(),
+        "kind": "docker",
+        "cwd": "/Users/andy/trigger",
+        "directory": "/Users/andy/trigger",
+        "ssh": "bash",
+        "container": "me_andy_browser",
+    }
+    got = canonical_runtime_point(data, point)
+    assert got["ssh"] == "root@106.75.97.247"
+    assert got["cwd"] == got["directory"] == "/root/intro_v2"
+    assert got["resume_cmd"] == data["runtime"]["cmd"]
 
 
 def test_user():

@@ -445,7 +445,8 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
     from . import agentclient
 
     point = wp.discover(tmux_name)
-    data["op_point" if side == "trigger" else "run_point"] = point
+    if side == "trigger":
+        data["op_point"] = point
     other = "bullet" if side == "trigger" else "trigger"
     exclude = (data.get(other) or {}).get("session_id") or ""
     info = tmux_ops.pane_info(tmux_name)
@@ -467,6 +468,9 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
         and point.get("kind") in {"ssh", "docker"}
     ):
         wp.apply_runtime(data, point)
+        point = wp.canonical_runtime_point(data, point)
+    if side == "bullet":
+        data["run_point"] = point
     actual_local_client = agentclient.detect_name(process_commands)
     client_name = actual_local_client or agentclient.normalize_name(requested_tool)
     location = "local" if actual_local_client else point.get("kind") or "local"
@@ -791,7 +795,9 @@ def _apply_resume_legacy(name: str | None, force: bool = False) -> dict:
     _start_side(data, data["run"], "bullet", "", True)
     wp.stamp(data, "resume_at")
     data["op_point"] = wp.discover(data["op"])
-    data["run_point"] = wp.discover(data["run"])
+    data["run_point"] = wp.canonical_runtime_point(
+        data, wp.discover(data["run"])
+    )
     save(find_dt(data["name"]), data)
     ev.emit("dt.resume", name=data["name"])
     hub.push_best_effort()
