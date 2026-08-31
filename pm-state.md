@@ -1,16 +1,17 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-08-31 13:59 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-08-31 16:00 +08:00 | 更新者: Codex PM
 
 ## 状态树
 
-### v0.4.46.post1 (ACTIVE) — hotfix: Web trigger progress detection
+### v0.4.46.post1 (RELEASED) — hotfix: Web trigger progress detection
 
-- **hotfix/v0.4.46.post1-web-progress-detection** (CODE_COMPLETE): `dt-company_intro_v2` 正常长任务被 90 秒 deadline 误报失败；已改为 running/completion 语义检测、600 秒长任务提示、停滞分级提醒，并停止非 waiting poll 日志污染。132 tests、build、Browser smoke 全绿，待 PR/发布。
+- **hotfix/v0.4.46.post1-web-progress-detection** (MERGED): PR #13 已合并到 `maintenance/v0.4.46`，发布 `v0.4.46.post1`；132 tests、build、隔离 Browser smoke 与真实 8787 页面复验全绿。
+  - **issue-web-trigger-false-timeout** (CLOSED): 删除 90 秒失败 deadline；改用 OpenCode running/completion 语义检测，600 秒仅提示长任务，10 分钟无语义输出提示可能停滞，30 分钟提示需要关注，且均继续监测；非 waiting 不再追加 poll 日志。
 
-### v0.4.46 (ACTIVE) — Web 全功能控制面
+### v0.4.46 (RELEASED) — Web 全功能控制面
 
-- **feature/v0.4.46-web-control-plane** (CODE_COMPLETE): tunnel、三客户端、Hub 同步、健康恢复、配置模式、Memory、Events、Doctor 已统一落到 Web/ControlService；131 tests、浏览器 E2E、构建与隔离安装通过，待 PR 合并和正式发布。
+- **feature/v0.4.46-web-control-plane** (MERGED): PR #10 已合并并发布 `v0.4.46`；tunnel、三客户端、Hub 同步、健康恢复、配置模式、Memory、Events、Doctor 已统一落到 Web/ControlService。
 
 ### v0.4.45 (ARCHIVED) — 三客户端原生会话生命周期
 
@@ -60,7 +61,7 @@
 
 ## 当前焦点
 
-- 封板并发布 `v0.4.46` Web 控制面；随后进入飞书扫码绑定与管理版本。
+- `v0.4.46.post1` hotfix 已关闭；回到正式列装路线，下一阶段为飞书扫码绑定与管理版本。
 
 ## 待办
 
@@ -79,6 +80,10 @@
 - [x] 完成 v0.4.45 三客户端原生生命周期适配并合并 PR #9
 - [x] 完成 v0.4.46 Web 全功能控制面、Memory/Events/Doctor 与安全确认
 - [x] 完成 131 tests、应用内浏览器 E2E、构建和隔离安装
+- [x] 合并 PR #10 并发布 `v0.4.46`
+- [x] 修复 Web trigger 90 秒误超时，合并 PR #13 并发布 `v0.4.46.post1`
+- [x] 本机安装 Release wheel，确认配置和 tunnel 数据哈希不变
+- [x] 真实 8787 页面复验空闲状态 6.5 秒内 poll 历史数量保持不变
 - [x] 定位 dt-msg2 bullet 接续失败并确认 session 数据未丢失
 - [x] 恢复 happy-circuit session，校正本地/中心工作点
 - [x] 合并 PR #5 并发布 v0.4.41 hotfix
