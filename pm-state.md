@@ -4,6 +4,10 @@
 
 ## 状态树
 
+### v0.4.44 (ACTIVE) — hotfix: persisted entry authority
+
+- **hotfix/v0.4.44-entry-authority** (CODE_COMPLETE): 以原 tmux entry 与已登记 runtime 为远端 workpoint 权威来源，修复 SSH remote command 覆盖 host 和本机 cwd 污染展示/再次 freeze；110 tests 与真实容器 freeze 通过。
+
 ### v0.4.43 (RELEASED) — hotfix: remote freeze binding correctness
 
 - **hotfix/v0.4.43-freeze-remote-binding** (MERGED): PR #7 已合并并发布；修复 disconnected shell 被当作远端 OpenCode、latest remote session 误绑、本机 cwd 污染远端 runtime，以及空白新 TUI 误绑同 cwd 旧 session。
@@ -44,7 +48,7 @@
 
 ## 当前焦点
 
-- `v0.4.43` hotfix 已发布并在本机完成 `0.4.42 → 0.4.43` 真实升级；`dt-company_intro_v2` 为独立本地 bullet `happy-canyon`，受控退出/恢复及升级后保持同一 session，健康状态全绿。
+- `v0.4.44` hotfix 待发布；`dt-company_intro_v2` 已按原始入口恢复至 `106.75.97.247:24500 / me_andy_browser / /root/intro_v2 / nimble-cactus`，本地与 Hub 一致且健康状态全绿。
 
 ## 待办
 

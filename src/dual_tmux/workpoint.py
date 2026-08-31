@@ -275,6 +275,21 @@ def capture_runtime(data: dict, point: dict) -> None:
     )
 
 
+def canonical_runtime_point(data: dict, point: dict) -> dict:
+    """Represent a live remote pane using its persisted runtime endpoint."""
+    out = dict(point)
+    if out.get("kind") not in {"ssh", "docker"}:
+        return out
+    runtime = data.get("runtime") or {}
+    out["ssh"] = runtime.get("server") or out.get("ssh") or ""
+    out["container"] = runtime.get("container") or out.get("container") or ""
+    out["directory"] = runtime.get("directory") or out.get("directory") or ""
+    out["cwd"] = out["directory"]
+    out["resume_cmd"] = runtime.get("cmd") or out.get("resume_cmd") or ""
+    out["kind"] = "docker" if out["container"] else "ssh"
+    return out
+
+
 def stamp(data: dict, key: str) -> None:
     times = data.setdefault("times", empty_times())
     times[key] = now_iso()

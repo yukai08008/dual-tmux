@@ -8,8 +8,18 @@
 - Direct SSH process discovery preserves the exact reconnect command and port, and does not copy the local tmux cwd into `runtime.directory`.
 - A fresh blank OpenCode TUI cannot bind an older session merely because both use the same cwd; freeze waits for a session created after the Agent process started.
 
-## Data repair
+## Data repair correction
 
-Create a fresh local OpenCode bullet for `dt-company_intro_v2`, freeze it from the live pane, and let freeze atomically rewrite the tunnel as local runtime. Preserve the trigger session and synchronize the repaired binding to the Hub.
+The original tmux entry is authoritative: `ssh -oPort=24500 root@106.75.97.247`. Cross-checking the business host revealed the second hop, container `me_andy_browser`, and its original OpenCode session `nimble-cactus` (`ses_fb37c74b8ffe9VH0RIKOSZfQJW`) in `/root/intro_v2`.
 
-The repaired bullet is `happy-canyon` (`ses_fa9af64d6ffeGtQF6grUPvWlTJ`). A controlled Agent exit followed by `dt recover --now` restored this exact session and its `READY` conversation; all health layers passed.
+The earlier attempt to create a fresh local bullet was incorrect and was superseded. The final repaired path is:
+
+```text
+run_company_intro_v2
+  -> root@106.75.97.247:24500
+  -> me_andy_browser
+  -> /root/intro_v2
+  -> ses_fb37c74b8ffe9VH0RIKOSZfQJW
+```
+
+`freeze` now records this canonical runtime point instead of the local trigger machine cwd. Hub and local records match, and all health layers pass.
