@@ -22,7 +22,7 @@
 | E-41 | Hub WS → inbox → Client dispatch → outbox 合同 | PASS | 重复同步不重复执行；回包保留 chat_id |
 | E-41a | tom7r Python 3.12 daemon 容器 build/health | PASS | 无凭据启动 `running=true`、connector=`stopped`；测试容器、镜像和临时目录已清理 |
 | E-42 | 真实 Client 数据无损 | PASS | 本版验证使用隔离 `DUAL_TMUX_HOME`，未写真实 `~/.dual-tmux` |
-| E-43 | 无预置 App 的企业飞书真实扫码、私聊命令与回包 | PENDING | 需要用户在飞书 App 扫描一次性 QR 并确认 |
+| E-43 | 无预置 App 的企业飞书真实扫码、私聊命令与回包 | PARTIAL | 真实扫码、PersonalAgent、operator 绑定、tom7r WS connected 已通过；待 `/dt ls` mailbox 执行与回包 |
 
 ## 遗留问题
 

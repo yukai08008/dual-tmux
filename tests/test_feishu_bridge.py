@@ -223,12 +223,17 @@ def test_publish_installation_sends_only_encrypted_bundle_and_hashed_route(
     vault = CredentialVault()
     vault.save("cli_auto", "TOP-SECRET", {"open_id": "ou_secret"})
     copied = []
+    commands = []
 
     class Result:
         returncode = 0
         stderr = stdout = ""
 
-    monkeypatch.setattr(hub, "_run", lambda *args, **kwargs: Result())
+    def run(argv, *args, **kwargs):
+        commands.append(argv)
+        return Result()
+
+    monkeypatch.setattr(hub, "_run", run)
     monkeypatch.setattr(hub, "remote_root", lambda cfg: "/remote")
     def capture(src, dest, cfg, **kwargs):
         source = __import__("pathlib").Path(str(src).rstrip("/"))
@@ -244,6 +249,10 @@ def test_publish_installation_sends_only_encrypted_bundle_and_hashed_route(
     publish_installation_to_hub(cfg, OperatorIdentity(open_id="ou_secret"))
     assert any(dest.endswith("/credential.key") for _, dest, _ in copied)
     assert any(dest.endswith("/installation.json") for _, dest, _ in copied)
+    permission_command = next(
+        argv[-1] for argv in commands if "chown $(id -u):$(id -g)" in argv[-1]
+    )
+    assert "chmod 600" in permission_command
     route_text = next(content for _, dest, content in copied if dest.endswith("/bridge/routes/"))
     assert "ou_secret" not in route_text
     assert "TOP-SECRET" not in vault.installation_path.read_text()

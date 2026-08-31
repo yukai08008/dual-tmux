@@ -11,4 +11,5 @@
 
 | 日期 | 案例 | 问题 | 解决方案 | 状态 |
 |---|---|---|---|---|
+| 2026-08-31 | 飞书 Hub 凭据归属不一致 | [trouble](trouble/20260831-feishu-hub-credential-owner-mismatch.md) | [solution](solution/20260831-feishu-hub-credential-owner-mismatch-solution.md) | RESOLVED |
 | 2026-08-31 | 中心隧道未自动同步 | [trouble](trouble/20260831-中心隧道未自动同步.md) | [solution](solution/20260831-中心隧道未自动同步-解决.md) | RESOLVED |
