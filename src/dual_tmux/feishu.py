@@ -254,14 +254,30 @@ class PairingService:
         }
 
     def _consume_state(self, state: str) -> None:
-        digest = _digest(state)
+        self._consume_state_digest(_digest(state))
+
+    def _consume_state_digest(self, digest: str) -> None:
 
         def consume(data, _now):
-            if not state or digest not in data["pairing"]:
+            if not digest or digest not in data["pairing"]:
                 raise FeishuError("invalid_state", "pairing state is unknown, expired, or already used")
             del data["pairing"][digest]
 
         self.store.mutate(consume)
+
+    def complete_identity_digest(
+        self, state_digest: str, identity: OperatorIdentity, config: FeishuConfig | None = None
+    ) -> OperatorIdentity:
+        """Complete a Hub-routed pairing without exposing the raw state to the Hub."""
+        cfg = config or load_feishu_config()
+        self._consume_state_digest(state_digest)
+        if not identity.ids():
+            raise FeishuError("identity_missing", "Feishu returned no stable operator ID")
+        if cfg.allowlist and not identity.ids().intersection(cfg.allowlist):
+            raise FeishuError("operator_not_allowed", "operator is not in the configured allowlist")
+        bind_operator(identity)
+        log.emit("feishu.pair.ok", operator=_operator_hash(identity))
+        return identity
 
     def callback(self, state: str, code: str, config: FeishuConfig | None = None) -> OperatorIdentity:
         cfg = config or load_feishu_config()
@@ -470,6 +486,8 @@ def status() -> dict:
         "configured": bool(config and config.app_id and config.redirect_uri),
         "app_id": config.app_id if config else "",
         "redirect_uri": config.redirect_uri if config else "",
+        "secret_file": config.secret_file if config else "",
+        "allowlist": list(config.allowlist) if config else [],
         "secret_source": "env" if os.environ.get("DT_FEISHU_APP_SECRET") else ("file" if config and config.secret_file else "missing"),
         "allowlist_count": len(config.allowlist) if config else 0,
         "bindings": [item.public_dict() for item in bindings],

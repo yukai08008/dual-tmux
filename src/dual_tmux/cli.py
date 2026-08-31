@@ -1011,6 +1011,8 @@ def cmd_config(args: argparse.Namespace) -> None:
 
 def cmd_tick(_: argparse.Namespace) -> None:
     from . import recovery
+    from .feishu import FeishuError
+    from .feishu_bridge import sync_client
 
     cfg = require_config()
     hub.enforce_local()
@@ -1040,6 +1042,10 @@ def cmd_tick(_: argparse.Namespace) -> None:
         recovery.observe(data)
         n += 1
     hub.sync_best_effort(wait=True)
+    try:
+        sync_client(cfg)
+    except (FeishuError, SystemExit, OSError) as exc:
+        ev.emit("feishu.bridge.sync.reject", reason=type(exc).__name__)
     ui.ok(f"tick  {n} live DT  log={activity.activity_path()}")
 
 
@@ -1400,7 +1406,10 @@ def cmd_feishu(args: argparse.Namespace) -> None:
                 )
             }
         elif args.feishu_cmd == "pair":
-            result = PairingService().begin()
+            from .feishu_bridge import begin_hub_pairing
+
+            cfg = load_config()
+            result = begin_hub_pairing(cfg=cfg) if cfg.hub_enabled else PairingService().begin()
         elif args.feishu_cmd == "callback":
             identity = PairingService().callback(args.state, args.code)
             result = {"bound": True, "identity": identity.public_dict()}
@@ -1413,6 +1422,15 @@ def cmd_feishu(args: argparse.Namespace) -> None:
                 user_id=args.user_id,
             )
             result = FeishuDispatcher().dispatch(args.event_id, identity, args.message)
+        elif args.feishu_cmd == "sync":
+            from .feishu_bridge import sync_client
+
+            result = sync_client()
+        elif args.feishu_cmd == "bridge":
+            from .feishu_bridge import serve_bridge
+
+            serve_bridge(args.host, args.port)
+            return
         else:
             raise FeishuError("invalid_command", "choose a dt feishu subcommand")
     except FeishuError as exc:
@@ -1682,6 +1700,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--allow-id", action="append", default=[], help="allowed open_id/union_id/user_id"
     )
     fs.add_parser("pair", help="create a short-lived one-time OAuth URL")
+    fs.add_parser("sync", help="exchange callback/command envelopes with the Hub")
+    p_fb = fs.add_parser("bridge", help="serve the tom7r callback/event bridge")
+    p_fb.add_argument("--host", default="127.0.0.1")
+    p_fb.add_argument("--port", type=int, default=8790)
     p_fcb = fs.add_parser("callback", help="consume OAuth state and bind the operator")
     p_fcb.add_argument("--state", required=True)
     p_fcb.add_argument("--code", required=True)
