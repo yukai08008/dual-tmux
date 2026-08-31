@@ -83,6 +83,10 @@ def test_dst_bind():
     assert bind["session_id"] == "ses_1"
     assert resume_cmd(bind) == "opencode --auto -s ses_1"
     assert start_cmd({"tool": "opencode", "model": "glm-5.1"}) == "opencode --model glm-5.1"
+    assert resume_cmd({"tool": "codex", "session_id": "codex-id"}) == "codex resume codex-id"
+    assert resume_cmd({"tool": "claude", "session_id": "claude-id"}) == "claude --resume claude-id"
+    assert start_cmd({"tool": "codex"}) == "codex"
+    assert start_cmd({"tool": "claude"}) == "claude"
     assert empty_side()["tool"] == "opencode"
     assert is_dst({"trigger": bind, "bullet": bind})
     assert not is_dst({"trigger": bind, "bullet": empty_side()})

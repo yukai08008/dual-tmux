@@ -4,6 +4,10 @@
 
 ## 状态树
 
+### v0.4.45 (ACTIVE) — 三客户端原生会话生命周期
+
+- **feature/v0.4.45-native-agent-lifecycle** (CODE_COMPLETE): OpenCode、Codex、Claude 已建立统一 session 发现/冻结/恢复合同；125 tests、编译、专项 Ruff、构建通过，不能证明当前会话归属时不猜历史记录。待合并后直接进入 v0.4.46 Web 版，不发布奇数 API 版。
+
 ### v0.4.44 (RELEASED) — hotfix: persisted entry authority
 
 - **hotfix/v0.4.44-entry-authority** (MERGED): PR #8 已合并并发布；以原 tmux entry 与已登记 runtime 为远端 workpoint 权威来源，修复 SSH remote command 覆盖 host 和本机 cwd 污染展示/再次 freeze；110 tests 与真实容器 freeze 通过。
@@ -48,7 +52,7 @@
 
 ## 当前焦点
 
-- `v0.4.44` hotfix 已发布并在本机升级完成；`dt-company_intro_v2` 已按最初 freeze 留下的入口恢复至 `106.75.97.247:24500 / me_andy_browser / /root/intro_v2 / nimble-cactus (ses_fb37c74b8ffe9VH0RIKOSZfQJW)`。重复 freeze 后入口、runtime、run_point、本地与 Hub 记录仍一致，分层健康状态全绿；tom7r 仅为 Hub，不是 bullet runtime。
+- 合并 `v0.4.45` API 能力后推进 `v0.4.46`：将三客户端与现有 ControlService 的全部安全操作落到 Web，并补浏览器 E2E。
 
 ## 待办
 
@@ -64,7 +68,7 @@
 - [x] 完成 88 tests、浏览器 E2E、构建与封板报告
 - [x] 创建并合并 PR #4，发布 v0.4.40
 - [x] 本机真实执行 `dt upgrade` 并验证数据无损
-- [ ] 三客户端原生生命周期适配顺延到 v0.4.42（v0.4.41 被紧急 hotfix 占用）
+- [ ] 完成 v0.4.45 三客户端原生生命周期适配
 - [x] 定位 dt-msg2 bullet 接续失败并确认 session 数据未丢失
 - [x] 恢复 happy-circuit session，校正本地/中心工作点
 - [x] 合并 PR #5 并发布 v0.4.41 hotfix

@@ -183,8 +183,8 @@ dual-tmux recognizes OpenCode, Codex, and Claude Code on both trigger and bullet
 | Local / SSH / Docker metadata collection | yes | yes | yes |
 | Send text through the tmux pane | yes | yes | yes |
 | Record client metadata during `freeze` | yes | yes | yes |
-| Start and freeze a resumable native session | yes | not yet | not yet |
-| Resume a frozen native session | yes | not yet | not yet |
+| Start and freeze a resumable native session | yes | yes | yes |
+| Resume a frozen native session | yes | yes | yes |
 | Switch model through dual-tmux | yes | not yet | not yet |
 
 The same control contract now backs migrated CLI and Web operations:
@@ -197,7 +197,7 @@ CLI / Web / future Feishu
 Agent capability registry + tunnel/tmux operations
 ```
 
-The local Web API exposes `GET /api/capabilities` and `GET /api/operations` for capability-aware clients. Codex and Claude native session lifecycle support is planned as an adapter expansion; current `freeze` records truthful client metadata without fabricating session IDs.
+The local Web API exposes `GET /api/capabilities` and `GET /api/operations` for capability-aware clients. Native lifecycle discovery is conservative: Codex/Claude use an explicit session UUID from the live process when available, otherwise a unique session file must match both the pane cwd and process start time. Ambiguous or historical candidates are rejected instead of guessing the newest session.
 
 ## Default agent: OpenCode
 
@@ -273,7 +273,7 @@ dt send myapp 'task for bullet'
 
 `dt new` never creates DST. `--oc` may omit `--model` (harness default). `dt freeze` is required after manual `--oc`. `dt resume` is the DST continue command (not a typo for `dsh`).
 
-Each frozen side stores `tool`, `model`, `session_id`, and `agent_client` (client name, version, raw version output, executable, local/ssh/docker location, and collection time). OpenCode, Codex, and Claude Code are recognized. OpenCode keeps session resume support; Codex/Claude currently record client metadata only and never fabricate a resumable session. If a remote pane only exposes `ssh`, select it explicitly with `dt freeze --tool codex|claude`. OpenCode resume uses `opencode --auto -s <id>`, never `-c`.
+Each frozen side stores `tool`, `model`, `session_id`, and `agent_client` (client name, version, raw version output, executable, local/ssh/docker location, and collection time). OpenCode, Codex, and Claude Code all support native freeze/resume. If a remote pane only exposes `ssh`, select it explicitly with `dt freeze --tool codex|claude`. Resume preserves the frozen ID and runs `opencode --auto -s <id>`, `codex resume <uuid>`, or `claude --resume <uuid>`; it never falls back to an unproven “latest” session.
 
 Freeze also records **work points** (`op_point` / `run_point`: kind, cwd, ssh, docker, resume_cmd) and **timestamps** (`created_at`, `enter_at`, `work_at`, `freeze_at`, `resume_at`). One side failing does not throw away the other. `dt inspect` shows all of this.
 
