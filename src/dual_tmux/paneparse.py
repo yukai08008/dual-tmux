@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import re
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from typing import Callable
 
 Parser = Callable[[str], "ParsedTurn"]
 
@@ -12,6 +13,8 @@ BUILD_RE = re.compile(
     r"Build\s*[·•]\s*(.+?)\s*[·•]\s*((?:\d+m\s*)?\d+(?:\.\d+)?s)",
     re.IGNORECASE,
 )
+RUNNING_RE = re.compile(r"esc\s+interrupt", re.IGNORECASE)
+STATUS_RE = re.compile(r"Build(?P<auto>\s+auto)?\s*[·•][^\n]*", re.IGNORECASE)
 THOUGHT_RE = re.compile(r"^\s*Thought:\s*", re.IGNORECASE)
 REASON_RE = re.compile(r"^\s*The user\b", re.IGNORECASE)
 FOOTER_RE = re.compile(r"ctrl\+p commands|OpenCode \d|tokens\b|\$[\d.]+ spent", re.IGNORECASE)
@@ -28,6 +31,8 @@ class ParsedTurn:
     body: str = ""
     model: str = ""
     elapsed: str = ""
+    phase: str = "unknown"
+    completion_id: str = ""
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -49,7 +54,7 @@ def _is_chrome(s: str) -> bool:
     t = s.strip()
     if not t:
         return True
-    if set(t) <= set("▀━╹─│┌┐└┘┃ "):
+    if set(t) <= set("▀━╹─│┌┐└┘┃▣ "):
         return True
     if t.startswith("┃"):
         return True
@@ -57,10 +62,9 @@ def _is_chrome(s: str) -> bool:
         return True
     if t.startswith("/") and "opencode" in t.lower():
         return True
-    if t.startswith("~/") or t.startswith("/Users/") or t.startswith("/root/"):
-        if "ctrl+p" in t.lower() or "OpenCode" in t:
-            return True
-    return False
+    return t.startswith(("~/", "/Users/", "/root/")) and (
+        "ctrl+p" in t.lower() or "OpenCode" in t
+    )
 
 
 def parse_plain(text: str, tool: str = "plain") -> ParsedTurn:
@@ -88,12 +92,29 @@ def parse_opencode_1_18(text: str) -> ParsedTurn:
         if s.strip():
             body_lines.append(s.strip())
     body = "\n".join(body_lines).strip()
+    running_at = max((match.start() for match in RUNNING_RE.finditer(text)), default=-1)
+    status_at = -1
+    for match in STATUS_RE.finditer(text):
+        if not BUILD_RE.search(match.group(0)):
+            status_at = match.start()
+    if running_at > status_at:
+        phase = "running"
+    elif (status_at >= 0 and status_at > running_at) or matches:
+        phase = "idle"
+    else:
+        phase = "unknown"
+    completion_id = ""
+    if matches:
+        stable = f"{model}\0{elapsed}\0{body}"
+        completion_id = hashlib.sha256(stable.encode("utf-8")).hexdigest()[:20]
     return ParsedTurn(
         tool="opencode",
         parser="opencode@1.18",
         body=body,
         model=model,
         elapsed=elapsed,
+        phase=phase,
+        completion_id=completion_id,
     )
 
 
