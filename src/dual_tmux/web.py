@@ -164,6 +164,8 @@ def _tunnels() -> list[dict]:
                 "bullet": (data.get("bullet") or {}).get("slug") or "",
                 "trigger_model": (data.get("trigger") or {}).get("model") or "",
                 "bullet_model": (data.get("bullet") or {}).get("model") or "",
+                "trigger_client": (data.get("trigger") or {}).get("agent_client") or {},
+                "bullet_client": (data.get("bullet") or {}).get("agent_client") or {},
             }
         )
     rows.sort(key=lambda r: r["name"])
@@ -779,6 +781,9 @@ def tunnels_page(selected: str = "") -> str:
         <div class="btabs" id="btabs" style="margin-top:12px"></div>
         <div class="recent" id="recent" style="margin-top:8px"></div>
         <div class="sync" id="syncbox" style="margin-top:10px">选定隧道后显示会话同步</div>
+        <div class="sync" id="clientbox" style="margin-top:8px">
+          <span id="client-op">trigger client —</span> · <span id="client-run">bullet client —</span>
+        </div>
         <div class="models" id="models">
           <div class="field"><label>trigger 模型</label><input id="m-op" placeholder="模糊搜索 provider/id" autocomplete="off"><div class="mhits" id="mh-op"></div></div>
           <div class="field"><label>bullet 模型</label><input id="m-run" placeholder="模糊搜索 provider/id" autocomplete="off"><div class="mhits" id="mh-run"></div></div>
@@ -828,6 +833,8 @@ const hits = document.getElementById('hits');
 const q = document.getElementById('q');
 const tname = document.getElementById('tname');
 const meta = document.getElementById('meta');
+const clientOp = document.getElementById('client-op');
+const clientRun = document.getElementById('client-run');
 const logEl = document.getElementById('log');
 const box = document.getElementById('box');
 const opout = document.getElementById('opout');
@@ -971,12 +978,17 @@ function applyState(st) {{
     mop.value = row.trigger_model || '';
     mrun.value = row.bullet_model || '';
     meta.innerHTML = st.name+' · op=<code>'+row.op+'</code> · run=<code>'+row.run+'</code> · DST='+(row.dst?'yes':'no');
+    const cv=c=>c&&c.name?(c.name+(c.version?' '+c.version:'')+' · '+(c.location||'unknown')):'—';
+    clientOp.textContent='trigger client '+cv(row.trigger_client);
+    clientRun.textContent='bullet client '+cv(row.bullet_client);
   }} else {{
     mop.value = '';
     mrun.value = '';
     oplabel.textContent = 'op_*';
     runlabel.textContent = 'run_*';
     meta.textContent = st.name ? st.name : '未选隧道';
+    clientOp.textContent='trigger client —';
+    clientRun.textContent='bullet client —';
   }}
   setLamp(lampOp, st.waiting ? 'yellow' : st.finalOp);
   setLamp(lampRun, st.waiting ? 'yellow' : st.finalRun);
@@ -1530,6 +1542,8 @@ class Handler(BaseHTTPRequestHandler):
                 "run_parsed": parse_pane(run_text, parser_id_for_side(data.get("bullet"))).as_dict(),
                 "trigger_model": (data.get("trigger") or {}).get("model") or "",
                 "bullet_model": (data.get("bullet") or {}).get("model") or "",
+                "trigger_client": (data.get("trigger") or {}).get("agent_client") or {},
+                "bullet_client": (data.get("bullet") or {}).get("agent_client") or {},
                 "sync": _sync_info(data),
             }
             self._send(200, json.dumps(payload), "application/json; charset=utf-8")

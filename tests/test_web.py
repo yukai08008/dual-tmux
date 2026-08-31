@@ -52,7 +52,13 @@ def test_admin_tabs_and_search(tmp_path, monkeypatch):
     write_config(AppConfig(client="tm_box", server="tom7r", user="andy"))
     save(
         tunnels_dir() / "dt-msg.json",
-        {"name": "dt-msg", "op": "op_msg", "run": "run_msg", "trigger": {}, "bullet": {}},
+        {
+            "name": "dt-msg",
+            "op": "op_msg",
+            "run": "run_msg",
+            "trigger": {"agent_client": {"name": "codex", "version": "0.151.0", "location": "local"}},
+            "bullet": {"agent_client": {"name": "claude", "version": "2.1.191", "location": "docker"}},
+        },
     )
     dash = dashboard_page()
     assert "Dashboard" in dash
@@ -84,6 +90,10 @@ def test_admin_tabs_and_search(tmp_path, monkeypatch):
     assert "/api/models" in page
     assert "bindModelPicker" in page
     assert "会话同步" in page
+    assert "trigger client" in page
+    assert "bullet client" in page
+    assert "trigger_client" in page
+    assert "bullet_client" in page
     assert "syncbox" in page
     assert "localStorage" in page
     assert "restoreTabs" in page
@@ -102,8 +112,10 @@ def test_admin_tabs_and_search(tmp_path, monkeypatch):
     assert "j.op_auto === false" in page
     assert "btn-auto-op" in page
     assert "/api/trigger-auto" in page
-    names = [r["name"] for r in _tunnels()]
-    assert names == ["dt-msg"]
+    rows = _tunnels()
+    assert [r["name"] for r in rows] == ["dt-msg"]
+    assert rows[0]["trigger_client"]["version"] == "0.151.0"
+    assert rows[0]["bullet_client"]["location"] == "docker"
     skills = skills_page()
     assert "Skills" in skills
     assert "btn-import" in skills

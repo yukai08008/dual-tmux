@@ -195,7 +195,7 @@ dt send myapp '发给 bullet 的任务'
 
 `dt new` 不会创建 DST。`--oc` 可以不带 `--model`（用 harness 默认模型）。手工 `--oc` 之后必须 `dt freeze`。接续 DST 用 `dt resume`。
 
-每侧冻结后记下 `tool`（默认 `opencode`）、`model`、`session_id`。接续用 `opencode --auto -s <id>`，禁用 `-c`。
+每侧冻结后记下 `tool`、`model`、`session_id`，以及 `agent_client`（客户端名、版本、原始版本输出、可执行文件、local/ssh/docker 位置和采集时间）。支持识别 OpenCode、Codex 与 Claude Code；OpenCode 继续支持 session 接续，Codex/Claude 当前只记录客户端元数据，不伪造 session resume。远端 pane 只显示 ssh 时可用 `dt freeze --tool codex|claude` 明确指定。接续 OpenCode 用 `opencode --auto -s <id>`，禁用 `-c`。
 
 freeze 还会记下 **工作点**（`op_point` / `run_point`：kind、cwd、ssh、docker、resume_cmd）和 **时间**（`created_at`、`enter_at`、`work_at`、`freeze_at`、`resume_at`）。一侧失败不会丢掉另一侧。`dt inspect` 能看到这些。
 

@@ -75,11 +75,15 @@ def print_ls(rows: list[dict]) -> None:
 
 def _side_cell(info: dict) -> Text:
     tool = info.get("tool") or "opencode"
+    client = info.get("agent_client") or {}
+    version = client.get("version") or ""
     model = info.get("model") or "—"
     sid = info.get("session_id") or ""
     short = sid[:10] if sid else "—"
     text = Text()
     text.append(tool, style="cyan")
+    if version:
+        text.append(f"@{version}", style="blue")
     text.append(" ")
     text.append(model, style="magenta" if info.get("model") else "dim")
     text.append(" ")
@@ -135,12 +139,16 @@ def print_inspect(data: dict) -> None:
     sides = Table(border_style="dim", header_style="bold", expand=True)
     sides.add_column("")
     sides.add_column("tool")
+    sides.add_column("client version")
+    sides.add_column("location")
     sides.add_column("model")
     sides.add_column("session")
     sides.add_column("slug")
     sides.add_row(
         "[cyan]op / trigger[/]",
         blank(trigger.get("tool")),
+        blank((trigger.get("agent_client") or {}).get("version")),
+        blank((trigger.get("agent_client") or {}).get("location")),
         blank(trigger.get("model")),
         blank(trigger.get("session_id")),
         blank(trigger.get("slug")),
@@ -148,6 +156,8 @@ def print_inspect(data: dict) -> None:
     sides.add_row(
         "[magenta]run / bullet[/]",
         blank(bullet.get("tool")),
+        blank((bullet.get("agent_client") or {}).get("version")),
+        blank((bullet.get("agent_client") or {}).get("location")),
         blank(bullet.get("model")),
         blank(bullet.get("session_id")),
         blank(bullet.get("slug")),
