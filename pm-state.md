@@ -4,13 +4,13 @@
 
 ## 状态树
 
-### v0.08 (ACTIVE) — 本地/Hub 交互发布版
+### v0.08 (RELEASED) — 本地/Hub 交互发布版
 
-- **feature/v0.08-local-hub-ux** (MERGE_PENDING): CLI、双语文档与 Web 指南已完成；78 tests、构建、浏览器 DOM E2E 和真实 tom7r 同步通过，待 PR 合并与发布 `0.4.39`。
+- **feature/v0.08-local-hub-ux** (MERGED): PR #3 已合并；CLI、双语文档与 Web 指南已完成，发布包版本 `0.4.39`。
 
-### v0.07 (ACTIVE) — Local-first API 版
+### v0.07 (ARCHIVED) — Local-first API 版
 
-- **feature/v0.07-local-first-config** (CODE_COMPLETE): 纯本地配置、可选 Hub、merge-before-commit 迁移事务和本地运行路径已完成，被 v0.08 发布分支吸收。
+- **feature/v0.07-local-first-config** (MERGED): 纯本地配置、可选 Hub、merge-before-commit 迁移事务和本地运行路径已被 v0.08 / PR #3 吸收。
 
 ### v0.06 (RELEASED) — Web 发布版
 
@@ -28,7 +28,7 @@
 
 ## 当前焦点
 
-- v0.08 已通过本地封板门禁，下一步创建/合并 PR、发布 `v0.4.39` 并在本机执行真实 `dt upgrade`。
+- PR #3 已合并且远端 `main` SHA 已校验，下一步发布 `v0.4.39` 并在本机执行真实 `dt upgrade`。
 
 ## 待办
 
@@ -45,7 +45,8 @@
 - [x] 实现纯本地初始化、无网络 Hub helper 和本地 tunnel runtime
 - [x] 实现旧 Hub → 新 Hub → 配置落盘的无损迁移事务
 - [x] 完成 78 tests、构建、浏览器 E2E 和真实 tom7r 哈希验证
-- [ ] 创建/合并 v0.08 PR，发布并验证 `dt upgrade` 到 `0.4.39`
+- [x] 创建并合并 PR #3，校验远端 `main` SHA
+- [ ] 发布并验证 `dt upgrade` 到 `0.4.39`
 
 ## Git 权限模式
 
