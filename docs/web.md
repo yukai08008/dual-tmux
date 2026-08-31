@@ -67,11 +67,17 @@ Do **not** defer the pane UI. Do **not** start with a card board that only lists
   never creates a replacement session ID.
 - Other left tabs (Memory / Events / Doctor) are secondary. Lifecycle (freeze, resume, re) lives as a small bar on the tunnel page, **after** I/O works.
 
-## Later tabs (not v1)
+## Full control plane (v0.4.46)
 
-- Memory: shared + per-agent MEMORY.json, notes FTS
-- Events: `events.jsonl`
-- Doctor / lifecycle: freeze, resume, model, pull — still CLI-equivalent, not the reason to open the browser
+The tunnel page now covers the daily business control loop without a terminal:
+
+- create a local or Hub-backed tunnel and choose OpenCode, Codex, or Claude per side;
+- send/capture pane I/O, freeze selected sides, resume, replay the authoritative entry, and drop local panes;
+- push/pull Hub records, run a health probe, recover explicitly, and toggle conservative auto recovery;
+- switch local/Hub mode through the same merge-before-commit transaction as the CLI;
+- remove a tunnel only after typing its exact name.
+
+Capability data disables OpenCode-only model controls for Codex/Claude. GET polling remains read-only. Host-maintenance commands (`upgrade`, `hotfix`, cron installation) stay CLI-only because a local web page should not silently mutate its own software supply chain or host scheduler.
 
 ## Must not
 
