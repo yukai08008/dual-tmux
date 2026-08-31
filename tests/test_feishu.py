@@ -3,6 +3,8 @@ import pytest
 
 from dual_tmux.control import ControlResult
 from dual_tmux.feishu import (
+    AppRegistrationService,
+    CredentialVault,
     FeishuCommand,
     FeishuConfig,
     FeishuDispatcher,
@@ -222,3 +224,59 @@ def test_unbind_and_audit_do_not_log_message_body(dt_home):
     events = (dt_home / "events.jsonl").read_text()
     assert "TOP-SECRET-BODY" not in events
     assert "evt-secret" not in events
+
+
+class FakeRegistration:
+    def __init__(self):
+        self.polls = 0
+
+    def begin(self):
+        return {
+            "device_code": "DEVICE-SECRET",
+            "verification_uri_complete": "https://accounts.feishu.cn/device?user_code=abc",
+            "expires_in": 600,
+            "interval": 1,
+        }
+
+    def poll(self, device_code):
+        assert device_code == "DEVICE-SECRET"
+        self.polls += 1
+        if self.polls == 1:
+            return {"error": "authorization_pending"}
+        return {
+            "client_id": "cli_auto",
+            "client_secret": "APP-SECRET-NEVER-PLAIN",
+            "user_info": {"open_id": "ou_installer", "tenant_brand": "feishu"},
+        }
+
+
+def test_scan_registration_encrypts_generated_credentials(dt_home):
+    clock = [1000.0]
+    service = AppRegistrationService(
+        transport=FakeRegistration(), clock=lambda: clock[0]
+    )
+    started = service.begin()
+    assert started["status"] == "pending"
+    assert "DEVICE-SECRET" in (feishu_dir() / "registration.json").read_text()
+    assert service.poll() == {"status": "pending"}
+    clock[0] += 1
+    completed = service.poll()
+    assert completed["status"] == "installed"
+    installation = feishu_dir() / "installation.json"
+    key = feishu_dir() / "credential.key"
+    assert oct(installation.stat().st_mode & 0o777) == "0o600"
+    assert oct(key.stat().st_mode & 0o777) == "0o600"
+    assert "APP-SECRET-NEVER-PLAIN" not in installation.read_text()
+    assert CredentialVault().load()["app_secret"] == "APP-SECRET-NEVER-PLAIN"
+    assert list_bindings()[0].open_id == "ou_installer"
+
+
+def test_registration_expires_without_persisting_credentials(dt_home):
+    clock = [1000.0]
+    service = AppRegistrationService(
+        transport=FakeRegistration(), clock=lambda: clock[0]
+    )
+    service.begin()
+    clock[0] += 601
+    assert service.poll() == {"status": "expired"}
+    assert not (feishu_dir() / "installation.json").exists()

@@ -5,6 +5,8 @@ description = "Dual tmux tunnels: op_* line head + run_* workspace jump, 1:1 dt-
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "cryptography>=43.0",
+    "lark-oapi>=1.4.18",
     "rich>=13.0",
     "segno>=1.6",
 ]

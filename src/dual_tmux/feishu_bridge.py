@@ -162,6 +162,40 @@ def begin_hub_pairing(config: FeishuConfig | None = None, cfg: AppConfig | None 
     return {**started, "via": cfg.server}
 
 
+def publish_installation_to_hub(
+    cfg: AppConfig | None = None, identity: OperatorIdentity | None = None
+) -> str:
+    """Copy only encrypted credentials and hashed routes to the Hub."""
+    from . import hub
+    from .feishu import CredentialVault
+
+    cfg = cfg or load_config()
+    if not cfg.hub_enabled:
+        raise FeishuError("hub_required", "installation publishing requires Hub mode")
+    vault = CredentialVault()
+    if not vault.installation_path.is_file() or not vault.key_path.is_file():
+        raise FeishuError("not_installed", "no encrypted Feishu installation to publish")
+    remote = f"{hub.remote_root(cfg)}/feishu"
+    host = hub.SshTarget(cfg.server, cfg.ssh_port).dest
+    result = hub._run(
+        hub.ssh_argv(cfg)
+        + [f"mkdir -p {remote}/bridge/routes && chmod 700 {remote} {remote}/bridge"]
+    )
+    if result.returncode != 0:
+        raise SystemExit("[err] cannot prepare Hub Feishu directory")
+    hub._rsync(str(vault.key_path), f"{host}:{remote}/credential.key", cfg)
+    hub._rsync(str(vault.installation_path), f"{host}:{remote}/installation.json", cfg)
+    if identity and identity.ids():
+        with tempfile.TemporaryDirectory(prefix="dt-feishu-routes-") as raw:
+            store = BridgeStore(Path(raw) / "bridge")
+            store.register_routes(identity, cfg.client)
+            hub._rsync(
+                f"{store.root / 'routes'}/", f"{host}:{remote}/bridge/routes/", cfg
+            )
+    log.emit("feishu.installation.hub", host=host, client=cfg.client)
+    return f"{host}:{remote}"
+
+
 def _format_result(payload: dict) -> str:
     if payload.get("confirmation_required"):
         return (
@@ -220,6 +254,7 @@ def sync_client(cfg: AppConfig | None = None, dispatcher: FeishuDispatcher | Non
                 response = {
                     "event_id": str(item.get("event_id") or path.stem),
                     "message_id": str(item.get("message_id") or ""),
+                    "chat_id": str(item.get("chat_id") or ""),
                     "text": _format_result(result_payload),
                     "payload": result_payload,
                 }

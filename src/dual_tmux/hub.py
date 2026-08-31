@@ -244,7 +244,13 @@ def remove_remote(name: str, run: str = "", cfg: AppConfig | None = None) -> Non
         raise SystemExit("[err] hub rm failed")
 
 
-def _lock_remote(action: str, name: str, force: bool = False, cfg: AppConfig | None = None) -> tuple[str, str, int]:
+def _lock_remote(
+    action: str,
+    name: str,
+    force: bool = False,
+    cfg: AppConfig | None = None,
+    ttl: int = LOCK_TTL,
+) -> tuple[str, str, int]:
     cfg = cfg or load_config()
     script = r"""
 set -e
@@ -282,7 +288,7 @@ echo "OK $ME 0"
             remote_root(cfg),
             name,
             cfg.client,
-            str(LOCK_TTL),
+            str(ttl),
             action,
             "1" if force else "0",
         ],
@@ -358,6 +364,27 @@ def release(name: str) -> None:
         return
     _lock_remote("release", name)
     ev.emit("hub.release", name=name)
+
+
+FEISHU_LEASE_NAME = "__feishu_ws__"
+FEISHU_LEASE_TTL = 15
+
+
+def claim_feishu_lease(cfg: AppConfig | None = None) -> tuple[bool, str]:
+    """Renew the single-active Feishu connector lease without stealing it."""
+    cfg = cfg or load_config()
+    if not cfg.hub_enabled:
+        return True, cfg.client
+    kind, holder, _age = _lock_remote(
+        "claim", FEISHU_LEASE_NAME, cfg=cfg, ttl=FEISHU_LEASE_TTL
+    )
+    return kind == "OK", holder
+
+
+def release_feishu_lease(cfg: AppConfig | None = None) -> None:
+    cfg = cfg or load_config()
+    if cfg.hub_enabled:
+        _lock_remote("release", FEISHU_LEASE_NAME, cfg=cfg, ttl=FEISHU_LEASE_TTL)
 
 
 def drop_local(data: dict) -> list[str]:

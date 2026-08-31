@@ -22,6 +22,7 @@ from dual_tmux.feishu_bridge import (
     BridgeStore,
     _read_envelope,
     sync_client,
+    publish_installation_to_hub,
 )
 
 
@@ -208,3 +209,38 @@ def test_sync_client_processes_command_once_and_writes_response(dt_home, monkeyp
     assert second["commands"] == 0
     response = next((remote_base / "responses" / "tm_laptop").glob("*.json"))
     assert _read_envelope(response)["message_id"] == "om_1"
+
+
+def test_publish_installation_sends_only_encrypted_bundle_and_hashed_route(
+    dt_home, monkeypatch, tmp_path
+):
+    from dual_tmux import hub
+    from dual_tmux.feishu import CredentialVault
+
+    vault = CredentialVault()
+    vault.save("cli_auto", "TOP-SECRET", {"open_id": "ou_secret"})
+    copied = []
+
+    class Result:
+        returncode = 0
+        stderr = stdout = ""
+
+    monkeypatch.setattr(hub, "_run", lambda *args, **kwargs: Result())
+    monkeypatch.setattr(hub, "remote_root", lambda cfg: "/remote")
+    def capture(src, dest, cfg, **kwargs):
+        source = __import__("pathlib").Path(str(src).rstrip("/"))
+        content = ""
+        if source.is_dir():
+            content = "".join(path.read_text() for path in source.glob("*.json"))
+        elif source.is_file():
+            content = source.read_text(errors="replace")
+        copied.append((str(src), str(dest), content))
+
+    monkeypatch.setattr(hub, "_rsync", capture)
+    cfg = AppConfig(client="tm_laptop", server="tom7r", user="andy")
+    publish_installation_to_hub(cfg, OperatorIdentity(open_id="ou_secret"))
+    assert any(dest.endswith("/credential.key") for _, dest, _ in copied)
+    assert any(dest.endswith("/installation.json") for _, dest, _ in copied)
+    route_text = next(content for _, dest, content in copied if dest.endswith("/bridge/routes/"))
+    assert "ou_secret" not in route_text
+    assert "TOP-SECRET" not in vault.installation_path.read_text()

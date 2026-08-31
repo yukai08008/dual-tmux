@@ -6,7 +6,6 @@ COPY src ./src
 RUN python -m pip install --no-cache-dir .
 
 ENV DUAL_TMUX_HOME=/data
-EXPOSE 8790
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8790/health', timeout=3)"
-ENTRYPOINT ["dt", "feishu", "bridge", "--host", "0.0.0.0", "--port", "8790"]
+  CMD dt daemon --status >/dev/null || exit 1
+ENTRYPOINT ["dt", "daemon"]

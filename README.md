@@ -201,9 +201,7 @@ The local Web API exposes `GET /api/capabilities` and `GET /api/operations` for 
 
 The v0.4.46 Web control plane covers daily tunnel work end to end: local/Hub tunnel creation, per-side client selection, pane I/O, freeze/resume, authoritative-entry reconnect, drop/remove, Hub push/pull, health probe/recovery, auto-recovery settings, and lossless local/Hub mode switching. Destructive actions require explicit confirmation. Host maintenance (`upgrade`, `hotfix`, cron installation) remains CLI-only and is documented in the Web guide.
 
-v0.4.47 adds the secure Feishu binding API that will back the v0.4.48 QR-code UI and tom7r event bridge. OAuth access tokens are never persisted; App Secret comes only from an environment variable or a strict mode-`0600` local file. Pairing state, event IDs, and destructive confirmation tokens expire and are one-time. See [Feishu control](docs/feishu.md). This API version does not yet route Feishu cloud events to a Client on `127.0.0.1`.
-
-v0.4.48 completes that path: the **Feishu** Web page configures the non-secret App contract, generates a short-lived QR code, shows bindings, synchronizes the bridge, and unbinds operators. A tom7r mailbox bridge receives OAuth callbacks and verified Feishu message events, keeps commands while a Client is offline, and lets `dt tick` execute them locally through `ControlService`. The local Web server remains bound to `127.0.0.1`; it is never exposed to Feishu. Production rollout still requires an enterprise Feishu App, HTTPS callback routes, and a real credentialed E2E.
+v0.4.48 uses Feishu's official scan-to-create Device Registration flow. The user does not provide an App ID, App Secret, verification token, or public callback: Web shows a one-time QR, Feishu creates a PersonalAgent, and dual-tmux encrypts the generated credentials automatically. `dt daemon` owns the outbound WebSocket connection independently from `dt web`, restores it after restart, and supervises reconnects. See [Feishu scan-to-create](docs/feishu.md).
 
 ## Default agent: OpenCode
 

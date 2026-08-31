@@ -1,45 +1,53 @@
 version: v0.4.48
 parent_final: v0.4.47
-title: 飞书扫码 Web 与 tom7r 事件桥
+title: 飞书扫码即用与常驻长连接
 type: web
 prd: dev_plans/v0.4.47-v0.4.48/PRD.md
 test_cases: dev_plans/v0.4.47-v0.4.48/TEST_CASES.md
 invariants:
-  - "secret/token 不进入 Hub、Git、tunnel 或审计日志"
-  - "Hub bridge 只路由，Client ControlService 执行"
+  - "用户无需提供 App ID/App Secret/callback"
+  - "secret/token 仅以 AEAD 密文落盘，不进入 Web、Git、tunnel 或审计日志"
+  - "dt web 不持有 WS 生命周期，daemon 独立常驻"
+  - "local/Hub 连接租约单活，ControlService 执行"
   - "运行时数据不在 git 追踪中"
   - "前端 e2e 覆盖新功能"
 deliverables:
+  - module: src/dual_tmux/feishu.py
+    change: Device Registration、自动主密钥和加密 installation
+  - module: src/dual_tmux/daemon.py
+    change: 常驻服务、Connector Manager、状态与退避重连
   - module: src/dual_tmux/feishu_bridge.py
-    change: 原子 mailbox、Hub transport、bridge HTTP、tick 消费
+    change: Hub WS 所有权租约、原子 mailbox 与离线 Client 路由
   - module: src/dual_tmux/web.py
     change: 飞书配置、QR、状态、解绑和同步页面/API
   - module: src/dual_tmux/cli.py
     change: bridge serve/sync 与 tick 集成
 feature_branches:
-  - name: feature/v0.4.48-feishu-web-bridge
-    title: 飞书 Web 与事件桥
+  - name: feature/v0.4.48-feishu-scan-ws
+    title: 飞书扫码即用与常驻 WS
     deps: [v0.4.47]
-    files: [src/dual_tmux/feishu_bridge.py, src/dual_tmux/web.py, src/dual_tmux/cli.py]
+    files: [src/dual_tmux/feishu.py, src/dual_tmux/daemon.py, src/dual_tmux/feishu_bridge.py, src/dual_tmux/web.py, src/dual_tmux/cli.py]
     acceptance:
-      - "W-1 Web 配置不接收 secret 本体"
-      - "W-2 Web 生成可扫码 QR 并展示 TTL/状态"
-      - "W-3 callback 和命令经 tom7r inbox/outbox 可靠路由"
+      - "W-1 用户无需 App ID/App Secret/callback 即可发起绑定"
+      - "W-2 Device Registration 生成可扫码 QR，成功后凭据加密落盘"
+      - "W-3 daemon 独立于 Web 持有 WS，启动恢复、解绑停止、断线退避"
       - "W-4 Client 离线/重复拉取无重复执行"
-      - "W-5 绑定路由只发布 identity/state 摘要"
-      - "W-6 URL verification 与 verification token 校验正确"
+      - "W-5 local/Hub 连接租约单活且切换无害"
+      - "W-6 消息经官方 WS 接收并通过 ControlService 回包"
       - "W-7 local/Hub 切换不损伤本地绑定/tunnel"
       - "W-8 应用内 Browser E2E 通过"
-    estimated_loc: ~1000
+    estimated_loc: ~1600
 acceptance_count: 8
-total_estimated_loc: ~1000
+total_estimated_loc: ~1600
 risk_register:
-  - {id: R1, risk: 伪造事件, mitigation: token/TLS/来源策略, severity: high}
+  - {id: R1, risk: 凭据泄露, mitigation: 自动主密钥、AEAD、0600、边界测试, severity: high}
   - {id: R2, risk: 重复执行, mitigation: 原子邮箱与 event replay guard, severity: high}
   - {id: R3, risk: Client 离线, mitigation: 持久 inbox 与重试, severity: high}
+  - {id: R4, risk: Web 退出导致 WS 离线, mitigation: 独立 daemon 和服务管理器, severity: high}
+  - {id: R5, risk: local/Hub 双活, mitigation: 租约 fencing 与 event 去重, severity: high}
 git_workflow:
   branch_creation: from merged v0.4.47 main
-  feature_order: bridge, web, e2e
+  feature_order: registration, credentials, daemon, lease, web, e2e
   merge_policy: --no-ff via PR
   before_merge_checks:
     - "pytest tests/ all PASS"
@@ -48,9 +56,9 @@ git_workflow:
     - "git ls-files data/ 返回空"
   final_tag: v0.4.48
 deployment_checklist:
-  - "bridge /health 返回 200"
-  - "隔离 mailbox callback/command 往返"
-  - "Web QR、状态、解绑手测"
+  - "daemon status 显示 WS owner/state/last message"
+  - "Web QR、扫码状态、解绑手测"
+  - "关闭 Web 后 WS 继续存活"
   - "真实 Client 配置/tunnel 哈希不变"
   - "GitHub Release v0.4.48"
 signature: Agent-PM-0.4.48
