@@ -19,6 +19,7 @@
 | W-20~W-22 | Web 页面/API/QR/same-origin | PASS | pytest |
 | W-23/E-30 | Browser 配置→QR→status→local sync | PASS | 无 console error；QR SVG data URI；TTL 600s |
 | E-31 | command inbox→dispatch→outbox | PASS | 重复同步不重复执行 |
+| E-31a | tom7r Python 3.12 bridge 容器 build/health | PASS | loopback `127.0.0.1:18790` 返回 `configured=false`；测试容器、镜像和临时目录已清理 |
 | E-32 | 真实 Client 数据无损 | PASS | 本版验证未写真实 `~/.dual-tmux`；tom7r 只读探测 |
 | E-33 | 企业 App 扫码与飞书消息回包 | PENDING | 缺 App ID/Secret/verification token 与 HTTPS callback 配置 |
 
