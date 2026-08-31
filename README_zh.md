@@ -157,6 +157,32 @@ trigger oc 从 `ops/op_*` 启动，必读 `AGENTS.md`，里面指向包内的 `d
 
 `client` 是机器源名 `tm_*`。`user` 是人。多人共用一台 Server 时每人一个 `user`：本地仍是 `~/sessions`，远端是 `~/<user>/sessions`。
 
+## Agent 客户端与控制架构
+
+dual-tmux 能识别 trigger 和 bullet pane 中的 OpenCode、Codex 与 Claude Code。客户端支持采用能力模型：仅仅能检测可执行文件和版本，不代表该客户端已经能恢复会话。
+
+| 能力 | OpenCode | Codex | Claude Code |
+|---|---:|---:|---:|
+| 检测可执行文件和版本 | 是 | 是 | 是 |
+| 采集本地 / SSH / Docker 元数据 | 是 | 是 | 是 |
+| 通过 tmux pane 发送文本 | 是 | 是 | 是 |
+| `freeze` 时记录客户端元数据 | 是 | 是 | 是 |
+| 启动并冻结可恢复的原生会话 | 是 | 尚未 | 尚未 |
+| 恢复冻结的原生会话 | 是 | 尚未 | 尚未 |
+| 由 dual-tmux 切换模型 | 是 | 尚未 | 尚未 |
+
+已经迁移的 CLI 与 Web 操作共用同一控制合同：
+
+```text
+CLI / Web / 未来飞书
+          ↓
+    ControlService
+          ↓
+Agent 能力注册表 + tunnel/tmux 操作
+```
+
+本地 Web API 提供 `GET /api/capabilities` 和 `GET /api/operations`，供调用方查询能力与操作目录。Codex/Claude 的原生会话生命周期将在后续适配器迭代中补齐；当前 `freeze` 会如实记录客户端元数据，不伪造 session ID。
+
 ## 默认 agent：OpenCode
 
 `op_*`（trigger）和 `run_*`（bullet）默认给 **[OpenCode](https://opencode.ai)** 会话用。

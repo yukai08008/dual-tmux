@@ -157,6 +157,32 @@ If you also persist tmux / OpenCode (optional, separate tools), those trees are 
 
 `client` is the `tm_*` machine source. `user` is the person. Several laptops can share one Server if each `user` is unique: local stays `~/sessions`, remote is `~/<user>/sessions`.
 
+## Agent clients and control architecture
+
+dual-tmux recognizes OpenCode, Codex, and Claude Code on both trigger and bullet panes. Client support is capability-based: a client is never presented as resumable merely because its executable and version can be detected.
+
+| Capability | OpenCode | Codex | Claude Code |
+|---|---:|---:|---:|
+| Detect executable and version | yes | yes | yes |
+| Local / SSH / Docker metadata collection | yes | yes | yes |
+| Send text through the tmux pane | yes | yes | yes |
+| Record client metadata during `freeze` | yes | yes | yes |
+| Start and freeze a resumable native session | yes | not yet | not yet |
+| Resume a frozen native session | yes | not yet | not yet |
+| Switch model through dual-tmux | yes | not yet | not yet |
+
+The same control contract now backs migrated CLI and Web operations:
+
+```text
+CLI / Web / future Feishu
+          ↓
+    ControlService
+          ↓
+Agent capability registry + tunnel/tmux operations
+```
+
+The local Web API exposes `GET /api/capabilities` and `GET /api/operations` for capability-aware clients. Codex and Claude native session lifecycle support is planned as an adapter expansion; current `freeze` records truthful client metadata without fabricating session IDs.
+
 ## Default agent: OpenCode
 
 The intended occupants of `op_*` (trigger) and `run_*` (bullet) are **[OpenCode](https://opencode.ai)** sessions.
