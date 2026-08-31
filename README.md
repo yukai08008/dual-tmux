@@ -67,10 +67,10 @@ This is a **third tree**. It does not collide with tmux persist or OpenCode pers
 | OpenCode persist | `~/sessions/opencode/tm_*/` | conversation JSON |
 | **dt hub** | Server `~/<user>/dual-tmux/` | DT/DST bindings only |
 
-Hub push is **automatic**: `new` / `freeze` / `bind` / `enter` / `work` / `resume` rsync `tunnels/` + `entries/` in the background. `dt push` is only if you want it now (blocks until rsync finishes). Never copies `config.toml`, `ops/`, or `events.jsonl`.
+Hub sync is **automatic**: `new` / `freeze` / `bind` / `enter` / `work` / `resume` push in the background; the minute `dt tick` merges local and hub `tunnels/` + `entries/` by `updated_at`, so tunnels created on another Client appear automatically. Use `dt push` / `dt pull` for an immediate one-way sync. Never copies `config.toml`, `ops/`, or `events.jsonl`.
 
 ```sh
-# other machine — no extra dt push on this laptop
+# other machine — tick discovers it automatically; pull to continue now
 dt pull && dt resume dt-msg
 ```
 
