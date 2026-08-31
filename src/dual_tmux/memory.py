@@ -115,6 +115,30 @@ def get_memory(name: str | None = None) -> dict[str, Any]:
     return _read_json(path)
 
 
+def peek_memory(name: str | None = None) -> dict[str, Any]:
+    """Read memory without creating files; suitable for GET/Web polling."""
+    path = agent_memory_path(name) if name else global_memory_path()
+    return _read_json(path)
+
+
+def peek_notes(name: str, *, limit: int = 40) -> list[dict[str, Any]]:
+    """Read existing notes without initializing an agent database."""
+    path = agent_sqlite_path(name)
+    if not path.is_file():
+        return []
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            "SELECT id, day, kind, title, body, created_at FROM note "
+            "ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return _rows(rows)
+    finally:
+        conn.close()
+
+
 def put_fact(key: str, value: Any, name: str | None = None) -> dict[str, Any]:
     key = key.strip()
     if not key:
@@ -139,7 +163,9 @@ def connect(path: Path) -> sqlite3.Connection:
     return conn
 
 
-def add_note(name: str, body: str, *, title: str = "", kind: str = "note", day: str = "") -> dict[str, Any]:
+def add_note(
+    name: str, body: str, *, title: str = "", kind: str = "note", day: str = ""
+) -> dict[str, Any]:
     body = body.strip()
     if not body:
         raise SystemExit("[err] note body required")
