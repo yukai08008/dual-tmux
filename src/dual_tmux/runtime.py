@@ -11,7 +11,14 @@ def build_cmd(host: str, container: str, directory: str, port: int = 22) -> str:
             return f"cd {shlex.quote(directory)}"
         return ""
     target = SshTarget(host, port)
-    prefix = " ".join(["ssh", "-t", *target.extra_args, target.dest])
+    prefix = " ".join(
+        [
+            "ssh", "-t",
+            "-o", "ServerAliveInterval=15",
+            "-o", "ServerAliveCountMax=3",
+            *target.extra_args, target.dest,
+        ]
+    )
     if container:
         inner = f"cd {directory} && exec bash"
         return f"{prefix} \"docker exec -it {container} bash -lc '{inner}'\""

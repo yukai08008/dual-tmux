@@ -432,6 +432,10 @@ def _ssh_argv(data: dict) -> list[str]:
         "BatchMode=yes",
         "-o",
         "ConnectTimeout=8",
+        "-o",
+        "ServerAliveInterval=15",
+        "-o",
+        "ServerAliveCountMax=3",
         *target.extra_args,
         target.dest,
     ]
@@ -758,6 +762,11 @@ def _apply_resume_legacy(name: str | None, force: bool = False) -> dict:
                 f"[err] bullet jump did not stay connected (cmd={landed or '—'}); "
                 "resume stopped before sending the session command"
             )
+    if remote_bullet:
+        from .recovery import ensure_remote_session
+
+        if ensure_remote_session(data):
+            ui.ok("imported remote bullet persist JSON")
     if oc_ops.ensure_local(_side(data, "trigger")):
         ui.ok("imported trigger persist JSON")
     if not remote_bullet and oc_ops.ensure_local(_side(data, "bullet"), role="bullet"):
@@ -937,6 +946,8 @@ def cmd_config(args: argparse.Namespace) -> None:
 
 
 def cmd_tick(_: argparse.Namespace) -> None:
+    from . import recovery
+
     cfg = require_config()
     hub.enforce_local()
     n = 0
@@ -946,7 +957,9 @@ def cmd_tick(_: argparse.Namespace) -> None:
         live = tmux_ops.has_session(data.get("op") or "") or tmux_ops.has_session(
             data.get("run") or ""
         )
-        if not live:
+        if not live and not data.get("auto_recover"):
+            continue
+        if not cfg.hub_enabled and (data.get("runtime") or {}).get("server"):
             continue
         try:
             holder, _age = hub.read_lock(name)
@@ -960,9 +973,56 @@ def cmd_tick(_: argparse.Namespace) -> None:
             hub.claim(name)
         except SystemExit:
             continue
+        recovery.observe(data)
         n += 1
     hub.sync_best_effort(wait=True)
     ui.ok(f"tick  {n} live DT  log={activity.activity_path()}")
+
+
+def cmd_health(args: argparse.Namespace) -> None:
+    from . import recovery
+
+    cfg = require_config()
+    records = [_resolve(args.name)] if args.name else [load(p) for p in iter_dt_files()]
+    rows = []
+    for data in records:
+        if not cfg.hub_enabled and (data.get("runtime") or {}).get("server"):
+            rows.append(recovery.read_state(data.get("name") or ""))
+        else:
+            rows.append(recovery.observe(data, auto=False))
+    payload: object = rows[0] if args.name else rows
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+    for row in rows:
+        ui.info(
+            f"{row.get('name')}  {row.get('status')}  "
+            f"failures={row.get('last_error') or '—'}"
+        )
+
+
+def cmd_recover(args: argparse.Namespace) -> None:
+    from . import recovery
+
+    data = _resolve(args.name)
+    name = data["name"]
+    if args.enable:
+        recovery.set_enabled(name, True)
+        ui.ok(f"auto recovery enabled  {name}")
+    elif args.disable:
+        recovery.set_enabled(name, False)
+        ui.ok(f"auto recovery disabled  {name}")
+    elif args.now:
+        result = recovery.recover_now(data, force=args.force)
+        if not result.get("healthy"):
+            raise SystemExit(
+                f"[err] recovery verification failed: "
+                f"{','.join(result.get('failures') or [])}"
+            )
+        recovery.observe(data, auto=False, prober=lambda _: result)
+        ui.ok(f"recovered  {name}")
+    else:
+        print(json.dumps(recovery.read_state(name), ensure_ascii=False, indent=2))
 
 
 def cmd_drop(args: argparse.Namespace) -> None:
@@ -1405,6 +1465,19 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser(
         "tick", help="sample pane fingerprints; renew lock; push activity.log"
     )
+    p_health = sub.add_parser("health", help="probe tunnel health; Web reads its cache")
+    p_health.add_argument("name", nargs="?", help="all tunnels when omitted")
+    p_health.add_argument("--json", action="store_true")
+    p_recover = sub.add_parser("recover", help="manage conservative tunnel recovery")
+    p_recover.add_argument("name")
+    recover_mode = p_recover.add_mutually_exclusive_group()
+    recover_mode.add_argument("--enable", action="store_true")
+    recover_mode.add_argument("--disable", action="store_true")
+    recover_mode.add_argument("--status", action="store_true")
+    recover_mode.add_argument("--now", action="store_true")
+    p_recover.add_argument(
+        "--force", action="store_true", help="steal hub ownership for --now"
+    )
     p_cron = sub.add_parser("cron", help="install/remove the minute dt tick crontab")
     p_cron.add_argument("--install", action="store_true", default=True)
     p_cron.add_argument("--remove", action="store_true")
@@ -1508,6 +1581,8 @@ def main() -> None:
         "inspect",
         "log",
         "tick",
+        "health",
+        "recover",
         "cron",
         "mem",
         "note",
@@ -1541,6 +1616,8 @@ def main() -> None:
         "push": cmd_push,
         "pull": cmd_pull,
         "tick": cmd_tick,
+        "health": cmd_health,
+        "recover": cmd_recover,
         "cron": cmd_cron,
         "log": cmd_log,
         "doctor": cmd_doctor,

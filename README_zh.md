@@ -25,6 +25,22 @@ Client（本机）
 
 纯本地模式是完整可用的基础模式：不配置服务器也可以创建、进入、工作、freeze、resume 和管理本地隧道。Hub 模式在此基础上增加跨 Client 发现、同步、接管保护和远端 persist 集成；它不是基本使用的前置条件。
 
+## 健康检测与断线恢复
+
+`dt tick` 会分层记录 tmux、SSH transport、已登记的容器与目录、Agent 进程和 OpenCode session 健康状态。画面长期不变不会被当作故障：仅凭 pane 静止无法区分正常空闲与 freeze，因而不会触发重启。
+
+自动恢复默认按隧道关闭，需要显式开启：
+
+```sh
+dt health myapp --json          # 立即探测并更新本地缓存
+dt recover myapp --enable       # 仅为这条隧道开启
+dt recover myapp --status       # 读取缓存状态
+dt recover myapp --now          # 取得 Hub 所有权后立即恢复
+dt recover myapp --disable
+```
+
+连续三次结构性失败才自动恢复；失败后依次退避 60、120、300、600、1800 秒，五次失败进入 `attention` 并熔断。SSH runtime 使用 `15 秒 × 3 次` keepalive，让死连接退出并把控制权交还本机 tmux。恢复不会猜容器名、清空 session id、删除 persist JSON 或改写最后健康工作点。Web 和 `GET /api/health` 只读缓存，浏览器请求绝不会直接触发 SSH probe。
+
 用户可以随时切换模式：
 
 ```sh
