@@ -185,6 +185,21 @@ def publish_installation_to_hub(
         raise SystemExit("[err] cannot prepare Hub Feishu directory")
     hub._rsync(str(vault.key_path), f"{host}:{remote}/credential.key", cfg)
     hub._rsync(str(vault.installation_path), f"{host}:{remote}/installation.json", cfg)
+    result = hub._run(
+        hub.ssh_argv(cfg)
+        + [
+            (
+                f"chmod 600 {remote}/credential.key {remote}/installation.json && "
+                f"chown $(id -u):$(id -g) {remote}/credential.key "
+                f"{remote}/installation.json"
+            )
+        ]
+    )
+    if result.returncode != 0:
+        raise FeishuError(
+            "hub_installation_permissions",
+            "Hub did not confirm secure credential ownership",
+        )
     if identity and identity.ids():
         with tempfile.TemporaryDirectory(prefix="dt-feishu-routes-") as raw:
             store = BridgeStore(Path(raw) / "bridge")
