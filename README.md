@@ -2,21 +2,47 @@
 
 [中文文档](README_zh.md) · [Persist sync](docs/persist-sync.md) · [Memory](docs/memory.md)
 
-Dual tmux tunnels. Physical sessions stay ordinary tmux; this CLI names them and binds them 1:1.
+Dual tmux tunnels. Physical sessions stay ordinary tmux; this CLI names them and binds them 1:1. dual-tmux has two foundational operating modes: **local-only** and **Hub sync**.
 
 ```
 Client (this machine)
   op_<name>          trigger agent  (OpenCode by default)
        │  dt-<name>
-  run_<name>         ssh / docker exec → Server workspace
+  run_<name>         local workspace, or ssh / docker exec → Server workspace
                           └─ bullet agent  (OpenCode by default)
 ```
 
-**Client** is the laptop you sit at. **Server** is the ssh host where work happens (optional container). dual-tmux never stores keys.
+**Client** is the machine you sit at. **Server / Hub** is optional: when configured, it is both the default SSH work target for new tunnels and the synchronization center for tunnel records. dual-tmux never stores keys.
+
+## Foundational operating modes
+
+This is a persistent project model, not only a first-install choice. Every Client is always in exactly one of these modes:
+
+| Mode | Required config | New tunnel runtime | Tunnel records | Network and locking |
+|---|---|---|---|---|
+| **Local-only** | `client` | Local workspace; current directory by default | Only `~/.dual-tmux/` on this Client | No SSH, rsync, Hub push/pull, or distributed lock |
+| **Hub sync** | `client` + `server` + `user` | `server`, `/workspace` by default; per-tunnel overrides still work | Local copy plus `~/<user>/dual-tmux/` on the Hub | Automatic merge-sync and one-Client-at-a-time Hub lock |
+
+Local-only mode is fully functional: it can create, enter, work, freeze, resume, and manage local tunnels without a server. Hub mode adds cross-Client discovery, synchronization, takeover protection, and remote persist integration; it is not required for basic operation.
+
+Mode changes are supported at any time:
+
+```sh
+# Start local-only
+dt config --init --local --client tm_laptop
+
+# Attach the first Hub, or replace the current Hub
+dt config --server tom7r --user andy
+
+# Merge once more, then return to local-only
+dt config --local
+```
+
+The transition is merge-before-commit: dual-tmux merges the old Hub first when one exists, merges the candidate Hub when attaching or replacing, and atomically writes `config.toml` only after all required syncs succeed. A failed SSH/rsync leaves the previous mode and config unchanged. Switching mode does not rewrite existing tunnels' `runtime`; it only changes synchronization behavior and the defaults for tunnels created later. Deletions are never propagated during a merge.
 
 ## First start
 
-Install puts `dt` on PATH **and** a minute crontab (`dt tick`). Start **local-only** with one Client name, or configure a synchronization Hub. Local tunnels default to the current directory; Hub-mode jumps default to `/workspace` until `dt new --dir` overrides them.
+Install puts `dt` on PATH **and** a minute crontab (`dt tick`). Choose either foundational mode. Local tunnels default to the current directory; Hub-mode jumps default to `/workspace` until `dt new --dir` overrides them.
 
 | Field | What you type | What this CLI does **not** do |
 |-------|----------------|-------------------------------|
@@ -33,16 +59,14 @@ ssh myserver          # must already work
 dt doctor
 ```
 
-Attach, replace, or detach the Hub later:
+Local-only `~/.dual-tmux/config.toml`:
 
-```sh
-dt config --server tom7r --user andy
-dt config --local
+```toml
+client = "tm_laptop"
+workspace = "/path/to/my-project"
 ```
 
-Switches merge before committing config: the old Hub is merged first when present, then the candidate Hub, and only then is `config.toml` atomically replaced. A failed SSH/rsync leaves the old config untouched. Sync does not propagate deletions.
-
-`~/.dual-tmux/config.toml`:
+Hub-mode `~/.dual-tmux/config.toml`:
 
 ```toml
 client = "tm_laptop"   # this machine's source name
@@ -69,7 +93,7 @@ This CLI only owns `~/.dual-tmux/` (`DUAL_TMUX_HOME` overrides). It does not wri
 └── ops/op_<name>/AGENTS.md   # launch dir for trigger OpenCode
 ```
 
-## Another Client (continue a DST)
+## Another Client in Hub mode (continue a DST)
 
 This is a **third tree**. It does not collide with tmux persist or OpenCode persist.
 

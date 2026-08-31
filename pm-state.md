@@ -7,6 +7,7 @@
 ### v0.08 (RELEASED) — 本地/Hub 交互发布版
 
 - **feature/v0.08-local-hub-ux** (MERGED): PR #3 已合并；CLI、双语文档与 Web 指南已完成，发布包版本 `0.4.39`。
+- **docs/foundational-operating-modes** (MERGED): 已将纯本地模式与 Hub 同步模式提升为 README 顶层基础运行模型，补充模式对照、数据边界、切换命令与无损不变量。
 
 ### v0.07 (ARCHIVED) — Local-first API 版
 
