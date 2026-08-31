@@ -48,12 +48,16 @@ def _is_client_disconnect(exc: BaseException | None) -> bool:
     ) or (isinstance(exc, OSError) and exc.errno in _CLIENT_DISCONNECT_ERRNOS)
 
 
-def _opencode_auto(text: str) -> bool:
-    """Return whether the latest captured OpenCode Build footer is in auto mode."""
+def _opencode_auto(text: str) -> bool | None:
+    """Return the input mode without mistaking a running status for manual mode."""
     matches = list(
-        re.finditer(r"\bBuild(?P<auto>\s+auto)?\s*[·•]", text or "", re.IGNORECASE)
+        re.finditer(r"\bBuild(?P<auto>\s+auto)?\s*[·•][^\n]*", text or "", re.IGNORECASE)
     )
-    return bool(matches and matches[-1].group("auto"))
+    running_at = (text or "").lower().rfind("esc interrupt")
+    if running_at >= 0:
+        before = [match for match in matches if match.start() < running_at]
+        matches = before[:-1] if before else []
+    return bool(matches[-1].group("auto")) if matches else None
 
 
 def _web_state_path() -> Path:
@@ -101,6 +105,21 @@ def _clean_web_state(data: object) -> dict:
             visits = int(raw.get("visits") or 0)
         except (TypeError, ValueError):
             visits = 0
+        pending_raw = raw.get("pending") if isinstance(raw.get("pending"), dict) else {}
+        pending = None
+        pending_id = str(pending_raw.get("id") or "")[:80]
+        if pending_id:
+            status = str(pending_raw.get("status") or "pending")[:16]
+            if status not in {"pending", "running", "attention"}:
+                status = "pending"
+            pending = {
+                "id": pending_id,
+                "status": status,
+                "startedAt": str(pending_raw.get("startedAt") or "")[:40],
+                "baselineCompletion": str(
+                    pending_raw.get("baselineCompletion") or ""
+                )[:80],
+            }
         history[name] = {
             "name": name,
             "firstVisitedAt": str(raw.get("firstVisitedAt") or "")[:40],
@@ -108,6 +127,8 @@ def _clean_web_state(data: object) -> dict:
             "visits": max(0, min(visits, 1_000_000)),
             "finalOp": str(raw.get("finalOp") or "gray")[:12],
             "finalRun": str(raw.get("finalRun") or "gray")[:12],
+            "lastCompletion": str(raw.get("lastCompletion") or "")[:80],
+            "pending": pending,
             "thread": thread,
             "log": log,
         }
@@ -1054,7 +1075,7 @@ const threadEl = document.getElementById('thread');
 let chosen = {json.dumps(selected)};
 const LOG_MAX = 200;
 const THREAD_MAX = 60;
-const WAIT_MAX_MS = 90000;
+const WAIT_WARN_MS = 90000;
 const TABS_KEY = 'dual-tmux:web-state:v1';
 let tabSeq = 1;
 const tabs = [];
@@ -1080,7 +1101,8 @@ function emptyState(name) {{
     id: tabSeq++,
     name: name || '',
     lastOp: '', lastRun: '', lastSent: 0, waiting: false, pollQuiet: 0,
-    opAtSend: '', lastAsk: '', lastPollKey: '', waitStartedAt: 0,
+    opAtSend: '', lastAsk: '', lastPollKey: '', waitStartedAt: 0, waitWarned: false,
+    completionAtSend: '', lastCompletion: '', pending: null,
     finalOp: 'gray', finalRun: 'gray',
     resumeTriedAt: 0,
     thread: [], log: [],
@@ -1093,6 +1115,11 @@ function historyState(name) {{
 function stateFromHistory(name) {{
   const st=emptyState(name), item=historyState(name);
   st.finalOp=item.finalOp||'gray'; st.finalRun=item.finalRun||'gray';
+  st.lastCompletion=item.lastCompletion||'';
+  st.pending=item.pending&&item.pending.id?{{...item.pending}}:null;
+  st.waiting=!!st.pending;
+  st.waitStartedAt=st.pending?Date.parse(st.pending.startedAt||'')||Date.now():0;
+  st.completionAtSend=st.pending?st.pending.baselineCompletion||'':'';
   st.thread=Array.isArray(item.thread)?item.thread.slice(-THREAD_MAX):[];
   st.log=Array.isArray(item.log)?item.log.slice(-LOG_MAX):[];
   return st;
@@ -1101,6 +1128,8 @@ function statePayload() {{
   tabs.filter(st=>st.name).forEach(st => {{
     const item=historyState(st.name);
     item.finalOp=st.finalOp||'gray'; item.finalRun=st.finalRun||'gray';
+    item.lastCompletion=st.lastCompletion||'';
+    item.pending=st.pending?{{...st.pending}}:null;
     item.thread=(st.thread||[]).slice(-THREAD_MAX).map(x=>({{...x,text:String(x.text||'').slice(0,8000)}}));
     item.log=(st.log||[]).slice(-100).map(x=>({{...x,text:String(x.text||'').slice(0,1000)}}));
   }});
@@ -1118,6 +1147,15 @@ function saveTabs() {{
       if (r.ok) lastServerState=raw;
     }} catch (_) {{}}
   }},120);
+}}
+async function persistTabsNow() {{
+  clearTimeout(saveTimer);
+  const payload=statePayload(), raw=JSON.stringify(payload);
+  try {{ localStorage.setItem(TABS_KEY,raw); }} catch (_) {{}}
+  const r=await fetch('/api/web-state',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:raw}});
+  if (!r.ok) throw new Error('无法持久化 Web turn 状态');
+  lastServerState=raw;
+  return payload;
 }}
 function migrateLocalState() {{
   try {{
@@ -1302,6 +1340,24 @@ function paneDelta(before, after) {{
   return lines.slice(-24).join('\\n');
 }}
 
+function reconcileLegacyTimeout(st, j) {{
+  if (!st || st.waiting || st.finalOp !== 'red' || !j.op_live) return false;
+  const thread=st.thread||[], last=thread[thread.length-1];
+  const log=st.log||[];
+  let timeoutAt=-1;
+  log.forEach((item,i)=>{{if(String(item.text||'').includes('停止轮询 · 已等待 90 秒')) timeoutAt=i;}});
+  const sentAfter=timeoutAt>=0&&log.slice(timeoutAt+1).some(item=>item.kind==='send');
+  const parsed=j.op_parsed||{{}};
+  if (timeoutAt<0 || sentAfter || !last || last.kind !== 'fail' || !parsed.body || !parsed.elapsed) return false;
+  last.kind='ans';
+  last.text=parsed.body;
+  last.extra={{...parsed,ts:(last.extra&&last.extra.ts)||new Date().toISOString()}};
+  st.finalOp='green';
+  st.finalRun=j.run_live?'green':'red';
+  st.log.push({{kind:'done',text:'已纠正旧版 90 秒误判 · 本轮实际完成 · '+parsed.elapsed}});
+  return true;
+}}
+
 function logLine(kind, text, skipSave) {{
   const row = document.createElement('div');
   row.className = 'row';
@@ -1374,6 +1430,12 @@ function pick(name) {{
   st.lastAsk = '';
   st.lastPollKey = '';
   st.waitStartedAt = 0;
+  st.waitWarned = false;
+  st.lastCompletion=prior.lastCompletion||'';
+  st.pending=prior.pending&&prior.pending.id?{{...prior.pending}}:null;
+  st.waiting=!!st.pending;
+  st.waitStartedAt=st.pending?Date.parse(st.pending.startedAt||'')||Date.now():0;
+  st.completionAtSend=st.pending?st.pending.baselineCompletion||'':'';
   st.finalOp = prior.finalOp||'gray';
   st.finalRun = prior.finalRun||'gray';
   st.thread=Array.isArray(prior.thread)?prior.thread.slice(-THREAD_MAX):[];
@@ -1479,28 +1541,56 @@ async function tick() {{
   st.lastRun = j.run_text || '';
   const opState = j.op_live ? (j.op_cmd || 'live') : 'down';
   const runState = j.run_live ? (j.run_cmd || 'live') : 'down';
+  const parsed = (j.op_parsed || {{}});
+  const completionChanged = !!parsed.completion_id &&
+    parsed.completion_id !== (st.completionAtSend||'') &&
+    parsed.completion_id !== (st.lastCompletion||'');
+  if (reconcileLegacyTimeout(st,j)) {{
+    renderTabs();
+    applyState(st);
+    return;
+  }}
   if (st.waiting) {{
     setLamp(lampOp, 'yellow');
     setLamp(lampRun, j.run_live ? 'yellow' : 'red');
     setPollBusy(true);
-    const parsed = (j.op_parsed || {{}});
-    const timedOut = st.waitStartedAt && Date.now()-st.waitStartedAt >= WAIT_MAX_MS;
-    if (j.op_auto === false) {{
+    const waitLong = st.waitStartedAt && Date.now()-st.waitStartedAt >= WAIT_WARN_MS;
+    if (!j.op_live) {{
+      const reply='失败 · trigger '+opState;
+      addBubble('fail',reply,parsed);
+      logLine('err','本轮失败 · trigger pane 已离线');
+      st.finalOp='red'; st.finalRun=j.run_live?'green':'red';
+      st.waiting=false; st.pending=null; st.pollQuiet=0; st.waitStartedAt=0; st.lastPollKey='';
+      setLamp(lampOp,st.finalOp); setLamp(lampRun,st.finalRun); setPollBusy(false);
+      renderTabs();
+      await persistTabsNow();
+    }} else if (parsed.phase === 'idle' && completionChanged) {{
+      const reply=parsed.body || paneDelta(st.opAtSend,j.op_text) || '本轮已完成';
+      addBubble('ans',reply,parsed);
+      st.lastCompletion=parsed.completion_id;
+      st.finalOp='green'; st.finalRun=j.run_live?'green':'red';
+      logLine('done','本轮结束 · '+(parsed.model||'')+(parsed.elapsed?' · '+parsed.elapsed:''));
+      st.waiting=false; st.pending=null; st.pollQuiet=0; st.waitStartedAt=0;
+      st.waitWarned=false; st.lastPollKey=''; st.completionAtSend='';
+      setLamp(lampOp,st.finalOp); setLamp(lampRun,st.finalRun); setPollBusy(false);
+      renderTabs();
+      await persistTabsNow();
+    }} else if (j.op_auto === false && parsed.phase !== 'running') {{
       const reply='trigger 当前不是 auto 模式；消息已发出，但可能在等待授权。前端已停止自动轮询，可点击上方“trigger 转为 auto”恢复原会话后继续。';
       addBubble('fail',reply,parsed);
       logLine('err','停止轮询 · trigger 非 auto 模式');
       st.finalOp='red'; st.finalRun=j.run_live?'green':'red';
-      st.waiting=false; st.pollQuiet=0; st.waitStartedAt=0; st.lastPollKey='';
+      st.waiting=false; st.pending=null; st.pollQuiet=0; st.waitStartedAt=0; st.lastPollKey='';
       setLamp(lampOp,st.finalOp); setLamp(lampRun,st.finalRun); setPollBusy(false);
       renderTabs();
-    }} else if (timedOut) {{
-      const reply=parsed.body || paneDelta(st.opAtSend,j.op_text) || '超过 90 秒仍未检测到本轮结束';
-      addBubble('fail',reply,parsed);
-      logLine('err','停止轮询 · 已等待 90 秒，请检查 trigger 会话');
-      st.finalOp='red'; st.finalRun=j.run_live?'green':'red';
-      st.waiting=false; st.pollQuiet=0; st.waitStartedAt=0; st.lastPollKey='';
-      setLamp(lampOp,st.finalOp); setLamp(lampRun,st.finalRun); setPollBusy(false);
-      renderTabs();
+      await persistTabsNow();
+    }} else if (waitLong && !st.waitWarned) {{
+      logLine('poll','长任务 · 已等待 90 秒，trigger 仍在线，继续轮询');
+      st.waitWarned=true;
+      if (st.pending) st.pending.status='attention';
+    }} else if (parsed.phase === 'running') {{
+      st.pollQuiet=0;
+      if (st.pending) st.pending.status='running';
     }} else if (opChanged) {{
       const sum = parsed.body ? parsed.body.replace(/\\s+/g, ' ').slice(0, 140) : summarize(paneDelta(st.opAtSend, j.op_text) || j.op_text);
       const key = (parsed.model || '') + '|' + sum;
@@ -1513,7 +1603,7 @@ async function tick() {{
     }} else {{
       st.pollQuiet += 1;
       if (st.pollQuiet === 1) logLine('poll', '等待 trigger · op=' + opState);
-      if (st.pollQuiet >= 8) {{
+      if (st.pollQuiet >= 8 && parsed.phase === 'unknown') {{
         const fail = !j.op_live;
         const reply = fail
           ? ('失败 · trigger ' + opState)
@@ -1529,10 +1619,13 @@ async function tick() {{
           : ('本轮结束 · ' + (parsed.model || '') + (parsed.elapsed ? ' · ' + parsed.elapsed : '') + (parsed.body ? ' · ' + parsed.body.replace(/\\s+/g, ' ').slice(0, 80) : ''));
         logLine(fail ? 'err' : 'done', doneMsg.trim());
         st.waiting = false;
+        st.pending = null;
         st.pollQuiet = 0;
         st.waitStartedAt = 0;
+        st.waitWarned = false;
         st.lastPollKey = '';
         renderTabs();
+        await persistTabsNow();
       }}
     }}
   }} else {{
@@ -1565,20 +1658,45 @@ document.getElementById('recent').addEventListener('click',e=>{{
 sendf.addEventListener('submit', async (e) => {{
   e.preventDefault();
   const st = activeTab;
-  if (!st || !st.name || !box.value.trim()) return;
-  st.lastAsk = box.value.trim();
+  if (!st || !st.name || !box.value.trim() || st.waiting) return;
+  const prompt=box.value.trim();
+  let baseline={{}};
+  try {{
+    const baselineResponse=await fetch('/api/tunnel?t='+encodeURIComponent(st.name));
+    if (baselineResponse.ok) baseline=await baselineResponse.json();
+  }} catch (_) {{}}
+  const baselineParsed=baseline.op_parsed||{{}};
+  st.lastAsk = prompt;
   const preview = st.lastAsk.replace(/\\s+/g, ' ').slice(0, 80);
   addBubble('ask', st.lastAsk);
   logLine('send', preview || '(empty)');
-  st.opAtSend = st.lastOp;
+  st.opAtSend = baseline.op_text||st.lastOp||'';
+  st.lastCompletion = baselineParsed.completion_id||st.lastCompletion||'';
+  st.completionAtSend = baselineParsed.completion_id||st.lastCompletion||'';
   st.waiting = true;
   st.pollQuiet = 0;
   st.waitStartedAt = Date.now();
+  st.waitWarned = false;
+  st.pending={{
+    id:'turn-'+st.waitStartedAt.toString(36)+'-'+Math.random().toString(36).slice(2,10),
+    status:'pending',
+    startedAt:new Date(st.waitStartedAt).toISOString(),
+    baselineCompletion:st.completionAtSend,
+  }};
   setLamp(lampOp, 'yellow');
   setLamp(lampRun, 'yellow');
   setPollBusy(true);
   renderTabs();
-  const body = new URLSearchParams({{ t: st.name, side: 'op', text: box.value }});
+  try {{
+    await persistTabsNow();
+  }} catch(err) {{
+    const msg='未发送：pending turn 无法持久化 · '+String(err.message||err);
+    logLine('err',msg); addBubble('fail',msg);
+    st.waiting=false; st.pending=null; st.waitStartedAt=0; st.finalOp='red';
+    setLamp(lampOp,'red'); setPollBusy(false); renderTabs();
+    return;
+  }}
+  const body = new URLSearchParams({{ t: st.name, side: 'op', text: prompt }});
   const r = await fetch('/send', {{ method: 'POST', headers: {{ 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' }}, body }});
   if (!r.ok) {{
     const err = await r.text();
@@ -1586,11 +1704,14 @@ sendf.addEventListener('submit', async (e) => {{
     addBubble('fail', err);
     st.finalOp = 'red';
     st.waiting = false;
+    st.pending = null;
     st.waitStartedAt = 0;
+    st.waitWarned = false;
     setLamp(lampOp, 'red');
     setLamp(lampRun, st.finalRun);
     setPollBusy(false);
     renderTabs();
+    await persistTabsNow();
     return;
   }}
   st.lastSent = Date.now();
@@ -1599,6 +1720,7 @@ sendf.addEventListener('submit', async (e) => {{
   box.value = '';
   logLine('send', '已提交到 trigger，开始轮询');
   renderTabs();
+  await persistTabsNow();
   tick();
 }});
 async function postForm(url, fields) {{
