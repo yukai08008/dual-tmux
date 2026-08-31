@@ -2,7 +2,7 @@ import subprocess
 
 import pytest
 
-from dual_tmux import agentclient
+from dual_tmux import agentclient, oc
 
 
 @pytest.mark.parametrize(
@@ -101,6 +101,52 @@ def test_collect_rejects_non_whitelist_client():
     got = agentclient.collect_local("bash")
     assert got["name"] == ""
     assert "unsupported" in got["error"]
+
+
+def test_active_remote_requires_live_process_and_parses_exact_session(monkeypatch):
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(
+            argv,
+            0,
+            "ses_live\tlive-slug\tLive\t/workspace\tprovider/model\tbuild\n",
+            "",
+        )
+
+    monkeypatch.setattr(oc.subprocess, "run", run)
+    session = oc.active_remote(["ssh", "box"])
+    assert session and session.session_id == "ses_live"
+    assert session.directory == "/workspace"
+    assert "/proc/[0-9]*/cmdline" in calls[0][-1]
+
+
+def test_active_remote_does_not_fall_back_to_latest(monkeypatch):
+    monkeypatch.setattr(
+        oc.subprocess,
+        "run",
+        lambda argv, **kwargs: subprocess.CompletedProcess(argv, 1, "", ""),
+    )
+    assert oc.active_remote(["ssh", "box"]) is None
+
+
+def test_blank_local_tui_does_not_bind_session_older_than_process(monkeypatch):
+    seen = []
+    monkeypatch.setattr(oc, "_agent_process", lambda _pid: ("opencode --auto", 123_000))
+    monkeypatch.setattr(
+        oc,
+        "by_directory",
+        lambda cwd, created_after_ms=0: seen.append((cwd, created_after_ms)) or None,
+    )
+    assert oc.from_pane("10", "/workspace", fallback=True) is None
+    assert seen == [("/workspace", 118_000)]
+
+
+def test_elapsed_seconds_supports_long_lived_processes():
+    assert oc._elapsed_seconds("01:02") == 62
+    assert oc._elapsed_seconds("02:01:02") == 7262
+    assert oc._elapsed_seconds("3-02:01:02") == 266462
 
 
 def test_empty_side_is_backward_compatible_shape():
@@ -228,3 +274,28 @@ def test_freeze_remote_bullet_collects_inside_docker(monkeypatch):
     assert seen["location"] == "docker"
     assert seen["ssh_argv"] == ["ssh", "box"]
     assert seen["container"] == "work"
+
+
+def test_freeze_disconnected_shell_does_not_bind_latest_or_mutate_runtime(monkeypatch):
+    from dual_tmux import cli
+    from dual_tmux.oc import empty_side
+
+    data = {
+        "name": "dt-test",
+        "op": "op_test",
+        "run": "run_test",
+        "trigger": empty_side(),
+        "bullet": empty_side(),
+        "runtime": {"server": "tom7r", "directory": "/workspace", "cmd": "ssh tom7r"},
+    }
+    monkeypatch.setattr(cli.wp, "discover", lambda _name: _point("ssh"))
+    monkeypatch.setattr(cli.wp, "walk_commands", lambda _pid: [])
+    monkeypatch.setattr(cli.tmux_ops, "pane_info", lambda _name: {"pid": "1", "cmd": "zsh", "cwd": "/Users/andy"})
+    monkeypatch.setattr("dual_tmux.agentclient.collect", lambda *a, **k: {**agentclient.empty(), "name": "opencode", "location": "ssh"})
+    monkeypatch.setattr(cli.oc_ops, "from_pane", lambda *a, **k: None)
+    monkeypatch.setattr(cli.oc_ops, "active_remote", lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not probe stale transport")))
+    monkeypatch.setattr(cli.ev, "emit", lambda *a, **k: None)
+
+    assert cli._freeze_one(data, "bullet", "run_test", "auto", False) is False
+    assert data["bullet"]["session_id"] == ""
+    assert data["runtime"] == {"server": "tom7r", "directory": "/workspace", "cmd": "ssh tom7r"}
