@@ -232,22 +232,33 @@ def discover(tmux_name: str) -> dict:
 
 def apply_runtime(data: dict, point: dict) -> None:
     runtime = data.setdefault("runtime", {})
-    if point.get("ssh") and not runtime.get("server"):
-        runtime["server"] = point["ssh"]
+    if point.get("ssh"):
+        target = parse_ssh_target(point.get("resume_cmd") or point["ssh"])
+        runtime["server"] = target.stored or point["ssh"]
+        runtime["ssh_port"] = target.port or 22
     if point.get("container"):
         runtime["container"] = point["container"]
-    if point.get("directory") and point["kind"] in {"ssh", "docker"}:
+    # tmux reports the local shell cwd while a direct SSH command is running.
+    # Only a parsed remote prompt/hop proves the remote directory.
+    if (
+        point.get("directory")
+        and point["kind"] in {"ssh", "docker"}
+        and point.get("hops")
+    ):
         runtime["directory"] = point["directory"]
     if point.get("container") or (point.get("ssh") and runtime.get("server")):
         from .runtime import build_cmd
 
         port = int(runtime.get("ssh_port") or 22)
-        runtime["cmd"] = build_cmd(
-            runtime.get("server") or point.get("ssh") or "",
-            runtime.get("container") or "",
-            runtime.get("directory") or "/workspace",
-            port,
-        )
+        if point.get("resume_cmd") and not point.get("container") and not point.get("hops"):
+            runtime["cmd"] = point["resume_cmd"]
+        else:
+            runtime["cmd"] = build_cmd(
+                runtime.get("server") or point.get("ssh") or "",
+                runtime.get("container") or "",
+                runtime.get("directory") or "/workspace",
+                port,
+            )
 
 
 def capture_runtime(data: dict, point: dict) -> None:

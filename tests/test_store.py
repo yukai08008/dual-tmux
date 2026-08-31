@@ -7,7 +7,7 @@ from dual_tmux.sshutil import list_ssh_hosts, parse_ssh_target
 from dual_tmux.oc import as_bind, empty_side, is_dst, parse_model, resume_cmd, start_cmd, OcSession
 from dual_tmux.store import default_names, normalize_dt, remove_dt, save, tunnels_dir
 from dual_tmux.log import emit, read_events
-from dual_tmux.workpoint import empty_point, empty_times
+from dual_tmux.workpoint import apply_runtime, empty_point, empty_times
 
 
 def test_names():
@@ -45,6 +45,8 @@ def test_parse_ssh_target():
     t = parse_ssh_target("ssh -p 10700 root@1.2.3.4")
     assert t.dest == "root@1.2.3.4" and t.port == 10700 and t.extra_args == ["-p", "10700"]
     assert parse_ssh_target("root@1.2.3.4").dest == "root@1.2.3.4"
+    assert parse_ssh_target("ssh -oPort=24500 root@1.2.3.4").port == 24500
+    assert parse_ssh_target("ssh -o Port=24501 root@1.2.3.4").port == 24501
 
 
 def test_cmd_with_port():
@@ -179,6 +181,31 @@ def test_workpoint_empty():
     assert point["cwd"] == ""
     times = empty_times()
     assert "freeze_at" in times
+
+
+def test_direct_ssh_runtime_keeps_command_and_does_not_copy_local_cwd():
+    data = {
+        "runtime": {
+            "server": "tom7r",
+            "ssh_port": 22,
+            "container": "",
+            "directory": "/workspace",
+            "cmd": "ssh tom7r",
+        }
+    }
+    point = {
+        **empty_point(),
+        "kind": "ssh",
+        "cwd": "/Users/andy",
+        "directory": "/Users/andy",
+        "ssh": "root@106.75.97.247",
+        "resume_cmd": "ssh -oPort=24500 root@106.75.97.247",
+    }
+    apply_runtime(data, point)
+    assert data["runtime"]["server"] == "root@106.75.97.247"
+    assert data["runtime"]["ssh_port"] == 24500
+    assert data["runtime"]["directory"] == "/workspace"
+    assert data["runtime"]["cmd"] == "ssh -oPort=24500 root@106.75.97.247"
 
 
 def test_user():

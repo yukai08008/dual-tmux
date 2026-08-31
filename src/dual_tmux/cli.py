@@ -446,8 +446,6 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
 
     point = wp.discover(tmux_name)
     data["op_point" if side == "trigger" else "run_point"] = point
-    if side == "bullet" and point.get("kind") in {"ssh", "docker"}:
-        wp.apply_runtime(data, point)
     other = "bullet" if side == "trigger" else "trigger"
     exclude = (data.get(other) or {}).get("session_id") or ""
     info = tmux_ops.pane_info(tmux_name)
@@ -457,6 +455,18 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
         (side_info.get("tool") or "opencode") if tool in {"", "auto"} else tool
     )
     process_commands = [pane_cmd, *wp.walk_commands(info.get("pid") or "")]
+    live_transport = pane_cmd in {"ssh", "docker"} or any(
+        command.startswith("ssh ")
+        or " ssh " in f" {command} "
+        or command.startswith("docker exec ")
+        for command in process_commands
+    )
+    if (
+        side == "bullet"
+        and live_transport
+        and point.get("kind") in {"ssh", "docker"}
+    ):
+        wp.apply_runtime(data, point)
     actual_local_client = agentclient.detect_name(process_commands)
     client_name = actual_local_client or agentclient.normalize_name(requested_tool)
     location = "local" if actual_local_client else point.get("kind") or "local"
@@ -534,8 +544,13 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
             session = oc_ops.from_pane(
                 info.get("pid") or "", info.get("cwd") or "", exclude, fallback=local_oc
             )
-    if not session and not local_oc and point["kind"] in {"ssh", "docker"}:
-        session = oc_ops.latest_remote(
+    if (
+        not session
+        and not local_oc
+        and live_transport
+        and point["kind"] in {"ssh", "docker"}
+    ):
+        session = oc_ops.active_remote(
             _ssh_argv(data), point.get("container") or runtime.get("container") or ""
         )
     if not session:
@@ -556,7 +571,8 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
         ui.warn(f"{error}. dt {'enter' if side == 'trigger' else 'work'} --oc first")
         return False
     if side == "bullet":
-        wp.capture_runtime(data, point)
+        if point.get("kind") == "local" or live_transport:
+            wp.capture_runtime(data, point)
         write_entry(data["run"], (data.get("runtime") or {}).get("cmd") or "")
     _bind_oc(data, side, session, client_name or "opencode")
     data[side]["agent_client"] = client_meta

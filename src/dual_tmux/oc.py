@@ -6,6 +6,7 @@ import re
 import shlex
 import sqlite3
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -165,32 +166,85 @@ def by_id(session_id: str) -> OcSession | None:
     return rows[0] if rows else None
 
 
-def by_directory(directory: str) -> OcSession | None:
+def by_directory(directory: str, created_after_ms: int = 0) -> OcSession | None:
     if not directory:
         return None
-    rows = _query(_SELECT + " AND directory = ? ORDER BY time_updated DESC LIMIT 1", (directory,))
+    sql = _SELECT + " AND directory = ?"
+    args: tuple = (directory,)
+    if created_after_ms:
+        sql += " AND time_created >= ?"
+        args += (created_after_ms,)
+    rows = _query(sql + " ORDER BY time_updated DESC LIMIT 1", args)
     return rows[0] if rows else None
+
+
+def _elapsed_seconds(raw: str) -> int:
+    value = (raw or "").strip()
+    days = 0
+    if "-" in value:
+        day, _, value = value.partition("-")
+        days = int(day) if day.isdigit() else 0
+    parts = [int(x) for x in value.split(":") if x.isdigit()]
+    if len(parts) == 3:
+        hours, minutes, seconds = parts
+    elif len(parts) == 2:
+        hours, minutes, seconds = 0, *parts
+    else:
+        return 0
+    return days * 86400 + hours * 3600 + minutes * 60 + seconds
+
+
+def _agent_process(pid: str) -> tuple[str, int]:
+    """Find the live OpenCode descendant and return command/start epoch ms."""
+    queue = [pid]
+    seen: set[str] = set()
+    while queue and len(seen) < 32:
+        current = queue.pop(0)
+        if not current or current in seen:
+            continue
+        seen.add(current)
+        result = subprocess.run(
+            ["ps", "-p", current, "-o", "command=", "-o", "etime="],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        line = (result.stdout or "").strip()
+        command, _, elapsed = line.rpartition(" ")
+        tokens = command.split()
+        if tokens and Path(tokens[0]).name == "opencode":
+            started_ms = int((time.time() - _elapsed_seconds(elapsed)) * 1000)
+            return command, started_ms
+        children = subprocess.run(
+            ["pgrep", "-P", current], capture_output=True, text=True, check=False
+        )
+        queue.extend(x.strip() for x in children.stdout.splitlines() if x.strip())
+    return "", 0
 
 
 def id_from_pid(pid: str) -> str:
     if not pid:
         return ""
-    result = subprocess.run(["ps", "-p", pid, "-o", "command="], capture_output=True, text=True)
-    text = result.stdout or ""
+    text, _started_ms = _agent_process(pid)
     found = SES_RE.findall(text)
     return found[-1] if found else ""
 
 
 def from_pane(pid: str, cwd: str, exclude: str = "", fallback: bool = False) -> OcSession | None:
-    sid = id_from_pid(pid)
+    command, started_ms = _agent_process(pid)
+    found = SES_RE.findall(command)
+    sid = found[-1] if found else ""
     if sid:
         session = by_id(sid)
         if session:
             return session
-    if cwd:
-        session = by_directory(cwd)
+    if cwd and command:
+        # OpenCode creates its session lazily on the first prompt.  A session
+        # older than this process cannot belong to a fresh blank TUI.
+        session = by_directory(cwd, max(0, started_ms - 5000))
         if session and session.session_id != exclude:
             return session
+        return None
     if not fallback:
         return None
     rows = latest_local(8)
@@ -251,6 +305,55 @@ def latest_remote(ssh_argv: list[str], container: str = "") -> OcSession | None:
         slug=parts[1],
         title=parts[2] if len(parts) > 2 else "",
         directory=parts[3] if len(parts) > 3 else "",
+        tool="opencode",
+        model=parse_model(parts[4] if len(parts) > 4 else ""),
+        agent=parts[5] if len(parts) > 5 else "",
+    )
+
+
+def active_remote(ssh_argv: list[str], container: str = "") -> OcSession | None:
+    """Return only the session proven to belong to a live remote OpenCode."""
+    code = """import glob,os,sqlite3
+me={os.getpid(),os.getppid()}; found=[]
+for raw in glob.glob('/proc/[0-9]*/cmdline'):
+ try:
+  pid=int(raw.split('/')[2])
+  if pid in me: continue
+  args=[x.decode('utf-8','replace') for x in open(raw,'rb').read().split(b'\\0') if x]
+  if not any(os.path.basename(x)=='opencode' or x.endswith('/opencode') for x in args): continue
+  sid=''
+  for i,x in enumerate(args):
+   if x in ('-s','--session') and i+1<len(args): sid=args[i+1]
+   elif x.startswith('--session='): sid=x.split('=',1)[1]
+  cwd=os.path.realpath('/proc/%s/cwd'%pid)
+  found.append((sid,cwd,pid))
+ except (OSError,ValueError): pass
+db=os.environ.get('OPENCODE_DB',os.path.expanduser('~/.local/share/opencode/opencode.db'))
+if not os.path.isfile(db): raise SystemExit(1)
+c=sqlite3.connect('file:'+db+'?mode=ro',uri=True)
+for sid,cwd,pid in sorted(found,key=lambda x:x[2],reverse=True):
+ if sid:
+  row=c.execute("SELECT id,slug,IFNULL(title,''),directory,IFNULL(model,''),IFNULL(agent,'') FROM session WHERE id=?",(sid,)).fetchone()
+ else:
+  row=c.execute("SELECT id,slug,IFNULL(title,''),directory,IFNULL(model,''),IFNULL(agent,'') FROM session WHERE directory=? AND time_archived IS NULL ORDER BY time_updated DESC LIMIT 1",(cwd,)).fetchone()
+ if row:
+  print('\\t'.join(str(x or '') for x in row)); raise SystemExit(0)
+raise SystemExit(1)
+"""
+    inner = f"python3 -c {shlex.quote(code)}"
+    if container:
+        inner = f"docker exec {shlex.quote(container)} sh -lc {shlex.quote(inner)}"
+    result = subprocess.run([*ssh_argv, inner], capture_output=True, text=True, check=False)
+    if result.returncode != 0 or not (result.stdout or "").strip():
+        return None
+    parts = result.stdout.strip().splitlines()[-1].split("\t")
+    if len(parts) < 4:
+        return None
+    return OcSession(
+        session_id=parts[0],
+        slug=parts[1],
+        title=parts[2],
+        directory=parts[3],
         tool="opencode",
         model=parse_model(parts[4] if len(parts) > 4 else ""),
         agent=parts[5] if len(parts) > 5 else "",
