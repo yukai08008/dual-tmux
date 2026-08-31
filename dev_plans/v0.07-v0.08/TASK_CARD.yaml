@@ -1,0 +1,46 @@
+version: v0.08
+parent_final: v0.07-final
+title: Local and Hub setup experience
+type: web
+prd: dev_plans/v0.07-v0.08/PRD.md
+test_cases: dev_plans/v0.07-v0.08/TEST_CASES.md
+
+invariants:
+  - "Legacy setup commands remain valid"
+  - "User can identify current mode"
+  - "Runtime data is not tracked in Git"
+  - "User-facing setup paths have automated CLI coverage"
+
+deliverables:
+  - module: src/dual_tmux/cli.py
+    change: local flag, guided prompt, attach/detach UX
+  - module: src/dual_tmux/ui.py
+    change: mode-aware guidance
+  - module: README.md and README_zh.md
+    change: local-first and migration documentation
+
+feature_branches:
+  - name: feature/v0.08-local-hub-ux
+    title: CLI and documentation delivery
+    deps: [feature/v0.07-local-first-config]
+    acceptance:
+      - W-1 local init is discoverable in help and prompt
+      - W-2 config output identifies local or Hub mode
+      - W-3 attach/detach commands explain completed merge
+      - W-4 bilingual examples cover later Hub attachment
+
+acceptance_count: 4
+total_estimated_loc: ~180
+
+risk_register:
+  - id: R1
+    risk: prompt change confuses existing users
+    mitigation: preserve old flags and document both paths
+    severity: medium
+
+git_workflow:
+  branch_creation: stacked on v0.07 feature
+  merge_policy: one audited release PR
+  final_tag: package release tag
+
+signature: Agent-PM-0.08

@@ -136,6 +136,8 @@ def test_admin_tabs_and_search(tmp_path, monkeypatch):
     assert "使用指南" in guide
     assert "创建完整 DST" in guide
     assert "dt make dst &lt;name&gt;" in guide
+    assert "dt config --init --local" in guide
+    assert "dt config --server myserver --user andy" in guide
     assert 'href="/guide"' in guide
     assert 'rel="icon"' in guide
 

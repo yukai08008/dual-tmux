@@ -460,7 +460,14 @@ def dashboard_page() -> str:
 
 def guide_page() -> str:
     scenarios = [
-        ("首次配置", "配置本机来源、已有 SSH Server 和使用者。", "dt config --init --client tm_laptop --server myserver --user andy\nssh myserver\ndt doctor"),
+        (
+            "首次配置",
+            "可纯本地启动，也可立即配置同步 Hub。",
+            "dt config --init --local --client tm_laptop\n"
+            "# 以后接入或更换 Hub\n"
+            "dt config --server myserver --user andy\n"
+            "dt doctor",
+        ),
         ("创建完整 DST", "一次建立 op/run tmux、两侧 Agent 并冻结绑定。", "dt make dst myapp --model provider/model\ndt inspect myapp\ndt web"),
         ("分步创建", "先建 DT，再分别启动 trigger 与 bullet。", "dt new myapp\ndt enter myapp --oc\ndt work myapp --oc\ndt freeze myapp"),
         ("日常继续工作", "恢复已冻结会话；Web 选择离线 DST 时也会自动 resume。", "dt resume myapp\ndt enter myapp\ndt work myapp"),
@@ -475,6 +482,9 @@ def guide_page() -> str:
         for title, desc, commands in scenarios
     )
     commands = [
+        ("dt config --init --local", "只配置本机 Client，不连接 Hub"),
+        ("dt config --server H --user U", "合并数据后接入或更换 Hub"),
+        ("dt config --local", "最后合并后退出 Hub，保留本地数据"),
         ("dt ls", "列出 DT、DST 与两侧状态"),
         ("dt inspect <name>", "查看模型、session id、工作点和时间"),
         ("dt new <name>", "创建 op/run tmux，只得到 DT"),

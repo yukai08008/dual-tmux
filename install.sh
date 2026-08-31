@@ -48,8 +48,8 @@ install_or_update() {
         if [ -f "${HOME}/.dual-tmux/config.toml" ]; then
             "$BIN_NAME" hotfix || true
         fi
-        info "Next: dt config --init --client tm_<id> --server <ssh-host> --user <name> && dt doctor"
-        info "Upgrade/doctor applies persist tenant hotfix (rsync ~/<user>/sessions)."
+        info "Next: dt config --init --local --client tm_<id> && dt doctor"
+        info "Add a Hub now or later with: dt config --server <ssh-host> --user <name>"
     elif [ -x "${INSTALL_DIR}/${BIN_NAME}" ]; then
         warn "Installed. Restart the terminal so ${INSTALL_DIR} is in PATH."
     else
