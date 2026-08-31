@@ -1,6 +1,6 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-08-31 09:44 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-08-31 10:00 +08:00 | 更新者: Codex PM
 
 ## 状态树
 
@@ -12,7 +12,8 @@
 
 ## 当前焦点
 
-- hotfix 代码与测试完成，等待用户授权 push/MR；未合并、未发布。
+- hotfix 代码与测试完成，已推送 `origin/hotfix/hub-bidirectional-sync`；未合并、未发布。
+- 远端已校验包含提交 `224412a6e53323d1eaac02a55727a5cf600d91ec`。
 - 候选发布版本：`0.4.37`。
 
 ## 待办
@@ -21,7 +22,8 @@
 - [x] 使用显式 `dt pull` 恢复本机缺失的 4 条隧道
 - [x] 完成 merge-sync 自动化测试和真实 tom7r 冒烟
 - [x] Review 后将 L3 标为 RESOLVED、hotfix 标为 CODE_COMPLETE
-- [ ] 经用户确认后 push/MR 合并发布
+- [x] 经用户确认后推送 hotfix 分支并校验远端 SHA
+- [ ] 创建 MR，合并并发布 `0.4.37`
 
 ## Git 权限模式
 
