@@ -115,6 +115,11 @@ def parse_ssh_target(raw: str, config_path: Path | None = None) -> SshTarget:
     i = 0
     while i < len(parts):
         part = parts[i]
+        option_l = part.lower()
+        if option_l.startswith("-oport=") and part.split("=", 1)[1].isdigit():
+            port = int(part.split("=", 1)[1])
+            i += 1
+            continue
         if part.startswith("-p") and part != "-p" and part[2:].isdigit():
             port = int(part[2:])
             i += 1
@@ -124,6 +129,13 @@ def parse_ssh_target(raw: str, config_path: Path | None = None) -> SshTarget:
                 port = int(parts[i + 1])
             elif part == "-l" and i + 1 < len(parts):
                 user_flag = parts[i + 1]
+            elif (
+                part == "-o"
+                and i + 1 < len(parts)
+                and parts[i + 1].lower().startswith("port=")
+                and parts[i + 1].split("=", 1)[1].isdigit()
+            ):
+                port = int(parts[i + 1].split("=", 1)[1])
             i += 2
             continue
         if part.startswith("-"):
