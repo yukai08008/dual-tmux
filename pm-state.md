@@ -1,8 +1,14 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-08-31 12:58 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-08-31 13:30 +08:00 | 更新者: Codex PM
 
 ## 状态树
+
+### v0.4.40 (ACTIVE) — Agent Adapter 与统一控制内核
+
+- **feature/v0.4.40-control-kernel** (DEVELOPING): 建立三客户端真实能力注册表与 CLI/Web/未来飞书共用的 ControlService。
+
+> 版本编号说明：从本版本起，L1 与实际 Python 包版本/Git 标签保持一致。以下 `v0.04`～`v0.08` 是历史内部里程碑，仅作记录，不再延续编号。
 
 ### v0.08 (RELEASED) — 本地/Hub 交互发布版
 
@@ -29,9 +35,15 @@
 
 ## 当前焦点
 
-- `v0.4.39` 已正式发布，Release 包含 sdist/wheel；本机从 GitHub 安装源实测 `dt upgrade` 从 `0.4.38` 升级到 `0.4.39`，现有 tom7r Hub 配置和推送正常。
+- 推进 `v0.4.40`：先交付 Agent Adapter、能力矩阵和统一控制内核，再执行 PR、发布与真实升级验证。
 
 ## 待办
+
+- [ ] 完成 v0.4.40 三件套与 Agent Adapter
+- [ ] 完成 ControlService 并迁移 CLI/Web 操作
+- [ ] 完成全量测试、浏览器 E2E、构建与封板报告
+- [ ] 创建并合并 PR，发布 v0.4.40
+- [ ] 本机真实执行 `dt upgrade` 并验证数据无损
 
 - [x] 核对本地、tom7r、另一 Client 三方数据事实
 - [x] 使用显式 `dt pull` 恢复本机缺失的 4 条隧道

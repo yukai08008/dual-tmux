@@ -1,0 +1,67 @@
+version: v0.4.40
+parent_final: v0.4.39
+title: Agent Adapter 与统一控制内核
+type: foundation
+prd: dev_plans/v0.4.39-v0.4.40/PRD.md
+test_cases: dev_plans/v0.4.39-v0.4.40/TEST_CASES.md
+
+invariants:
+  - "本地模式不依赖 Hub"
+  - "不支持的 Agent 能力不能伪装成功"
+  - "运行时数据不在 git 追踪中"
+  - "Web 变更执行浏览器 E2E"
+
+deliverables:
+  - module: src/dual_tmux/agents.py
+    change: 三种 Agent Adapter 和能力注册表
+    public_api: [get_adapter, list_adapters, capability_matrix]
+  - module: src/dual_tmux/control.py
+    change: 统一控制操作目录、结果、错误和服务
+    public_api: [ControlService, ControlResult, ControlError, operation_catalog]
+  - module: src/dual_tmux/cli.py
+    change: freeze/resume/model/send 通过控制服务执行
+  - module: src/dual_tmux/web.py
+    change: 复用控制服务并暴露能力与操作目录
+
+feature_branches:
+  - name: feature/v0.4.40-control-kernel
+    title: Agent Adapter 与统一控制内核
+    deps: []
+    files: [src/dual_tmux/agents.py, src/dual_tmux/control.py, src/dual_tmux/cli.py, src/dual_tmux/web.py]
+    acceptance:
+      - "A1 三种客户端能力可查询且不虚报"
+      - "A2 六类控制操作拥有统一元数据与错误合同"
+      - "A3 CLI/Web 对迁移操作共用 ControlService"
+      - "A4 全量测试、Web E2E、构建和升级验证通过"
+    estimated_loc: ~500
+
+acceptance_count: 4
+total_estimated_loc: ~500
+
+risk_register:
+  - id: R1
+    risk: 循环依赖
+    mitigation: 延迟导入和 import/compile 测试
+    severity: high
+  - id: R2
+    risk: 能力误报
+    mitigation: 细分 metadata_freeze 与 session_freeze
+    severity: high
+
+git_workflow:
+  branch_creation: from v0.4.39 main
+  merge_policy: pull-request
+  permission_mode: pm-maintainer
+  before_merge_checks:
+    - "pytest all PASS"
+    - "browser E2E PASS"
+    - "build PASS"
+    - "git ls-files data/ 为空"
+  final_tag: v0.4.40
+
+deployment_checklist:
+  - "GitHub Release 包含 sdist 和 wheel"
+  - "真实 dt upgrade 升级到 0.4.40"
+  - "升级后配置、隧道和 Hub 模式保持"
+
+signature: Agent-PM-v0.4.40
