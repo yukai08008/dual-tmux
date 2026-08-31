@@ -9,6 +9,7 @@ from .sshutil import list_ssh_hosts, parse_ssh_target
 
 DOCKER_RE = re.compile(r"docker\s+exec\s+(?:-[^\s]+\s+)*(\S+)")
 STARSHIP_SEP = re.compile(r"\s*[❯]\s*")
+PROMPT_STATUS = re.compile(r"^[✘✗✓✔!×\s]+")
 BOX_HEAD = re.compile(r"┌─(?:\([^)]+\)\s*)?(.+)$")
 BOX_TAIL = re.compile(r"└─\s*[#$]\s*(.*)$")
 CLASSIC = re.compile(r"^(?:\([^)]+\)\s*)?(\S+@\S+):(.+?)[#$]\s*(.*)$")
@@ -99,9 +100,10 @@ def _parse_prompts(text: str) -> list[dict]:
             parts = [p for p in STARSHIP_SEP.split(line) if p is not None]
             parts = [p.strip() for p in parts]
             if len(parts) >= 2:
+                host = PROMPT_STATUS.sub("", parts[0]).strip()
                 rows.append(
                     {
-                        "host": parts[0],
+                        "host": host,
                         "path": parts[1],
                         "command": " ".join(parts[2:]).strip(),
                     }
@@ -207,6 +209,16 @@ def _from_processes(pid: str, point: dict) -> None:
 
 def discover(tmux_name: str) -> dict:
     info = tmux_ops.pane_info(tmux_name)
+    process_commands = [info.get("cmd") or "", *walk_commands(info.get("pid") or "")]
+    from .agentclient import detect_name
+
+    if detect_name(process_commands):
+        point = empty_point()
+        point["cmd"] = info.get("cmd") or ""
+        point["cwd"] = info.get("cwd") or ""
+        point["directory"] = point["cwd"]
+        point["seen_at"] = now_iso()
+        return point
     hops = parse_hops(tmux_ops.capture_pane(tmux_name))
     point = _from_hops(hops)
     point["cmd"] = info.get("cmd") or ""
@@ -236,6 +248,20 @@ def apply_runtime(data: dict, point: dict) -> None:
             runtime.get("directory") or "/workspace",
             port,
         )
+
+
+def capture_runtime(data: dict, point: dict) -> None:
+    """Make runtime describe the bullet's observed work point, including local drift."""
+    if (point.get("kind") or "local") != "local":
+        apply_runtime(data, point)
+        return
+    runtime = data.setdefault("runtime", {})
+    runtime.update(
+        server="",
+        container="",
+        directory=point.get("directory") or point.get("cwd") or "",
+        cmd="",
+    )
 
 
 def stamp(data: dict, key: str) -> None:

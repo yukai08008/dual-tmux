@@ -340,6 +340,10 @@ def _start_side(
     cwd = ""
     if side == "trigger":
         cwd = str(opsdir.prepare(data))
+    elif not (data.get("runtime") or {}).get("server"):
+        directory = (data.get("runtime") or {}).get("directory") or ""
+        if directory and Path(directory).expanduser().is_dir():
+            cwd = str(Path(directory).expanduser())
     sent = tmux_ops.ensure_agent(tmux_name, cmd, cwd=cwd)
     if sent:
         ui.ok(f"{side} {cmd} -> {tmux_name}" + (f"  cwd={cwd}" if cwd else ""))
@@ -438,7 +442,7 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
 
     point = wp.discover(tmux_name)
     data["op_point" if side == "trigger" else "run_point"] = point
-    if side == "bullet":
+    if side == "bullet" and point.get("kind") in {"ssh", "docker"}:
         wp.apply_runtime(data, point)
     other = "bullet" if side == "trigger" else "trigger"
     exclude = (data.get(other) or {}).get("session_id") or ""
@@ -500,6 +504,9 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
         error=client_meta.get("error"),
     )
     if client_name and client_name != "opencode":
+        if side == "bullet":
+            wp.capture_runtime(data, point)
+            write_entry(data["run"], (data.get("runtime") or {}).get("cmd") or "")
         ui.warn(
             f"{side} {client_name} client captured; session freeze/resume is not implemented for this tool"
         )
@@ -544,6 +551,9 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
         )
         ui.warn(f"{error}. dt {'enter' if side == 'trigger' else 'work'} --oc first")
         return False
+    if side == "bullet":
+        wp.capture_runtime(data, point)
+        write_entry(data["run"], (data.get("runtime") or {}).get("cmd") or "")
     _bind_oc(data, side, session, client_name or "opencode")
     data[side]["agent_client"] = client_meta
     ev.emit(
@@ -732,16 +742,26 @@ def _apply_resume_legacy(name: str | None, force: bool = False) -> dict:
     opsdir.prepare(data)
     if not oc_ops.is_dst(data):
         raise SystemExit("[err] not a DST. Freeze both oc sessions first: dt freeze")
-    jump = (data.get("runtime") or {}).get("cmd") or ""
-    if jump and tmux_ops.pane_command(data["run"]) not in {
-        "ssh",
-        "docker",
-        "tmux",
-        "opencode",
-    }:
+    runtime = data.get("runtime") or {}
+    jump = runtime.get("cmd") or ""
+    remote_bullet = bool(runtime.get("server"))
+    if remote_bullet and not jump:
+        raise SystemExit("[err] bullet runtime has a server but no reconnect command")
+    transports = {"ssh", "docker"}
+    if remote_bullet and tmux_ops.pane_command(data["run"]) not in transports:
         tmux_ops.reconnect(data["run"], jump)
+        landed = tmux_ops.wait_stable_command(
+            data["run"], transports, timeout=25
+        )
+        if landed not in transports:
+            raise SystemExit(
+                f"[err] bullet jump did not stay connected (cmd={landed or '—'}); "
+                "resume stopped before sending the session command"
+            )
     if oc_ops.ensure_local(_side(data, "trigger")):
         ui.ok("imported trigger persist JSON")
+    if not remote_bullet and oc_ops.ensure_local(_side(data, "bullet"), role="bullet"):
+        ui.ok("imported local bullet persist JSON")
     _start_side(data, data["op"], "trigger", "", True)
     _start_side(data, data["run"], "bullet", "", True)
     wp.stamp(data, "resume_at")
