@@ -4,9 +4,9 @@
 
 ## 状态树
 
-### v0.4.43 (ACTIVE) — hotfix: remote freeze binding correctness
+### v0.4.43 (RELEASED) — hotfix: remote freeze binding correctness
 
-- **hotfix/v0.4.43-freeze-remote-binding** (CODE_COMPLETE): 修复 disconnected shell 被当作远端 OpenCode、latest remote session 误绑、本机 cwd 污染远端 runtime，以及空白新 TUI 误绑同 cwd 旧 session；109 tests 与现场重启恢复通过。
+- **hotfix/v0.4.43-freeze-remote-binding** (MERGED): PR #7 已合并并发布；修复 disconnected shell 被当作远端 OpenCode、latest remote session 误绑、本机 cwd 污染远端 runtime，以及空白新 TUI 误绑同 cwd 旧 session。
 
 ### v0.4.42 (RELEASED) — 抗抖动健康检测与自动恢复
 
@@ -44,7 +44,7 @@
 
 ## 当前焦点
 
-- `v0.4.43` hotfix 待合并发布；`dt-company_intro_v2` 已恢复为独立本地 bullet `happy-canyon`，受控退出/恢复后保持同一 session。
+- `v0.4.43` hotfix 已发布并在本机完成 `0.4.42 → 0.4.43` 真实升级；`dt-company_intro_v2` 为独立本地 bullet `happy-canyon`，受控退出/恢复及升级后保持同一 session，健康状态全绿。
 
 ## 待办
 
