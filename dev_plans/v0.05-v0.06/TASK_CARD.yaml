@@ -1,0 +1,60 @@
+version: v0.06
+parent_final: v0.05
+title: Agent 客户端版本展示
+type: web
+prd: dev_plans/v0.05-v0.06/PRD.md
+test_cases: dev_plans/v0.05-v0.06/TEST_CASES.md
+
+invariants:
+  - "旧隧道 JSON 向后兼容"
+  - "Web 不展示 executable 全路径"
+  - "运行时数据不在 git 追踪中"
+
+deliverables:
+  - module: src/dual_tmux/ui.py
+    change: CLI 列表与 inspect 展示客户端版本/位置
+  - module: src/dual_tmux/web.py
+    change: API 输出与隧道页面展示两侧客户端
+
+feature_branches:
+  - name: feature/v0.06-agent-client-web
+    title: Agent 客户端 Web 展示
+    deps:
+      - feature/v0.05-agent-client-metadata
+    files:
+      - src/dual_tmux/ui.py
+      - src/dual_tmux/web.py
+      - tests/test_web.py
+    acceptance:
+      - W-1 页面显示 trigger 客户端名/版本/位置
+      - W-2 页面显示 bullet 客户端名/版本/位置
+      - W-3 旧隧道显示空值且页面正常
+      - W-4 API 返回完整 agent_client
+    estimated_loc: ~60
+
+acceptance_count: 4
+total_estimated_loc: ~60
+
+risk_register:
+  - id: R1
+    risk: 旧 JSON 兼容
+    mitigation: 空对象回退与浏览器实测
+    severity: medium
+
+git_workflow:
+  branch_creation: from v0.05 API commit
+  feature_order: web, browser-e2e, release
+  merge_policy: --no-ff via PR
+  before_merge_checks:
+    - "uv run pytest -q"
+    - "uv run python -m compileall -q src tests"
+    - "uv build"
+    - "浏览器 e2e"
+    - "git ls-files data/ | wc -l == 0"
+  final_tag: v0.4.38
+
+deployment_checklist:
+  - "Web DOM 显示两侧客户端版本"
+  - "dt upgrade 0.4.37 -> 0.4.38"
+
+签名: Agent-PM-v0.06

@@ -4,6 +4,10 @@
 
 ## 状态树
 
+### v0.06 (ACTIVE) — Web 发布版
+
+- **feature/v0.06-agent-client-web** (MERGE_PENDING): CLI/Web 已展示两侧客户端名称、版本和位置；66 项测试、构建、新增模块 lint 与浏览器 DOM 验收通过，候选包版本 `0.4.38`。
+
 ### v0.05 (ACTIVE) — API 开发版
 
 - **feature/v0.05-agent-client-metadata** (CODE_COMPLETE): freeze 已采集 trigger/bullet 的 OpenCode、Codex、Claude 客户端名称、版本、路径和运行位置；66 项测试与真实本机/tom7r 容器验证通过。
@@ -16,7 +20,7 @@
 
 ## 当前焦点
 
-- v0.05 API 已完成；推进 v0.06 Web 展示与正式发布。
+- v0.05 API 与 v0.06 Web 已完成，进入全量封板、PR、合并与 `0.4.38` 发布。
 
 ## 待办
 
