@@ -1,12 +1,14 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-08-31 15:15 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-01 00:32 +08:00 | 更新者: Codex PM
 
 ## 状态树
 
 ### v0.4.48 (ACTIVE) — 飞书扫码 Web 与 tom7r 事件桥
 
 - **feature/v0.4.48-feishu-web-bridge** (MERGED): PR #12 已合并，远端 main=`e1e2494`。Web QR/绑定管理、tom7r mailbox bridge、飞书 callback/event、Client 离线可靠消费、outbox 回包合同与 Docker 部署模板已完成；159 tests、Browser E2E、编译/lint/build、tom7r 容器 build/health 全绿。企业飞书真实 E2E 因缺 App 凭据/HTTPS callback 仍为 P1 发布门禁；v0.4.48 保持 ACTIVE，不创建 Release。
+- **hotfix/v0.4.48-web-durable-turn-tracking** (MERGED): pending turn 写前日志、completion 基线、页面恢复和幂等消费已合并至 main；161 tests、真实 `dt-portal` 恢复与刷新 E2E 通过。
+  - **issue-web-trigger-result-not-collected** (CLOSED): 缺失的 `Grok 4.6 · 3m 0s` 结果已归集到问答区；刷新后未重复，pending 正确关闭。
 
 ### v0.4.47 (ARCHIVED) — 飞书绑定与鉴权 API
 
@@ -65,6 +67,38 @@
 ## 当前焦点
 
 - 推进 `v0.4.48` 飞书扫码 Web 与 tom7r 中心事件桥，完成偶数版封板发布。
+
+## Backlog
+
+### Web：展示 trigger → bullet 的中间交接
+
+- 用户向 trigger 提交需求后，trigger 会先理解、整理并改写成发给 bullet 的任务；这段中间结果具有独立价值，不应只存在于 terminal 原文中。
+- 在「trigger 会话」与「bullet 会话」两个区域之间增加交接区，展示 trigger 实际发给 bullet 的任务摘要、关键约束和当前交接状态，并与 trigger 最终回复明确区分。
+- 验收：内容来自真实 pane/event 增量，不由 Web 猜测；长任务和多次交接可按时间顺序查看；切换隧道或刷新后仍能恢复。
+
+### Web：改善 terminal 高度、滚动与回看
+
+- 增加 trigger/bullet terminal 可视区域高度。
+- terminal 仅在用户已经接近底部或刚主动发送消息时自动跟随新输出；用户向上查看历史后，不得强制下滚，并提供明确的「回到底部」入口。
+- 每侧至少采集并可滚动查看最近 500 行；切换 tab、轮询刷新时保持各自滚动位置。
+
+### Web：任务生命周期自适应轮询
+
+- 当前 Web 固定每 1.5 秒请求一次，与 `tmux-trigger` 规定的 15–30 秒轮询周期不一致，也不符合 Agent 任务通常以几十秒到数分钟完成的节奏。
+- 将 terminal 画面刷新与任务完成判定解耦：活动 tab 可按较低频率刷新画面；任务判定在提交后采用 15–30 秒自适应退避，无有效增量时逐步放慢，检测到有效输出或用户主动操作时再收紧；后台/隐藏 tab 进一步降频或暂停。
+- 不再用高频轮询次数推断结束；结束应依据有效 pane/event 增量及稳定窗口，长任务只显示持续时间和最近进展，不制造请求风暴。
+- 参考诊断基线：P95 首包耗时 20.4 秒（警告区间）；轮次聚合延迟 124440 秒；有 30823 个步骤等待聚合。后两项应作为聚合积压信号单独呈现，不能靠提高前端轮询频率掩盖。
+- 参考状态阈值：P95 首包 10–30 秒为警告、≥30 秒为严重；P95 总耗时 30–60 秒为警告、≥60 秒为严重；任意零首包或 600 秒级请求为严重；HTTP 错误率 1%–5% 为警告、≥5% 为严重；路由 P95 ≥3 秒、入口 P95 ≥2 秒为警告。诊断窗口为 30 分钟，状态优先级为 `critical > warning > unknown > healthy`。
+- 验收：正常长任务的请求频率与 15–30 秒策略一致；首包与持续运行期间均可见最近进展；切换 tab 不产生突发并发轮询；完成识别延迟可控且不得再次把“仍在运行”误判为失败。
+
+### Web：轮询时间线与核心文本提取
+
+- 每条轮询记录必须展示采样时间、从本轮提交开始的累计耗时，以及当前/下一次轮询间隔；结束记录展示本轮总耗时。
+- 每次有效轮询同时展示 trigger 原本给出的简短进展摘要，例如「bullet 仍在写文档，继续等待」，而不是只显示 `trigger 更新`、模型 footer 或 spinner。
+- 重做核心文本提取：优先保留 trigger 面向用户的状态说明、trigger → bullet 的交接摘要和最终答案；过滤 TUI chrome、进度动画、工具命令回显、内部推理、系统指令残片、重复 footer 和无意义的局部文本。当前 `dt-portal` 中泄漏的 `summarize for the user concisely.` 属于应过滤的反例。
+- 摘要需要按语义去重；仅 spinner 或进度条变化不得生成新的摘要记录。无法可靠提取时应明确显示「暂无新的有效摘要」，不能拿任意 pane 尾部冒充核心文本。
+- 为 OpenCode/Codex/Claude 分别保留 parser/adapter 边界，并用真实 pane 快照建立 golden fixtures，至少覆盖：等待首包、调用工具、派发 bullet、长时间运行、最终完成、错误和非 auto 授权等待。
+- 验收：用户只看轮询时间线即可知道「何时提交、已等待多久、trigger 认为进展到哪、下一次何时检查、最终结果是什么」；核心摘要不得出现内部推理或 TUI 噪声。
 
 ## 待办
 

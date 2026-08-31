@@ -43,6 +43,8 @@ def test_opencode_auto_footer_detection():
     assert _opencode_auto("┃ Build · Grok 4.6") is False
     assert _opencode_auto("Build auto · old\nBuild · current") is False
     assert _opencode_auto("Build · old\nBuild auto · current") is True
+    running = "Build auto · old\nThought: 106ms\n▣ Build · grok-4.6\n■■■ esc interrupt"
+    assert _opencode_auto(running) is True
 
 
 def test_expected_browser_disconnect_errors_are_quiet():
@@ -363,7 +365,18 @@ def test_admin_tabs_and_search(tmp_path, monkeypatch):
     assert "visitHistory" in page
     assert "threadEl.scrollHeight-threadEl.scrollTop" in page
     assert "preserveThreadScroll" in page
-    assert "WAIT_MAX_MS" in page
+    assert "WAIT_WARN_MS" in page
+    assert "长任务 · 已等待 90 秒，trigger 仍在线，继续轮询" in page
+    assert "logLine('err','停止轮询 · 已等待 90 秒" not in page
+    assert "reconcileLegacyTimeout(st,j)" in page
+    assert "已纠正旧版 90 秒误判" in page
+    assert "completionChanged" in page
+    assert "parsed.phase === 'idle'" in page
+    assert "baselineCompletion" in page
+    assert "persistTabsNow" in page
+    assert "pending turn 无法持久化" in page
+    submit = page[page.index("sendf.addEventListener('submit'") :]
+    assert submit.index("await persistTabsNow()") < submit.index("fetch('/send'")
     assert "j.op_auto === false" in page
     assert "btn-auto-op" in page
     assert "/api/trigger-auto" in page
@@ -427,10 +440,19 @@ def test_web_state_keeps_closed_tunnel_history(tmp_path, monkeypatch):
             "dt-msg2": {"visits": 1, "thread": [], "log": []},
         },
     }
+    payload["history"]["dt-msg2"]["lastCompletion"] = "completion-old"
+    payload["history"]["dt-msg2"]["pending"] = {
+        "id": "turn-1",
+        "status": "running",
+        "startedAt": "2026-08-29T11:01:00+08:00",
+        "baselineCompletion": "completion-old",
+    }
     saved = _save_web_state(payload)
     assert saved["open_tabs"] == ["dt-msg2"]
     assert "dt-msg" in saved["history"]
     assert saved["history"]["dt-msg"]["thread"][1]["text"] == "已经完成第一步"
+    assert saved["history"]["dt-msg2"]["pending"]["id"] == "turn-1"
+    assert saved["history"]["dt-msg2"]["lastCompletion"] == "completion-old"
     loaded = _load_web_state()
     assert loaded == saved
     assert (tmp_path / "web-state.json").is_file()
