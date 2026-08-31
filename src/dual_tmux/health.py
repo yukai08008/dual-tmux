@@ -4,14 +4,20 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 
+from . import tmux as tmux_ops
 from .config import AppConfig, load_config
-from .identity import SOURCE_HINT, USER_HINT, legal_source, legal_user, remote_sessions_root
+from .identity import (
+    SOURCE_HINT,
+    USER_HINT,
+    legal_source,
+    legal_user,
+    remote_sessions_root,
+)
 from .paths import config_path, home_dir
 from .sshutil import SshTarget
-from . import tmux as tmux_ops
 
 SSH_HINT = "fix ~/.ssh/config and keys yourself; this CLI never writes SSH files"
-INIT_HINT = "dt config --init --client tm_<id> --server <ssh-host> --user <name>"
+INIT_HINT = "dt config --init --local --client tm_<id>  (or add --server/--user for Hub mode)"
 
 
 @dataclass
@@ -66,21 +72,25 @@ def collect_checks() -> tuple[AppConfig | None, list[Check]]:
             checks.append(Check("client", False, cfg.client or "(empty)", SOURCE_HINT))
         else:
             checks.append(Check("client", True, cfg.client))
-        if not cfg.server or cfg.server == "server":
-            checks.append(Check("server", False, cfg.server or "(empty)", INIT_HINT))
-        else:
+        if cfg.hub_enabled:
+            checks.append(Check("mode", True, "hub"))
             checks.append(Check("server", True, cfg.server))
-        if not legal_user(cfg.user):
-            checks.append(Check("user", False, cfg.user or "(empty)", USER_HINT))
+            if not legal_user(cfg.user):
+                checks.append(Check("user", False, cfg.user or "(empty)", USER_HINT))
+            else:
+                checks.append(Check("user", True, f"{cfg.user}  remote {remote_sessions_root(cfg.user)}"))
+        elif cfg.server or cfg.user:
+            checks.append(Check("mode", False, "partial Hub config", INIT_HINT))
         else:
-            checks.append(Check("user", True, f"{cfg.user}  remote {remote_sessions_root(cfg.user)}"))
+            checks.append(Check("mode", True, "local-only"))
     home_dir().mkdir(parents=True, exist_ok=True)
     checks.append(Check("home", home_dir().is_dir(), str(home_dir())))
     if tmux_ops.have_tmux():
         checks.append(Check("tmux", True, shutil.which("tmux") or "tmux"))
     else:
         checks.append(Check("tmux", False, "not in PATH", "install tmux on the Client"))
-    checks.append(probe_ssh(cfg.server if cfg else "", port=cfg.ssh_port if cfg else 22))
+    if cfg and cfg.hub_enabled:
+        checks.append(probe_ssh(cfg.server, port=cfg.ssh_port))
     from .cron import dt_bin, installed
 
     if installed():

@@ -5,12 +5,12 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import cron as cron_ops
+from . import log as ev
 from .config import AppConfig, load_config
 from .identity import legal_source, legal_user, persist_rsync_rel, persist_source_dir
 from .paths import home_dir
 from .sshutil import SshTarget
-from . import cron as cron_ops
-from . import log as ev
 
 HOTFIX_ID = "persist-tenant-v1"
 STAMP_NAME = "hotfix.stamp"
@@ -69,7 +69,7 @@ def _write_text(path: Path, text: str) -> bool:
 
 
 def sync_persist_identity(cfg: AppConfig) -> Step:
-    if not legal_source(cfg.client) or not legal_user(cfg.user):
+    if not legal_source(cfg.client) or (cfg.hub_enabled and not legal_user(cfg.user)):
         return Step("identity", False, "dt config client/user invalid", False)
     persist_dir().mkdir(parents=True, exist_ok=True)
     changed = False
@@ -78,6 +78,8 @@ def sync_persist_identity(cfg: AppConfig) -> Step:
     if not legal_source(current):
         changed = _write_text(name_path, cfg.client) or changed
         current = cfg.client
+    if not cfg.hub_enabled:
+        return Step("identity", True, f"{current} / local-only", changed)
     user_path = persist_user_path()
     user_now = user_path.read_text().strip() if user_path.is_file() else ""
     if user_now != cfg.user:
@@ -165,9 +167,10 @@ def persist_script(kind: str, host: str, user: str) -> str:
         "#!/usr/bin/env bash",
         "set -u",
         'export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$HOME/bin:$PATH"',
+        f'HOST="${{1:-{host}}}"',
+        'grep -Fqx "server = \\"$HOST\\"" "$HOME/.dual-tmux/config.toml" 2>/dev/null || exit 0',
         'ME="$(tr -d \'[:space:]\' < "$HOME/.config/session-persist/name" 2>/dev/null || true)"',
         'case "$ME" in tm_*) ;; *) exit 0 ;; esac',
-        f'HOST="${{1:-{host}}}"',
         f'ROOT="$HOME/sessions/{kind}"',
         'LOCAL="$ROOT/$ME"',
         f'LOCK="$HOME/.dual-tmux/locks/persist-{kind}"',
@@ -214,6 +217,28 @@ def install_persist_sync(cfg: AppConfig) -> Step:
     return Step("persist-cron", True, f"{persist_bin('tmux')} + {persist_bin('opencode')}", changed)
 
 
+def uninstall_persist_sync() -> Step:
+    before = crontab_text()
+    rows = [row for row in before.splitlines() if "dt-persist-tmux" not in row and "dt-persist-opencode" not in row]
+    after = ("\n".join(rows) + "\n") if rows else ""
+    if after == before:
+        return Step("persist-cron", True, "disabled in local-only mode", False)
+    try:
+        result = subprocess.run(
+            ["crontab", "-"],
+            input=after,
+            capture_output=True,
+            text=True,
+            timeout=8,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return Step("persist-cron", False, "crontab update timed out", False)
+    if result.returncode != 0:
+        return Step("persist-cron", False, (result.stderr or "crontab failed").strip(), False)
+    return Step("persist-cron", True, "removed remote persist sync", True)
+
+
 def install_tick() -> Step:
     if cron_ops.installed():
         return Step("tick-cron", True, cron_ops.line(), False)
@@ -227,9 +252,9 @@ def apply(cfg: AppConfig | None = None, *, ssh: bool = True) -> list[Step]:
         sync_persist_identity(cfg),
         ensure_local_trees(cfg),
         install_tick(),
-        install_persist_sync(cfg),
+        install_persist_sync(cfg) if cfg.hub_enabled else uninstall_persist_sync(),
     ]
-    if ssh:
+    if ssh and cfg.hub_enabled:
         steps.append(ensure_hub_trees(cfg))
     stamp_path().parent.mkdir(parents=True, exist_ok=True)
     stamp_path().write_text(HOTFIX_ID + "\n")

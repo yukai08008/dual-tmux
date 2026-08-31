@@ -16,19 +16,31 @@ Client（本机）
 
 ## 第一次启动
 
-安装会把 `dt` 放进 PATH，并加上每分钟 crontab（`dt tick`）。第一次真正干活会问 **三个字段**。跳板目录默认 `/workspace`，某条隧道要用别的路径再 `dt new --dir`。
+安装会把 `dt` 放进 PATH，并加上每分钟 crontab（`dt tick`）。可以只填一个 Client 名称采用**纯本地模式**，也可以配置同步中心。纯本地隧道默认使用当前目录；Hub 模式的跳板目录默认 `/workspace`，某条隧道要用别的路径再 `dt new --dir`。
 
 | 字段 | 你填什么 | 本 CLI **不会**做的 |
 |------|----------|---------------------|
 | `client` | 合规的**本机源主机名**：`tm_` + `[A-Za-z0-9._-]`。例：`tm_laptop`。不要用 hostname。 | 不会用 `hostname` 瞎起名 |
-| `server` | 只要 `ssh` 能通。粘贴 `ssh -p 22 root@IP`：若 `~/.ssh/config` 有对应 Host 就记别名，否则记 `root@IP`。名字好不好看无所谓。 | 不写 `~/.ssh/config`、密钥、`known_hosts`。不用远端 hostname。 |
-| `user` | 人名：`[A-Za-z][A-Za-z0-9._-]`。例：`ouc`。不要 `tm_*`。 | 不创建系统账号 |
+| `server` | 可选的同步中心，也是新隧道的默认跳板；只要 `ssh` 能通。 | 不写 `~/.ssh/config`、密钥、`known_hosts`。 |
+| `user` | 与 `server` 成对填写。人名：`[A-Za-z][A-Za-z0-9._-]`。例：`ouc`。 | 不创建系统账号 |
 
 ```sh
+dt config --init --local --client tm_laptop  # 不依赖服务器
+
+# 或初始化时直接配置中心（旧命令继续兼容）
 dt config --init --client tm_laptop --server myserver --user ouc
 ssh myserver          # 必须已经能通
 dt doctor
 ```
+
+以后可以随时接入、更换或退出中心：
+
+```sh
+dt config --server tom7r --user andy
+dt config --local
+```
+
+切换采用“先合并、后落配置”的事务：存在旧 Hub 时先合并旧 Hub，再合并候选 Hub，全部成功后才原子替换 `config.toml`。SSH/rsync 失败时旧配置保持不变；同步不会传播删除。
 
 `~/.dual-tmux/config.toml`：
 
@@ -39,7 +51,7 @@ user = "ouc"           # 人；远端 persist 在 ~/<user>/sessions
 workspace = "/workspace"  # 默认跳板目录；初始化不问
 ```
 
-没有配置时，`dt` 会在 TTY 里问这三项，然后检查 Client tmux 和 `ssh <server>`。SSH 始终由你自己管。
+没有配置时，`dt` 会在 TTY 里询问纯本地或 Hub 模式。纯本地只检查 Client 运行环境；Hub 模式还会检查 `ssh <server>`。SSH 始终由你自己管。
 
 另外：Client 必须已装 tmux。`op_*` / `run_*` 都是**本机会话**；`run_*` 只通过 ssh 进 Server。
 
@@ -67,7 +79,7 @@ workspace = "/workspace"  # 默认跳板目录；初始化不问
 | OpenCode persist | `~/sessions/opencode/tm_*/` | 对话 JSON |
 | **dt 枢纽** | Server `~/<user>/dual-tmux/` | 只存 DT/DST 绑定 |
 
-枢纽同步是 **自动的**：`new` / `freeze` / `bind` / `enter` / `work` / `resume` 会后台推送；每分钟 `dt tick` 会按 `updated_at` 合并本机与枢纽的 `tunnels/` + `entries/`，所以另一台 Client 新建的隧道会自动出现。`dt push` / `dt pull` 用于要求立即单向同步。不拷 `config.toml`、`ops/`、`events.jsonl`。
+Hub 模式的同步是 **自动的**：`new` / `freeze` / `bind` / `enter` / `work` / `resume` 会后台推送；每分钟 `dt tick` 会按 `updated_at` 合并本机与中心的 `tunnels/` + `entries/`，所以另一台 Client 新建的隧道会自动出现。`dt push` / `dt pull` 用于要求立即单向同步。纯本地模式不会执行网络同步和分布式锁操作。不拷 `config.toml`、`ops/`、`events.jsonl`。
 
 ```sh
 # 另一台 —— tick 会自动发现；要立刻接续可手动 pull
@@ -228,8 +240,10 @@ freeze 还会记下 **工作点**（`op_point` / `run_point`：kind、cwd、ssh�
 | `dt log [-n] [--kind freeze] [--name dt-msg]` | CLI 事件日志 |
 | `dt show <name>` | 隧道 JSON |
 | `dt` | 接入最近一条 op_* |
-| `dt doctor` | 检查 Client tmux 和 ssh；打 persist 租户 hotfix |
-| `dt config --init` | 写入 client + server + user |
+| `dt doctor` | 检查 Client tmux 和可选 Hub；校准 persist 同步 |
+| `dt config --init [--local]` | 初始化纯本地或 Hub 模式 |
+| `dt config --server H --user U` | 无损接入或更换 Hub |
+| `dt config --local` | 最后合并后安全退出 Hub |
 | `dt upgrade` | `uv tool upgrade dual-tmux`，然后打 persist 租户 hotfix |
 
 ## 卸载

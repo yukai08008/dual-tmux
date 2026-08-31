@@ -10,14 +10,14 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from .config import AppConfig, load_config
-from .identity import remote_dt_root
-from .activity import TICKS, activity_path, frozen_last_ticks
-from .paths import entries_dir, tunnels_dir
-from .sshutil import SshTarget
 from . import log as ev
 from . import tmux as tmux_ops
 from . import ui
+from .activity import TICKS, activity_path, frozen_last_ticks
+from .config import AppConfig, load_config
+from .identity import remote_dt_root
+from .paths import entries_dir, tunnels_dir
+from .sshutil import SshTarget
 
 
 def ssh_argv(cfg: AppConfig | None = None) -> list[str]:
@@ -41,11 +41,24 @@ def remote_root(cfg: AppConfig | None = None) -> str:
 LOCK_TTL = 300
 
 
+def enabled(cfg: AppConfig | None = None) -> bool:
+    return (cfg or load_config()).hub_enabled
+
+
+def _require_hub(cfg: AppConfig) -> None:
+    if not cfg.hub_enabled:
+        raise SystemExit(
+            "[err] no Hub configured; attach one with: "
+            "dt config --server <ssh-host> --user <name>"
+        )
+
+
 def _run(argv: list[str], input: str | None = None) -> subprocess.CompletedProcess:
     return subprocess.run(argv, capture_output=True, text=True, input=input)
 
 
 def _ensure_remote(cfg: AppConfig) -> None:
+    _require_hub(cfg)
     dest = ssh_argv(cfg) + [
         f"mkdir -p {remote_root(cfg)}/tunnels {remote_root(cfg)}/entries "
         f"{remote_root(cfg)}/locks {remote_root(cfg)}/activity"
@@ -69,6 +82,7 @@ def _rsync(src: str, dest: str, cfg: AppConfig, *, update: bool = False) -> None
 
 def push(cfg: AppConfig | None = None) -> str:
     cfg = cfg or load_config()
+    _require_hub(cfg)
     root = remote_root(cfg)
     _ensure_remote(cfg)
     tunnels_dir().mkdir(parents=True, exist_ok=True)
@@ -85,6 +99,7 @@ def push(cfg: AppConfig | None = None) -> str:
 
 def pull(cfg: AppConfig | None = None) -> str:
     cfg = cfg or load_config()
+    _require_hub(cfg)
     root = remote_root(cfg)
     tunnels_dir().mkdir(parents=True, exist_ok=True)
     entries_dir().mkdir(parents=True, exist_ok=True)
@@ -192,6 +207,7 @@ def merge_snapshot(
 def sync(cfg: AppConfig | None = None) -> str:
     """Merge local and hub bindings, then publish the merged snapshot."""
     cfg = cfg or load_config()
+    _require_hub(cfg)
     root = remote_root(cfg)
     host = SshTarget(cfg.server, cfg.ssh_port).dest
     _ensure_remote(cfg)
@@ -217,6 +233,8 @@ def sync(cfg: AppConfig | None = None) -> str:
 
 def remove_remote(name: str, run: str = "", cfg: AppConfig | None = None) -> None:
     cfg = cfg or load_config()
+    if not cfg.hub_enabled:
+        return
     root = remote_root(cfg)
     parts = [f"rm -f {root}/tunnels/{name}.json {root}/locks/{name}"]
     if run:
@@ -283,6 +301,8 @@ echo "OK $ME 0"
 
 
 def read_lock(name: str) -> tuple[str, int]:
+    if not enabled():
+        return "", 0
     kind, holder, age = _lock_remote("read", name)
     if kind == "HELD":
         return holder, age
@@ -309,6 +329,8 @@ def idle_enough(name: str, holder: str) -> bool:
 
 
 def claim(name: str, force: bool = False) -> str:
+    if not enabled():
+        return load_config().client
     kind, holder, age = _lock_remote("read", name)
     if kind == "HELD" and holder and holder != load_config().client:
         if not force and not idle_enough(name, holder):
@@ -332,6 +354,8 @@ def claim(name: str, force: bool = False) -> str:
 
 
 def release(name: str) -> None:
+    if not enabled():
+        return
     _lock_remote("release", name)
     ev.emit("hub.release", name=name)
 
@@ -363,7 +387,10 @@ def require_active(data: dict, force: bool = False) -> None:
 def enforce_local() -> None:
     from .store import iter_dt_files, load
 
-    me = load_config().client
+    cfg = load_config()
+    if not cfg.hub_enabled:
+        return
+    me = cfg.client
     for path in iter_dt_files():
         data = load(path)
         name = data.get("name") or path.stem
@@ -376,6 +403,8 @@ def enforce_local() -> None:
 
 
 def push_best_effort(wait: bool = False) -> None:
+    if not enabled():
+        return
     def _run_push() -> None:
         try:
             dest = push()
@@ -394,6 +423,8 @@ def push_best_effort(wait: bool = False) -> None:
 
 
 def sync_best_effort(wait: bool = False) -> None:
+    if not enabled():
+        return
     def _run_sync() -> None:
         try:
             dest = sync()
