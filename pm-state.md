@@ -4,6 +4,10 @@
 
 ## 状态树
 
+### v0.4.46.post1 (ACTIVE) — hotfix: Web trigger progress detection
+
+- **hotfix/v0.4.46.post1-web-progress-detection** (CODE_COMPLETE): `dt-company_intro_v2` 正常长任务被 90 秒 deadline 误报失败；已改为 running/completion 语义检测、600 秒长任务提示、停滞分级提醒，并停止非 waiting poll 日志污染。132 tests、build、Browser smoke 全绿，待 PR/发布。
+
 ### v0.4.46 (ACTIVE) — Web 全功能控制面
 
 - **feature/v0.4.46-web-control-plane** (CODE_COMPLETE): tunnel、三客户端、Hub 同步、健康恢复、配置模式、Memory、Events、Doctor 已统一落到 Web/ControlService；131 tests、浏览器 E2E、构建与隔离安装通过，待 PR 合并和正式发布。
