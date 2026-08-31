@@ -22,7 +22,7 @@
 | W-20 | English docs | PASS | local and later attach examples |
 | W-21 | Chinese docs | PASS | local and later attach examples |
 | E-30 | isolated switch smoke | PASS | local → tom7r → local, 6 records |
-| E-31 | package build | PASS | install/upgrade checked after release |
+| E-31 | GitHub upgrade | PASS | installed CLI upgraded 0.4.38 → 0.4.39 |
 | E-32 | tom7r sync | PASS | tunnel SHA-256 sets identical |
 | E-33 | browser DOM E2E | PASS | local init and Hub attach commands visible; no console errors |
 
