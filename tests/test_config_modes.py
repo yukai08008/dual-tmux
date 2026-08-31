@@ -138,7 +138,7 @@ def test_config_cli_exposes_local_and_prints_mode(monkeypatch, tmp_path, capsys)
             client="",
             server="",
             user="",
-            workspace="/workspace",
+            workspace="",
         )
     )
     assert "local" in capsys.readouterr().out
@@ -171,3 +171,36 @@ def test_new_local_tunnel_has_no_ssh_runtime(monkeypatch, tmp_path):
     data = json.loads((tmp_path / "dt-home" / "tunnels" / "dt-local.json").read_text())
     assert data["runtime"]["server"] == ""
     assert data["runtime"]["cmd"] == f"cd {tmp_path}"
+
+
+def test_config_switch_changes_only_the_default_workspace(monkeypatch, tmp_path):
+    _home(monkeypatch, tmp_path)
+    local = make_config("tm_laptop", workspace=str(tmp_path))
+    write_config(local)
+    monkeypatch.setattr(hub, "sync", lambda _cfg: "ok")
+    monkeypatch.setattr("dual_tmux.cli._run_hotfix", lambda *_args, **_kwargs: None)
+
+    cmd_config(
+        Namespace(
+            init=False,
+            local=False,
+            client="",
+            server="tom7r",
+            user="andy",
+            workspace="",
+        )
+    )
+    assert load_config().workspace == "/workspace"
+
+    monkeypatch.chdir(tmp_path)
+    cmd_config(
+        Namespace(
+            init=False,
+            local=True,
+            client="",
+            server="",
+            user="",
+            workspace="",
+        )
+    )
+    assert load_config().workspace == str(tmp_path)

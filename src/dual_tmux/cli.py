@@ -108,11 +108,15 @@ def cmd_new(args: argparse.Namespace) -> None:
         ssh_port = cfg.ssh_port
     directory = args.dir or cfg.workspace
     if not server and args.container:
-        raise SystemExit("[err] --container currently requires --server; omit it for local mode")
+        raise SystemExit(
+            "[err] --container currently requires --server; omit it for local mode"
+        )
     if not server and not Path(directory).expanduser().is_dir():
         raise SystemExit(f"[err] local directory does not exist: {directory}")
     cmd = args.cmd or build_cmd(server, args.container or "", directory, ssh_port)
-    tmux_ops.ensure_session(run, cwd=str(Path(directory).expanduser()) if not server else "")
+    tmux_ops.ensure_session(
+        run, cwd=str(Path(directory).expanduser()) if not server else ""
+    )
     write_entry(run, cmd)
     data = {
         "name": name,
@@ -155,7 +159,11 @@ def cmd_new(args: argparse.Namespace) -> None:
 def cmd_branch(args: argparse.Namespace) -> None:
     src = _resolve(args.src)
     name, op, run = default_names(args.dest)
-    if occupied("op", op) or occupied("run", run) or (tunnels_dir() / f"{name}.json").exists():
+    if (
+        occupied("op", op)
+        or occupied("run", run)
+        or (tunnels_dir() / f"{name}.json").exists()
+    ):
         raise SystemExit(f"[err] {name} already exists")
     cfg = require_config()
     runtime = dict(src.get("runtime") or {})
@@ -168,8 +176,12 @@ def cmd_branch(args: argparse.Namespace) -> None:
         "user": cfg.user,
         "branched_from": src.get("name"),
         "runtime": runtime,
-        "trigger": oc_ops.empty_side((src.get("trigger") or {}).get("tool") or "opencode"),
-        "bullet": oc_ops.empty_side((src.get("bullet") or {}).get("tool") or "opencode"),
+        "trigger": oc_ops.empty_side(
+            (src.get("trigger") or {}).get("tool") or "opencode"
+        ),
+        "bullet": oc_ops.empty_side(
+            (src.get("bullet") or {}).get("tool") or "opencode"
+        ),
         "op_point": dict(src.get("op_point") or wp.empty_point()),
         "run_point": run_point,
         "times": wp.empty_times(),
@@ -192,7 +204,9 @@ def cmd_branch(args: argparse.Namespace) -> None:
     elif hops:
         tmux_ops.replay_hops(run, hops)
     landed = tmux_ops.wait_command(run, {"ssh", "docker", "bash", "sh"}, timeout=25)
-    if landed in {"zsh", "", "tmux"}:
+    if not runtime.get("server"):
+        ui.ok(f"{run} local workspace ready")
+    elif landed in {"zsh", "", "tmux"}:
         ui.warn(f"{run} jump not landed (cmd={landed or '—'}); still starting oc")
     else:
         ui.ok(f"{run} jump cmd={landed}")
@@ -204,8 +218,17 @@ def cmd_branch(args: argparse.Namespace) -> None:
     freeze_sides(data, ["trigger", "bullet"], "opencode", wait=True)
     wp.stamp(data, "freeze_at")
     save(find_dt(name), data)
-    ev.emit("dt.branch", src=src.get("name"), name=name, op=op, run=run, is_dst=oc_ops.is_dst(data))
-    ui.ok(f"branched {src.get('name')} → {name}  IS_DST={'yes' if oc_ops.is_dst(data) else 'no'}")
+    ev.emit(
+        "dt.branch",
+        src=src.get("name"),
+        name=name,
+        op=op,
+        run=run,
+        is_dst=oc_ops.is_dst(data),
+    )
+    ui.ok(
+        f"branched {src.get('name')} → {name}  IS_DST={'yes' if oc_ops.is_dst(data) else 'no'}"
+    )
     print_inspect(data)
     hub.push_best_effort(wait=True)
 
@@ -283,6 +306,8 @@ def _resolve(name: str | None) -> dict:
     except SystemExit:
         if not name:
             raise
+        if not hub.enabled():
+            raise
         ui.info("tunnel missing locally; pulling hub")
         hub.pull()
         path = find_dt(name)
@@ -293,7 +318,9 @@ def print_next_after_init() -> None:
     ui.print_next_init()
 
 
-def _start_side(data: dict, tmux_name: str, side: str, model: str = "", resume: bool = False) -> None:
+def _start_side(
+    data: dict, tmux_name: str, side: str, model: str = "", resume: bool = False
+) -> None:
     info = _side(data, side)
     if model:
         info["model"] = model
@@ -332,7 +359,13 @@ def cmd_enter(args: argparse.Namespace) -> None:
     ev.emit("dt.enter", name=data["name"], oc=bool(getattr(args, "oc", False)))
     wp.stamp(data, "enter_at")
     if getattr(args, "oc", False) or getattr(args, "resume", False):
-        _start_side(data, data["op"], "trigger", getattr(args, "model", "") or "", getattr(args, "resume", False))
+        _start_side(
+            data,
+            data["op"],
+            "trigger",
+            getattr(args, "model", "") or "",
+            getattr(args, "resume", False),
+        )
         wp.stamp(data, "trigger_oc_at")
     _touch_point(data, "op")
     tmux_ops.attach(data["op"])
@@ -344,7 +377,13 @@ def cmd_work(args: argparse.Namespace) -> None:
     ev.emit("dt.work", name=data["name"], oc=bool(getattr(args, "oc", False)))
     wp.stamp(data, "work_at")
     if getattr(args, "oc", False) or getattr(args, "resume", False):
-        _start_side(data, data["run"], "bullet", getattr(args, "model", "") or "", getattr(args, "resume", False))
+        _start_side(
+            data,
+            data["run"],
+            "bullet",
+            getattr(args, "model", "") or "",
+            getattr(args, "resume", False),
+        )
         wp.stamp(data, "bullet_oc_at")
     _touch_point(data, "run")
     tmux_ops.attach(data["run"])
@@ -371,7 +410,15 @@ def _ssh_argv(data: dict) -> list[str]:
     server = runtime.get("server") or cfg.server
     port = int(runtime.get("ssh_port") or cfg.ssh_port or 22)
     target = SshTarget(server, port)
-    return ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", *target.extra_args, target.dest]
+    return [
+        "ssh",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=8",
+        *target.extra_args,
+        target.dest,
+    ]
 
 
 def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) -> bool:
@@ -386,7 +433,9 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
     info = tmux_ops.pane_info(tmux_name)
     pane_cmd = info.get("cmd") or ""
     side_info = _side(data, side)
-    requested_tool = (side_info.get("tool") or "opencode") if tool in {"", "auto"} else tool
+    requested_tool = (
+        (side_info.get("tool") or "opencode") if tool in {"", "auto"} else tool
+    )
     process_commands = [pane_cmd, *wp.walk_commands(info.get("pid") or "")]
     actual_local_client = agentclient.detect_name(process_commands)
     client_name = actual_local_client or agentclient.normalize_name(requested_tool)
@@ -409,10 +458,24 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
 
         if previous_tool != client_name:
             side_info["parser"] = ""
-            for key in ("model", "session_id", "slug", "agent", "directory", "frozen_at"):
+            for key in (
+                "model",
+                "session_id",
+                "slug",
+                "agent",
+                "directory",
+                "frozen_at",
+            ):
                 side_info[key] = ""
         if client_name != "opencode":
-            for key in ("model", "session_id", "slug", "agent", "directory", "frozen_at"):
+            for key in (
+                "model",
+                "session_id",
+                "slug",
+                "agent",
+                "directory",
+                "frozen_at",
+            ):
                 side_info[key] = ""
         side_info["parser"] = parser_id_for_side(side_info)
     ev.emit(
@@ -425,7 +488,9 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
         error=client_meta.get("error"),
     )
     if client_name and client_name != "opencode":
-        ui.warn(f"{side} {client_name} client captured; session freeze/resume is not implemented for this tool")
+        ui.warn(
+            f"{side} {client_name} client captured; session freeze/resume is not implemented for this tool"
+        )
         return False
     local_oc = pane_cmd == "opencode"
     session = oc_ops.from_pane(
@@ -443,9 +508,13 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
             info = tmux_ops.pane_info(tmux_name)
             pane_cmd = info.get("cmd") or ""
             local_oc = pane_cmd == "opencode"
-            session = oc_ops.from_pane(info.get("pid") or "", info.get("cwd") or "", exclude, fallback=local_oc)
+            session = oc_ops.from_pane(
+                info.get("pid") or "", info.get("cwd") or "", exclude, fallback=local_oc
+            )
     if not session and not local_oc and point["kind"] in {"ssh", "docker"}:
-        session = oc_ops.latest_remote(_ssh_argv(data), point.get("container") or runtime.get("container") or "")
+        session = oc_ops.latest_remote(
+            _ssh_argv(data), point.get("container") or runtime.get("container") or ""
+        )
     if not session:
         error = (
             f"no {side} opencode on {tmux_name} "
@@ -484,7 +553,9 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
     return True
 
 
-def freeze_sides(data: dict, sides: list[str], tool: str = "auto", wait: bool = False) -> None:
+def freeze_sides(
+    data: dict, sides: list[str], tool: str = "auto", wait: bool = False
+) -> None:
     if "trigger" in sides:
         _freeze_one(data, "trigger", data["op"], tool, wait)
     if "bullet" in sides:
@@ -616,7 +687,9 @@ def cmd_make(args: argparse.Namespace) -> None:
     freeze_sides(data, ["trigger", "bullet"], tool, wait=True)
     save(path, data)
     if not oc_ops.is_dst(data):
-        raise SystemExit("[err] DST not ready. dt enter --oc / dt work --oc, then dt freeze")
+        raise SystemExit(
+            "[err] DST not ready. dt enter --oc / dt work --oc, then dt freeze"
+        )
     ui.ok(f"DST {data['name']}")
     print_inspect(data)
     hub.push_best_effort(wait=True)
@@ -630,7 +703,12 @@ def apply_resume(name: str | None, force: bool = False) -> dict:
     if not oc_ops.is_dst(data):
         raise SystemExit("[err] not a DST. Freeze both oc sessions first: dt freeze")
     jump = (data.get("runtime") or {}).get("cmd") or ""
-    if jump and tmux_ops.pane_command(data["run"]) not in {"ssh", "docker", "tmux", "opencode"}:
+    if jump and tmux_ops.pane_command(data["run"]) not in {
+        "ssh",
+        "docker",
+        "tmux",
+        "opencode",
+    }:
         tmux_ops.reconnect(data["run"], jump)
     if oc_ops.ensure_local(_side(data, "trigger")):
         ui.ok("imported trigger persist JSON")
@@ -706,7 +784,11 @@ def prompt_init(workspace: str = "/workspace") -> None:
     if cfg.ssh_port != 22:
         ui.info(f"ssh_port={cfg.ssh_port}  (not written to ~/.ssh)")
     ui.info(f"remote persist {remote_sessions_root(cfg.user)}")
-    hint = f"ssh -p {cfg.ssh_port} {cfg.server}" if cfg.ssh_port != 22 else f"ssh {cfg.server}"
+    hint = (
+        f"ssh -p {cfg.ssh_port} {cfg.server}"
+        if cfg.ssh_port != 22
+        else f"ssh {cfg.server}"
+    )
     ui.print_next_init()
     ui.info(f"then: {hint} && dt doctor")
     _run_hotfix(cfg, ssh=True)
@@ -715,19 +797,21 @@ def prompt_init(workspace: str = "/workspace") -> None:
 def cmd_config(args: argparse.Namespace) -> None:
     if args.init:
         if not args.client:
-            prompt_init(args.workspace)
+            prompt_init(args.workspace or "/workspace")
             return
         if args.local and (args.server or args.user):
             raise SystemExit("[err] --local cannot be combined with --server/--user")
         if not args.local and bool(args.server) != bool(args.user):
-            raise SystemExit("[err] --server and --user are required together; or pass --local")
-        workspace = args.workspace
-        if args.local and workspace == "/workspace":
-            workspace = str(Path.cwd())
+            raise SystemExit(
+                "[err] --server and --user are required together; or pass --local"
+            )
+        workspace = args.workspace or (str(Path.cwd()) if args.local else "/workspace")
         candidate = make_config(args.client, args.server, args.user, workspace)
         current = load_config() if config_path().is_file() else None
-        path = switch_config(current, candidate) if candidate.hub_enabled or current else init_config(
-            candidate.client, workspace=candidate.workspace
+        path = (
+            switch_config(current, candidate)
+            if candidate.hub_enabled or current
+            else init_config(candidate.client, workspace=candidate.workspace)
         )
         cfg = load_config()
         ui.ok(f"wrote {path}")
@@ -741,7 +825,11 @@ def cmd_config(args: argparse.Namespace) -> None:
         if cfg.ssh_port != 22:
             ui.info(f"ssh_port={cfg.ssh_port}  (not written to ~/.ssh)")
         ui.info(f"remote persist {remote_sessions_root(cfg.user)}")
-        hint = f"ssh -p {cfg.ssh_port} {cfg.server}" if cfg.ssh_port != 22 else f"ssh {cfg.server}"
+        hint = (
+            f"ssh -p {cfg.ssh_port} {cfg.server}"
+            if cfg.ssh_port != 22
+            else f"ssh {cfg.server}"
+        )
         ui.info(f"next: {hint} && dt doctor")
         _run_hotfix(cfg, ssh=True)
         return
@@ -765,17 +853,24 @@ def cmd_config(args: argparse.Namespace) -> None:
     else:
         ui.info("hub        — (attach: dt config --server HOST --user NAME)")
     ui.info(f"workspace  {cfg.workspace}")
-    changing = args.local or args.client or args.server or args.user or args.workspace != "/workspace"
+    changing = (
+        args.local or args.client or args.server or args.user or bool(args.workspace)
+    )
     if changing:
         if args.local and (args.server or args.user):
             raise SystemExit("[err] --local cannot be combined with --server/--user")
         server = "" if args.local else (args.server or cfg.server)
         user = "" if args.local else (args.user or cfg.user)
+        workspace = args.workspace or cfg.workspace
+        if not args.workspace and args.local and cfg.hub_enabled:
+            workspace = str(Path.cwd())
+        elif not args.workspace and args.server and not cfg.hub_enabled:
+            workspace = "/workspace"
         candidate = make_config(
             args.client or cfg.client,
             server,
             user,
-            args.workspace if args.workspace != "/workspace" else cfg.workspace,
+            workspace,
         )
         path = switch_config(cfg, candidate)
         ui.ok(f"merged records and switched to {candidate.mode} config  {path}")
@@ -789,7 +884,9 @@ def cmd_tick(_: argparse.Namespace) -> None:
     for path in iter_dt_files():
         data = load(path)
         name = data.get("name") or path.stem
-        live = tmux_ops.has_session(data.get("op") or "") or tmux_ops.has_session(data.get("run") or "")
+        live = tmux_ops.has_session(data.get("op") or "") or tmux_ops.has_session(
+            data.get("run") or ""
+        )
         if not live:
             continue
         try:
@@ -877,7 +974,11 @@ def cmd_rm(args: argparse.Namespace) -> None:
     if not args.yes:
         if not sys.stdin.isatty():
             raise SystemExit("usage: dt rm <name> --yes [--kill]")
-        answer = input(f"rm {name}  op={op}  run={run}  kill_tmux={args.kill}? [y/N] ").strip().lower()
+        answer = (
+            input(f"rm {name}  op={op}  run={run}  kill_tmux={args.kill}? [y/N] ")
+            .strip()
+            .lower()
+        )
         if answer not in {"y", "yes"}:
             ui.skip("cancelled")
             return
@@ -954,7 +1055,10 @@ def cmd_mem(args: argparse.Namespace) -> None:
             raise SystemExit("usage: dt mem [name] set <key> <value>")
         data = mem_ops.put_fact(args.key, args.value, name or None)
         ui.ok(f"set {args.key}")
-        _print_facts(data, f"{name or 'shared'}  {mem_ops.agent_memory_path(name) if name else mem_ops.global_memory_path()}")
+        _print_facts(
+            data,
+            f"{name or 'shared'}  {mem_ops.agent_memory_path(name) if name else mem_ops.global_memory_path()}",
+        )
         return
     if name:
         mem_ops.ensure_agent(name)
@@ -1037,13 +1141,20 @@ def cmd_skill(args: argparse.Namespace) -> None:
         ui.ok(f"logged {args.name}  ok={ok}")
         return
     if action == "log":
-        rows = skillmgr.read_log(limit=args.limit, skill=args.name or "", name=args.dt or "", ok=args.status or "")
+        rows = skillmgr.read_log(
+            limit=args.limit,
+            skill=args.name or "",
+            name=args.dt or "",
+            ok=args.status or "",
+        )
         if not rows:
             ui.skip("(no skill usage)")
             return
         for row in rows:
             flag = "ok" if row.get("ok") else "fail"
-            ui.info(f"{row.get('ts')}  {flag}  {row.get('dt')}  {row.get('who')}  {row.get('skill')}  {row.get('detail') or ''}")
+            ui.info(
+                f"{row.get('ts')}  {flag}  {row.get('dt')}  {row.get('who')}  {row.get('skill')}  {row.get('detail') or ''}"
+            )
         return
     raise SystemExit("usage: dt skill ls|import|enable|disable|teach|used|log")
 
@@ -1088,15 +1199,23 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("ls", help="list DT; second column is IS_DST")
     p_show = sub.add_parser("show", help="show one tunnel JSON")
     p_show.add_argument("name")
-    p_ins = sub.add_parser("inspect", help="show DT/DST fields including empty tool/model/session")
+    p_ins = sub.add_parser(
+        "inspect", help="show DT/DST fields including empty tool/model/session"
+    )
     p_ins.add_argument("name", nargs="?", help="defaults to latest tunnel")
 
-    p_rm = sub.add_parser("rm", help="unregister a DT; --kill also destroys op_*/run_* tmux")
+    p_rm = sub.add_parser(
+        "rm", help="unregister a DT; --kill also destroys op_*/run_* tmux"
+    )
     p_rm.add_argument("name")
     p_rm.add_argument("--yes", "-y", action="store_true", help="do not prompt")
-    p_rm.add_argument("--kill", action="store_true", help="tmux kill-session op_* and run_*")
+    p_rm.add_argument(
+        "--kill", action="store_true", help="tmux kill-session op_* and run_*"
+    )
 
-    p_branch = sub.add_parser("branch", help="replay jump + new oc on both sides; freeze as its own DST")
+    p_branch = sub.add_parser(
+        "branch", help="replay jump + new oc on both sides; freeze as its own DST"
+    )
     p_branch.add_argument("src")
     p_branch.add_argument("dest")
 
@@ -1104,12 +1223,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_new.add_argument("name", help="dt-app or app")
     p_new.add_argument("--op", help="defaults to op_<name>")
     p_new.add_argument("--run", help="defaults to run_<name>")
-    p_new.add_argument("--server", default="", help="overrides config server (ssh host)")
+    p_new.add_argument(
+        "--server", default="", help="overrides config server (ssh host)"
+    )
     p_new.add_argument("--container", default="")
     p_new.add_argument("--dir", default="", help="remote working directory")
     p_new.add_argument("--cmd", default="", help="override reconnect command")
 
-    p_bind = sub.add_parser("bind", help="set DST tool/model/session_id on trigger and bullet")
+    p_bind = sub.add_parser(
+        "bind", help="set DST tool/model/session_id on trigger and bullet"
+    )
     p_bind.add_argument("name")
     p_bind.add_argument("--trigger", default="", help="trigger slug")
     p_bind.add_argument("--bullet", default="", help="bullet slug")
@@ -1128,30 +1251,50 @@ def build_parser() -> argparse.ArgumentParser:
         p = sub.add_parser(name, help=help_text)
         p.add_argument("name", nargs="?", help="defaults to latest tunnel")
         if name in {"enter", "work"}:
-            p.add_argument("--oc", action="store_true", help="start OpenCode in that tmux")
+            p.add_argument(
+                "--oc", action="store_true", help="start OpenCode in that tmux"
+            )
             p.add_argument("--model", default="", help="model for --oc")
-            p.add_argument("--resume", action="store_true", help="resume by recorded session_id")
-            p.add_argument("--force", action="store_true", help="steal hub lock from another Client")
+            p.add_argument(
+                "--resume", action="store_true", help="resume by recorded session_id"
+            )
+            p.add_argument(
+                "--force",
+                action="store_true",
+                help="steal hub lock from another Client",
+            )
 
     p_model = sub.add_parser("model", help="restart a side with a new model and freeze")
     p_model.add_argument("name", nargs="?", help="defaults to latest tunnel")
-    p_model.add_argument("model", nargs="?", default="", help="provider/id, e.g. cli-proxy/glm-5.1")
-    p_model.add_argument("--model", dest="model_flag", default="", help="same as positional model")
+    p_model.add_argument(
+        "model", nargs="?", default="", help="provider/id, e.g. cli-proxy/glm-5.1"
+    )
+    p_model.add_argument(
+        "--model", dest="model_flag", default="", help="same as positional model"
+    )
     p_model.add_argument("--run", action="store_true", help="bullet (default)")
     p_model.add_argument("--op", action="store_true", help="trigger")
 
-    p_freeze = sub.add_parser("freeze", help="freeze op-oc and run-oc; DST only if both exist")
+    p_freeze = sub.add_parser(
+        "freeze", help="freeze op-oc and run-oc; DST only if both exist"
+    )
     p_freeze.add_argument("name", nargs="?", help="defaults to latest tunnel")
     p_freeze.add_argument("--trigger", action="store_true")
     p_freeze.add_argument("--bullet", action="store_true")
-    p_freeze.add_argument("--tool", choices=["auto", "opencode", "codex", "claude"], default="auto")
+    p_freeze.add_argument(
+        "--tool", choices=["auto", "opencode", "codex", "claude"], default="auto"
+    )
     p_cap = sub.add_parser("capture", help="alias of freeze")
     p_cap.add_argument("name", nargs="?", help="defaults to latest tunnel")
     p_cap.add_argument("--trigger", action="store_true")
     p_cap.add_argument("--bullet", action="store_true")
-    p_cap.add_argument("--tool", choices=["auto", "opencode", "codex", "claude"], default="auto")
+    p_cap.add_argument(
+        "--tool", choices=["auto", "opencode", "codex", "claude"], default="auto"
+    )
 
-    p_make = sub.add_parser("make", help="dt make dst <name> — create DT + both oc and freeze")
+    p_make = sub.add_parser(
+        "make", help="dt make dst <name> — create DT + both oc and freeze"
+    )
     p_make.add_argument("target", choices=["dst"])
     p_make.add_argument("name")
     p_make.add_argument("--tool", default="opencode")
@@ -1161,11 +1304,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_make.add_argument("--container", default="")
     p_make.add_argument("--dir", default="")
 
-    p_resume = sub.add_parser("resume", help="resume a DST; reconnects missing op/run oc")
+    p_resume = sub.add_parser(
+        "resume", help="resume a DST; reconnects missing op/run oc"
+    )
     p_resume.add_argument("name", nargs="?", help="defaults to latest tunnel")
-    p_resume.add_argument("--force", action="store_true", help="steal hub lock from another Client")
+    p_resume.add_argument(
+        "--force", action="store_true", help="steal hub lock from another Client"
+    )
 
-    p_drop = sub.add_parser("drop", help="kill local op_*/run_* and release hub lock; binding stays")
+    p_drop = sub.add_parser(
+        "drop", help="kill local op_*/run_* and release hub lock; binding stays"
+    )
     p_drop.add_argument("name", nargs="?", help="defaults to latest tunnel")
     p_park = sub.add_parser("park", help="alias of dt drop")
     p_park.add_argument("name", nargs="?", help="defaults to latest tunnel")
@@ -1176,15 +1325,27 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_config = sub.add_parser("config", help="show or init Client/Server config")
     p_config.add_argument("--init", action="store_true")
-    p_config.add_argument("--local", action="store_true", help="use local-only mode; safely detach a Hub")
-    p_config.add_argument("--client", default="", help="legal local source name, must start with tm_")
-    p_config.add_argument("--server", default="", help="ssh Host alias already in ~/.ssh/config")
-    p_config.add_argument("--user", default="", help="person id; remote persist ~/<user>/sessions")
-    p_config.add_argument("--workspace", default="/workspace")
+    p_config.add_argument(
+        "--local", action="store_true", help="use local-only mode; safely detach a Hub"
+    )
+    p_config.add_argument(
+        "--client", default="", help="legal local source name, must start with tm_"
+    )
+    p_config.add_argument(
+        "--server", default="", help="ssh Host alias already in ~/.ssh/config"
+    )
+    p_config.add_argument(
+        "--user", default="", help="person id; remote persist ~/<user>/sessions"
+    )
+    p_config.add_argument("--workspace", default="")
 
     sub.add_parser("push", help="rsync tunnels+entries to Server ~/<user>/dual-tmux")
-    sub.add_parser("pull", help="rsync tunnels+entries from Server; keeps this Client config.toml")
-    sub.add_parser("tick", help="sample pane fingerprints; renew lock; push activity.log")
+    sub.add_parser(
+        "pull", help="rsync tunnels+entries from Server; keeps this Client config.toml"
+    )
+    sub.add_parser(
+        "tick", help="sample pane fingerprints; renew lock; push activity.log"
+    )
     p_cron = sub.add_parser("cron", help="install/remove the minute dt tick crontab")
     p_cron.add_argument("--install", action="store_true", default=True)
     p_cron.add_argument("--remove", action="store_true")
@@ -1195,7 +1356,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_log.add_argument("--name", default="", help="filter by DT name")
 
     p_mem = sub.add_parser("mem", help="shared or per-agent MEMORY.json facts")
-    p_mem.add_argument("name", nargs="?", default="", help="dt name; omit for shared ~/.dual-tmux/MEMORY.json")
+    p_mem.add_argument(
+        "name",
+        nargs="?",
+        default="",
+        help="dt name; omit for shared ~/.dual-tmux/MEMORY.json",
+    )
     p_mem.add_argument("action", nargs="?", default="get", choices=["get", "set"])
     p_mem.add_argument("key", nargs="?", default="")
     p_mem.add_argument("value", nargs="?", default="")
@@ -1215,10 +1381,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_notes.add_argument("--q", default="", help="FTS5 MATCH query")
     p_notes.add_argument("-n", "--limit", type=int, default=40)
 
-    p_skill = sub.add_parser("skill", help="catalog in ~/.dual-tmux/skills; trigger subset; teach bullet")
+    p_skill = sub.add_parser(
+        "skill", help="catalog in ~/.dual-tmux/skills; trigger subset; teach bullet"
+    )
     sk = p_skill.add_subparsers(dest="skill_cmd")
     sk.add_parser("ls", help="list catalog and who uses each skill")
-    p_imp = sk.add_parser("import", help="import folder, SKILL.md, or zip into the catalog")
+    p_imp = sk.add_parser(
+        "import", help="import folder, SKILL.md, or zip into the catalog"
+    )
     p_imp.add_argument("path")
     p_en = sk.add_parser("enable", help="add skill to trigger or bullet subset")
     p_en.add_argument("name")
@@ -1226,7 +1396,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_dis = sk.add_parser("disable", help="remove skill from trigger or bullet subset")
     p_dis.add_argument("name")
     p_dis.add_argument("who", choices=["trigger", "bullet"])
-    p_teach = sk.add_parser("teach", help="enable on bullet and send-keys the skill names into run_*")
+    p_teach = sk.add_parser(
+        "teach", help="enable on bullet and send-keys the skill names into run_*"
+    )
     p_teach.add_argument("dt")
     p_teach.add_argument("skills", nargs="+")
     p_teach.add_argument("--text", default="", help="override message sent to bullet")
@@ -1243,8 +1415,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_slog.add_argument("--status", default="", help="yes|no")
     p_web = sub.add_parser("web", help="local admin UI for tunnel pane I/O")
     p_web.add_argument("--port", type=int, default=8787)
-    p_web.add_argument("--no-open", action="store_true", help="do not open the default browser")
-    sub.add_parser("doctor", help="check config, tmux, ssh; apply persist tenant hotfix")
+    p_web.add_argument(
+        "--no-open", action="store_true", help="do not open the default browser"
+    )
+    sub.add_parser(
+        "doctor", help="check config, tmux, ssh; apply persist tenant hotfix"
+    )
     sub.add_parser("hotfix", help="apply persist tenant hotfix without upgrading")
     sub.add_parser("upgrade", help="upgrade via uv tool, then exec dt hotfix")
     return parser
