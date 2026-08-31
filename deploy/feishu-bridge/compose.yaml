@@ -1,0 +1,19 @@
+services:
+  bridge:
+    build:
+      context: ../..
+      dockerfile: deploy/feishu-bridge/Dockerfile
+    container_name: dual-tmux-feishu-bridge
+    restart: unless-stopped
+    env_file:
+      - /root/andy/dual-tmux/feishu/bridge.env
+    environment:
+      DUAL_TMUX_HOME: /data
+    volumes:
+      - /root/andy/dual-tmux:/data
+    ports:
+      - 127.0.0.1:8790:8790
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL

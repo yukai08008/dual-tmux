@@ -203,6 +203,8 @@ The v0.4.46 Web control plane covers daily tunnel work end to end: local/Hub tun
 
 v0.4.47 adds the secure Feishu binding API that will back the v0.4.48 QR-code UI and tom7r event bridge. OAuth access tokens are never persisted; App Secret comes only from an environment variable or a strict mode-`0600` local file. Pairing state, event IDs, and destructive confirmation tokens expire and are one-time. See [Feishu control](docs/feishu.md). This API version does not yet route Feishu cloud events to a Client on `127.0.0.1`.
 
+v0.4.48 completes that path: the **Feishu** Web page configures the non-secret App contract, generates a short-lived QR code, shows bindings, synchronizes the bridge, and unbinds operators. A tom7r mailbox bridge receives OAuth callbacks and verified Feishu message events, keeps commands while a Client is offline, and lets `dt tick` execute them locally through `ControlService`. The local Web server remains bound to `127.0.0.1`; it is never exposed to Feishu. Production rollout still requires an enterprise Feishu App, HTTPS callback routes, and a real credentialed E2E.
+
 ## Default agent: OpenCode
 
 The intended occupants of `op_*` (trigger) and `run_*` (bullet) are **[OpenCode](https://opencode.ai)** sessions.
