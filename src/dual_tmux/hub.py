@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import os
+import shutil
 import subprocess
+import tempfile
 import threading
+from datetime import datetime
 from pathlib import Path
 
 from .config import AppConfig, load_config
@@ -50,8 +56,12 @@ def _ensure_remote(cfg: AppConfig) -> None:
         raise SystemExit(f"[err] hub mkdir: {err[-1] if err else 'failed'}")
 
 
-def _rsync(src: str, dest: str, cfg: AppConfig) -> None:
-    result = _run(["rsync", "-a", "-e", rsync_ssh(cfg), src, dest])
+def _rsync(src: str, dest: str, cfg: AppConfig, *, update: bool = False) -> None:
+    argv = ["rsync", "-a"]
+    if update:
+        argv.append("--update")
+    argv.extend(["-e", rsync_ssh(cfg), src, dest])
+    result = _run(argv)
     if result.returncode != 0:
         err = (result.stderr or result.stdout or "rsync failed").strip().splitlines()
         raise SystemExit(f"[err] rsync: {err[-1] if err else 'failed'}")
@@ -82,6 +92,126 @@ def pull(cfg: AppConfig | None = None) -> str:
     _rsync(f"{host}:{root}/tunnels/", f"{tunnels_dir()}/", cfg)
     _rsync(f"{host}:{root}/entries/", f"{entries_dir()}/", cfg)
     ev.emit("hub.pull", host=host, root=root)
+    return f"{host}:{root}"
+
+
+def _tunnel_time(path: Path) -> float:
+    """Use the binding's logical clock, falling back to its file mtime."""
+    try:
+        value = str(json.loads(path.read_text(encoding="utf-8")).get("updated_at") or "")
+        if value:
+            return datetime.fromisoformat(value).timestamp()
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        pass
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def _copy_newer(left: Path, right: Path, *, logical_time: bool = False) -> Path:
+    """Make two files converge and return the selected source path."""
+    if not left.is_file() and not right.is_file():
+        return left
+    left_mtime = left.stat().st_mtime_ns if left.is_file() else 0
+    right_mtime = right.stat().st_mtime_ns if right.is_file() else 0
+    if not left.is_file():
+        winner, loser = right, left
+    elif not right.is_file():
+        winner, loser = left, right
+    else:
+        clock = _tunnel_time if logical_time else lambda path: path.stat().st_mtime
+        try:
+            left_bytes = left.read_bytes()
+            right_bytes = right.read_bytes()
+        except OSError:
+            left_bytes = right_bytes = b""
+        if left_bytes == right_bytes:
+            return left
+        left_key = (clock(left), hashlib.sha256(left_bytes).digest())
+        right_key = (clock(right), hashlib.sha256(right_bytes).digest())
+        winner, loser = (right, left) if right_key > left_key else (left, right)
+    loser.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(winner, loser)
+    merged_mtime = max(left_mtime, right_mtime) + 1_000_000_000
+    os.utime(winner, ns=(merged_mtime, merged_mtime))
+    os.utime(loser, ns=(merged_mtime, merged_mtime))
+    return winner
+
+
+def _copy_preferred(preferred: Path, other: Path) -> None:
+    if preferred.is_file():
+        merged_mtime = max(
+            preferred.stat().st_mtime_ns,
+            other.stat().st_mtime_ns if other.is_file() else 0,
+        ) + 1_000_000_000
+        other.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(preferred, other)
+        os.utime(preferred, ns=(merged_mtime, merged_mtime))
+        os.utime(other, ns=(merged_mtime, merged_mtime))
+    elif other.is_file():
+        preferred.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(other, preferred)
+
+
+def merge_snapshot(
+    local_tunnels: Path,
+    local_entries: Path,
+    hub_tunnels: Path,
+    hub_entries: Path,
+) -> None:
+    """Merge a downloaded hub snapshot with local bindings without deletions."""
+    for root in (local_tunnels, local_entries, hub_tunnels, hub_entries):
+        root.mkdir(parents=True, exist_ok=True)
+    names = {path.name for root in (local_tunnels, hub_tunnels) for path in root.glob("dt-*.json")}
+    owned_entries: set[str] = set()
+    for name in sorted(names):
+        local = local_tunnels / name
+        remote = hub_tunnels / name
+        winner = _copy_newer(local, remote, logical_time=True)
+        try:
+            run = str(json.loads(winner.read_text(encoding="utf-8")).get("run") or "")
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            run = ""
+        if run:
+            entry = f"{run}.cmd"
+            owned_entries.add(entry)
+            local_entry = local_entries / entry
+            hub_entry = hub_entries / entry
+            if winner.parent == local_tunnels:
+                _copy_preferred(local_entry, hub_entry)
+            else:
+                _copy_preferred(hub_entry, local_entry)
+    orphan_entries = {
+        path.name for root in (local_entries, hub_entries) for path in root.glob("run_*.cmd")
+    } - owned_entries
+    for name in sorted(orphan_entries):
+        _copy_newer(local_entries / name, hub_entries / name)
+
+
+def sync(cfg: AppConfig | None = None) -> str:
+    """Merge local and hub bindings, then publish the merged snapshot."""
+    cfg = cfg or load_config()
+    root = remote_root(cfg)
+    host = SshTarget(cfg.server, cfg.ssh_port).dest
+    _ensure_remote(cfg)
+    tunnels_dir().mkdir(parents=True, exist_ok=True)
+    entries_dir().mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="dual-tmux-sync-") as raw:
+        snapshot = Path(raw)
+        hub_tunnels = snapshot / "tunnels"
+        hub_entries = snapshot / "entries"
+        hub_tunnels.mkdir()
+        hub_entries.mkdir()
+        _rsync(f"{host}:{root}/tunnels/", f"{hub_tunnels}/", cfg)
+        _rsync(f"{host}:{root}/entries/", f"{hub_entries}/", cfg)
+        merge_snapshot(tunnels_dir(), entries_dir(), hub_tunnels, hub_entries)
+        _rsync(f"{hub_tunnels}/", f"{host}:{root}/tunnels/", cfg, update=True)
+        _rsync(f"{hub_entries}/", f"{host}:{root}/entries/", cfg, update=True)
+    log = activity_path()
+    if log.is_file():
+        _rsync(str(log), f"{host}:{root}/activity/{cfg.client}.log", cfg)
+    ev.emit("hub.sync", host=host, root=root)
     return f"{host}:{root}"
 
 
@@ -261,3 +391,21 @@ def push_best_effort(wait: bool = False) -> None:
             ui.warn(f"hub push skipped  {exc}")
         return
     threading.Thread(target=_run_push, daemon=True).start()
+
+
+def sync_best_effort(wait: bool = False) -> None:
+    def _run_sync() -> None:
+        try:
+            dest = sync()
+            ev.emit("hub.sync.ok", dest=dest)
+        except SystemExit as exc:
+            ev.emit("hub.sync.fail", error=str(exc))
+
+    if wait:
+        try:
+            dest = sync()
+            ui.info(f"hub sync  {dest}")
+        except SystemExit as exc:
+            ui.warn(f"hub sync skipped  {exc}")
+        return
+    threading.Thread(target=_run_sync, daemon=True).start()

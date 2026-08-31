@@ -67,10 +67,10 @@ workspace = "/workspace"  # 默认跳板目录；初始化不问
 | OpenCode persist | `~/sessions/opencode/tm_*/` | 对话 JSON |
 | **dt 枢纽** | Server `~/<user>/dual-tmux/` | 只存 DT/DST 绑定 |
 
-枢纽推送是 **自动的**：`new` / `freeze` / `bind` / `enter` / `work` / `resume` 会后台 rsync `tunnels/` + `entries/`。`dt push` 只是立刻再推一次（会等 rsync 完）。不拷 `config.toml`、`ops/`、`events.jsonl`。
+枢纽同步是 **自动的**：`new` / `freeze` / `bind` / `enter` / `work` / `resume` 会后台推送；每分钟 `dt tick` 会按 `updated_at` 合并本机与枢纽的 `tunnels/` + `entries/`，所以另一台 Client 新建的隧道会自动出现。`dt push` / `dt pull` 用于要求立即单向同步。不拷 `config.toml`、`ops/`、`events.jsonl`。
 
 ```sh
-# 另一台 —— 这台笔记本不用再手动 dt push
+# 另一台 —— tick 会自动发现；要立刻接续可手动 pull
 dt pull && dt resume dt-msg
 ```
 
