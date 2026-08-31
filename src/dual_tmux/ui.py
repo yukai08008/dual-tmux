@@ -204,9 +204,11 @@ def print_checks(checks) -> bool:
     for item in checks:
         if item.ok:
             status = Text("OK", style="bold green")
-        else:
+        elif item.required:
             status = Text("ERR", style="bold red")
             ok_all = False
+        else:
+            status = Text("WARN", style="bold yellow")
         detail = Text(item.detail)
         if not item.ok and item.hint:
             detail.append(f"\n{item.hint}", style="dim yellow")
@@ -218,12 +220,11 @@ def print_checks(checks) -> bool:
 def print_guide() -> None:
     console.print(
         Panel(
-            "[bold]Client → Server is not ready.[/]\n"
-            "Fill three fields. This CLI never writes [cyan]~/.ssh[/] or keys.\n\n"
+            "[bold]dual-tmux setup is not ready.[/]\n"
+            "Start locally, or attach an SSH Hub. This CLI never writes [cyan]~/.ssh[/] or keys.\n\n"
             "  [bold]client[/]  legal local source name ([cyan]tm_*[/])\n"
-            "  [bold]server[/]  ssh Host alias already in ~/.ssh/config\n"
-            "  [bold]user[/]    person id; remote persist [cyan]~/<user>/sessions[/]\n\n"
-            "  dt config --init --client tm_<id> --server <ssh-host> --user <name>\n"
+            "  dt config --init --local --client tm_<id>\n"
+            "  [dim]or[/] dt config --init --client tm_<id> --server <ssh-host> --user <name>\n"
             "  ssh <ssh-host>\n"
             "  dt doctor",
             title="setup",
@@ -236,7 +237,7 @@ def print_next_init() -> None:
     console.print(
         Panel(
             "[bold]Config is ready.[/]\n"
-            "  dt doctor           check tmux + ssh\n"
+            "  dt doctor           check tmux + optional Hub\n"
             "  dt new [cyan]<name>[/]      create DT (op_* + run_*)\n"
             "  dt make dst [cyan]<name>[/] one-shot DST",
             title="next",

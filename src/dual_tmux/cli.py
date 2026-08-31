@@ -11,7 +11,14 @@ import time
 from pathlib import Path
 
 from . import __version__
-from .config import AppConfig, init_config, load_config
+from .config import (
+    AppConfig,
+    init_config,
+    load_config,
+    make_config,
+    switch_config,
+    write_config,
+)
 from . import oc as oc_ops
 from .identity import SOURCE_HINT, USER_HINT, remote_dt_root, remote_sessions_root
 from . import hub
@@ -100,8 +107,12 @@ def cmd_new(args: argparse.Namespace) -> None:
         server = cfg.server
         ssh_port = cfg.ssh_port
     directory = args.dir or cfg.workspace
+    if not server and args.container:
+        raise SystemExit("[err] --container currently requires --server; omit it for local mode")
+    if not server and not Path(directory).expanduser().is_dir():
+        raise SystemExit(f"[err] local directory does not exist: {directory}")
     cmd = args.cmd or build_cmd(server, args.container or "", directory, ssh_port)
-    tmux_ops.ensure_session(run)
+    tmux_ops.ensure_session(run, cwd=str(Path(directory).expanduser()) if not server else "")
     write_entry(run, cmd)
     data = {
         "name": name,
@@ -651,10 +662,27 @@ def _prompt(label: str) -> str:
 def prompt_init(workspace: str = "/workspace") -> None:
     if not sys.stdin.isatty():
         raise SystemExit(
-            "usage: dt config --init --client tm_<id> --server <ssh-host> --user <name>"
+            "usage: dt config --init --local --client tm_<id>  "
+            "(or add --server <ssh-host> --user <name>)"
         )
     print("First-time setup. dual-tmux does not write SSH keys or ~/.ssh/config.")
     print(f"client: {SOURCE_HINT}")
+    print("mode:   local (no SSH) or hub (cross-Client synchronization)")
+    client = _prompt("client (tm_*): ")
+    mode = (_prompt("mode [local/hub] (local): ") or "local").lower()
+    if mode in {"local", "l"}:
+        local_workspace = str(Path.cwd()) if workspace == "/workspace" else workspace
+        candidate = make_config(client, workspace=local_workspace)
+        current = load_config() if config_path().is_file() else None
+        path = switch_config(current, candidate) if current else write_config(candidate)
+        cfg = load_config()
+        ui.ok(f"wrote {path}")
+        ui.info(f"client={cfg.client}  mode=local-only  workspace={cfg.workspace}")
+        ui.print_next_init()
+        _run_hotfix(cfg, ssh=False)
+        return
+    if mode not in {"hub", "h"}:
+        raise SystemExit("[err] mode must be local or hub")
     print("server: Host alias, user@host, or paste `ssh -p 22 root@IP`")
     hosts = list_ssh_hosts()
     if hosts:
@@ -667,10 +695,11 @@ def prompt_init(workspace: str = "/workspace") -> None:
     print("        local persist  ~/sessions")
     print("        remote persist ~/<user>/sessions")
     print("workspace stays /workspace; override later with dt new --dir")
-    client = _prompt("client (tm_*): ")
     server = _prompt("server (alias or ssh ...): ")
     user = _prompt("user: ")
-    path = init_config(client, server, user, workspace or "/workspace")
+    candidate = make_config(client, server, user, workspace or "/workspace")
+    current = load_config() if config_path().is_file() else None
+    path = switch_config(current, candidate)
     cfg = load_config()
     ui.ok(f"wrote {path}")
     ui.info(f"client={cfg.client}  server={cfg.server}  user={cfg.user}")
@@ -680,17 +709,35 @@ def prompt_init(workspace: str = "/workspace") -> None:
     hint = f"ssh -p {cfg.ssh_port} {cfg.server}" if cfg.ssh_port != 22 else f"ssh {cfg.server}"
     ui.print_next_init()
     ui.info(f"then: {hint} && dt doctor")
+    _run_hotfix(cfg, ssh=True)
 
 
 def cmd_config(args: argparse.Namespace) -> None:
     if args.init:
-        if not args.client or not args.server or not args.user:
+        if not args.client:
             prompt_init(args.workspace)
             return
-        path = init_config(args.client, args.server, args.user, args.workspace)
+        if args.local and (args.server or args.user):
+            raise SystemExit("[err] --local cannot be combined with --server/--user")
+        if not args.local and bool(args.server) != bool(args.user):
+            raise SystemExit("[err] --server and --user are required together; or pass --local")
+        workspace = args.workspace
+        if args.local and workspace == "/workspace":
+            workspace = str(Path.cwd())
+        candidate = make_config(args.client, args.server, args.user, workspace)
+        current = load_config() if config_path().is_file() else None
+        path = switch_config(current, candidate) if candidate.hub_enabled or current else init_config(
+            candidate.client, workspace=candidate.workspace
+        )
         cfg = load_config()
         ui.ok(f"wrote {path}")
-        ui.info(f"client={cfg.client}  server={cfg.server}  user={cfg.user}")
+        ui.info(f"client={cfg.client}  mode={cfg.mode}")
+        if not cfg.hub_enabled:
+            ui.info("local-only: no SSH, rsync, or distributed locks")
+            _run_hotfix(cfg, ssh=False)
+            ui.print_next_init()
+            return
+        ui.info(f"server={cfg.server}  user={cfg.user}")
         if cfg.ssh_port != 22:
             ui.info(f"ssh_port={cfg.ssh_port}  (not written to ~/.ssh)")
         ui.info(f"remote persist {remote_sessions_root(cfg.user)}")
@@ -707,21 +754,32 @@ def cmd_config(args: argparse.Namespace) -> None:
     ui.info(f"home       {home_dir()}")
     ui.info(f"config     {path}")
     ui.info(f"client     {cfg.client}")
-    ui.info(f"server     {cfg.server}")
-    if cfg.ssh_port != 22:
-        ui.info(f"ssh_port   {cfg.ssh_port}")
-    ui.info(f"user       {cfg.user}")
-    ui.info(f"remote     {remote_sessions_root(cfg.user)}")
-    ui.info(f"hub        {remote_dt_root(cfg.user)}")
+    ui.info(f"mode       {cfg.mode}")
+    if cfg.hub_enabled:
+        ui.info(f"server     {cfg.server}")
+        if cfg.ssh_port != 22:
+            ui.info(f"ssh_port   {cfg.ssh_port}")
+        ui.info(f"user       {cfg.user}")
+        ui.info(f"remote     {remote_sessions_root(cfg.user)}")
+        ui.info(f"hub        {remote_dt_root(cfg.user)}")
+    else:
+        ui.info("hub        — (attach: dt config --server HOST --user NAME)")
     ui.info(f"workspace  {cfg.workspace}")
-    if args.client or args.server or args.user or args.workspace != "/workspace":
-        path = init_config(
+    changing = args.local or args.client or args.server or args.user or args.workspace != "/workspace"
+    if changing:
+        if args.local and (args.server or args.user):
+            raise SystemExit("[err] --local cannot be combined with --server/--user")
+        server = "" if args.local else (args.server or cfg.server)
+        user = "" if args.local else (args.user or cfg.user)
+        candidate = make_config(
             args.client or cfg.client,
-            args.server or cfg.server,
-            args.user or cfg.user,
+            server,
+            user,
             args.workspace if args.workspace != "/workspace" else cfg.workspace,
         )
-        ui.ok(f"updated {path}")
+        path = switch_config(cfg, candidate)
+        ui.ok(f"merged records and switched to {candidate.mode} config  {path}")
+        _run_hotfix(candidate, ssh=candidate.hub_enabled)
 
 
 def cmd_tick(_: argparse.Namespace) -> None:
@@ -756,7 +814,10 @@ def cmd_drop(args: argparse.Namespace) -> None:
     hub.drop_local(data)
     try:
         hub.release(data["name"])
-        ui.ok(f"released {data['name']}  (hub binding kept)")
+        if require_config().hub_enabled:
+            ui.ok(f"released {data['name']}  (hub binding kept)")
+        else:
+            ui.ok(f"dropped {data['name']}  (local binding kept)")
     except SystemExit as exc:
         ui.warn(str(exc))
 
@@ -1115,6 +1176,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_config = sub.add_parser("config", help="show or init Client/Server config")
     p_config.add_argument("--init", action="store_true")
+    p_config.add_argument("--local", action="store_true", help="use local-only mode; safely detach a Hub")
     p_config.add_argument("--client", default="", help="legal local source name, must start with tm_")
     p_config.add_argument("--server", default="", help="ssh Host alias already in ~/.ssh/config")
     p_config.add_argument("--user", default="", help="person id; remote persist ~/<user>/sessions")
