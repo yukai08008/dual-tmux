@@ -25,4 +25,8 @@
 
 ## Git 权限模式
 
-- `mr-only`：未收到允许 PM 直接推送/合并 `main` 的明确授权；当前只在 hotfix 分支开发。
+- `mr-only`：已授权推送 hotfix 分支，未授权直接合并 `main`。
+
+## 案例目录
+
+- 项目本地案例统一收录在 `cases/`，使用 `trouble/` + `solution/` 成对记录。
