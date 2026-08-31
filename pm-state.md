@@ -1,10 +1,10 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-08-31 10:29 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-08-31 10:31 +08:00 | 更新者: Codex PM
 
 ## 状态树
 
-### v0.06 (ACTIVE) — Web 发布版
+### v0.06 (RELEASED) — Web 发布版
 
 - **feature/v0.06-agent-client-web** (MERGED): PR #2 已合并，CLI/Web 已展示两侧客户端名称、版本和位置；包版本 `0.4.38`。
 
@@ -20,7 +20,7 @@
 
 ## 当前焦点
 
-- PR #2 已合并，执行 `v0.4.38` 标签、GitHub Release 和 GitHub 安装源升级验证。
+- `v0.4.38` 已正式发布，Release 包含 sdist/wheel；本机通过 GitHub 安装源实测 `dt upgrade` 从 `0.4.37` 升级到 `0.4.38`。
 
 ## 待办
 
@@ -32,7 +32,7 @@
 - [x] 创建 PR #1 并合并到 `main`
 - [x] 打 `v0.4.37` 标签、创建 GitHub Release 并验证 `dt upgrade`
 - [x] 完成 v0.05 三件套、采集器、freeze 集成与回归测试
-- [ ] 完成 v0.06 Web 展示、封板并发布 `0.4.38`
+- [x] 完成 v0.06 Web 展示、封板并发布 `0.4.38`
 
 ## Git 权限模式
 
