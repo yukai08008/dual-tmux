@@ -1,20 +1,18 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-08-31 10:00 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-08-31 10:05 +08:00 | 更新者: Codex PM
 
 ## 状态树
 
 ### v0.04 (RELEASED) — 当前发布线
 
-- 发布包版本：`0.4.36`，远端基线提交：`204b2f8`
-- **hotfix/hub-bidirectional-sync** (CODE_COMPLETE)
-  - **issue-local-misses-remote-tunnels** (RESOLVED): 已实现 minute tick 的无删除 merge-sync；本地与 tom7r 的 6 条隧道集合和内容哈希一致。
+- 发布包版本：`0.4.37`，PR #1 合并提交：`434cb8c`
+- **hotfix/hub-bidirectional-sync** (MERGED)
+  - **issue-local-misses-remote-tunnels** (CLOSED): minute tick 已实现无删除 merge-sync；本地与 tom7r 的 6 条隧道集合和内容哈希一致。
 
 ## 当前焦点
 
-- hotfix 代码与测试完成，已推送 `origin/hotfix/hub-bidirectional-sync`；未合并、未发布。
-- 远端已校验包含提交 `224412a6e53323d1eaac02a55727a5cf600d91ec`。
-- 候选发布版本：`0.4.37`。
+- PR #1 已合并，正在执行 `v0.4.37` 标签、GitHub Release 与安装升级验证。
 
 ## 待办
 
@@ -23,11 +21,12 @@
 - [x] 完成 merge-sync 自动化测试和真实 tom7r 冒烟
 - [x] Review 后将 L3 标为 RESOLVED、hotfix 标为 CODE_COMPLETE
 - [x] 经用户确认后推送 hotfix 分支并校验远端 SHA
-- [ ] 创建 MR，合并并发布 `0.4.37`
+- [x] 创建 PR #1 并合并到 `main`
+- [ ] 打 `v0.4.37` 标签、创建 GitHub Release 并验证 `dt upgrade`
 
 ## Git 权限模式
 
-- `mr-only`：已授权推送 hotfix 分支，未授权直接合并 `main`。
+- `pm-maintainer`：用户已明确授权做完后合并并发布；本 hotfix 通过 PR 保留审计记录。
 
 ## 案例目录
 
