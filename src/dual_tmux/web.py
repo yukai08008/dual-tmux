@@ -48,12 +48,18 @@ def _is_client_disconnect(exc: BaseException | None) -> bool:
     ) or (isinstance(exc, OSError) and exc.errno in _CLIENT_DISCONNECT_ERRNOS)
 
 
-def _opencode_auto(text: str) -> bool:
-    """Return whether the latest captured OpenCode Build footer is in auto mode."""
+def _opencode_auto(text: str) -> bool | None:
+    """Return the input mode without mistaking a running status for manual mode."""
     matches = list(
-        re.finditer(r"\bBuild(?P<auto>\s+auto)?\s*[·•]", text or "", re.IGNORECASE)
+        re.finditer(r"\bBuild(?P<auto>\s+auto)?\s*[·•][^\n]*", text or "", re.IGNORECASE)
     )
-    return bool(matches and matches[-1].group("auto"))
+    running_at = (text or "").lower().rfind("esc interrupt")
+    if running_at >= 0:
+        before = [match for match in matches if match.start() < running_at]
+        # The status immediately before `esc interrupt` describes the running
+        # request and omits `auto`; the preceding prompt describes input mode.
+        matches = before[:-1] if before else []
+    return bool(matches[-1].group("auto")) if matches else None
 
 
 def _web_state_path() -> Path:
@@ -1011,7 +1017,9 @@ const threadEl = document.getElementById('thread');
 let chosen = {json.dumps(selected)};
 const LOG_MAX = 200;
 const THREAD_MAX = 60;
-const WAIT_MAX_MS = 90000;
+const LONG_RUNNING_MS = 600000;
+const STALLED_MS = 600000;
+const ATTENTION_MS = 1800000;
 const TABS_KEY = 'dual-tmux:web-state:v1';
 let tabSeq = 1;
 const tabs = [];
@@ -1037,7 +1045,9 @@ function emptyState(name) {{
     id: tabSeq++,
     name: name || '',
     lastOp: '', lastRun: '', lastSent: 0, waiting: false, pollQuiet: 0,
-    opAtSend: '', lastAsk: '', lastPollKey: '', waitStartedAt: 0,
+    opAtSend: '', lastAsk: '', lastPollKey: '', lastMeaningfulKey: '', waitStartedAt: 0,
+    lastCompletion: '', completionAtSend: '', lastProgressAt: 0,
+    longWarned: false, stallWarned: false, attentionWarned: false,
     finalOp: 'gray', finalRun: 'gray',
     resumeTriedAt: 0,
     thread: [], log: [],
@@ -1330,7 +1340,12 @@ function pick(name) {{
   st.opAtSend = '';
   st.lastAsk = '';
   st.lastPollKey = '';
+  st.lastMeaningfulKey = '';
   st.waitStartedAt = 0;
+  st.lastCompletion = '';
+  st.completionAtSend = '';
+  st.lastProgressAt = 0;
+  st.longWarned = st.stallWarned = st.attentionWarned = false;
   st.finalOp = prior.finalOp||'gray';
   st.finalRun = prior.finalRun||'gray';
   st.thread=Array.isArray(prior.thread)?prior.thread.slice(-THREAD_MAX):[];
@@ -1441,8 +1456,31 @@ async function tick() {{
     setLamp(lampRun, j.run_live ? 'yellow' : 'red');
     setPollBusy(true);
     const parsed = (j.op_parsed || {{}});
-    const timedOut = st.waitStartedAt && Date.now()-st.waitStartedAt >= WAIT_MAX_MS;
-    if (j.op_auto === false) {{
+    const now = Date.now();
+    const age = st.waitStartedAt ? now-st.waitStartedAt : 0;
+    const meaningfulKey = [parsed.body||'',parsed.completion_id||''].join('|');
+    const completionChanged = !!parsed.completion_id && parsed.completion_id !== st.completionAtSend;
+    if (meaningfulKey && meaningfulKey !== st.lastMeaningfulKey) {{
+      st.lastProgressAt = now;
+      st.lastMeaningfulKey = meaningfulKey;
+    }}
+    if (!j.op_live) {{
+      const reply='失败 · trigger '+opState;
+      addBubble('fail',reply,parsed);
+      logLine('err','本轮失败 · trigger pane 已离线');
+      st.finalOp='red'; st.finalRun=j.run_live?'green':'red';
+      st.waiting=false; st.pollQuiet=0; st.waitStartedAt=0; st.lastPollKey='';
+      setLamp(lampOp,st.finalOp); setLamp(lampRun,st.finalRun); setPollBusy(false);
+      renderTabs();
+    }} else if (parsed.phase === 'idle' && completionChanged) {{
+      const reply=parsed.body || paneDelta(st.opAtSend,j.op_text) || '本轮已完成';
+      addBubble('ans',reply,parsed);
+      st.finalOp='green'; st.finalRun=j.run_live?'green':'red';
+      logLine('done','本轮结束 · '+(parsed.model||'')+(parsed.elapsed?' · '+parsed.elapsed:''));
+      st.waiting=false; st.pollQuiet=0; st.waitStartedAt=0; st.lastPollKey='';
+      setLamp(lampOp,st.finalOp); setLamp(lampRun,st.finalRun); setPollBusy(false);
+      renderTabs();
+    }} else if (j.op_auto === false && parsed.phase !== 'running') {{
       const reply='trigger 当前不是 auto 模式；消息已发出，但可能在等待授权。前端已停止自动轮询，可点击上方“trigger 转为 auto”恢复原会话后继续。';
       addBubble('fail',reply,parsed);
       logLine('err','停止轮询 · trigger 非 auto 模式');
@@ -1450,14 +1488,20 @@ async function tick() {{
       st.waiting=false; st.pollQuiet=0; st.waitStartedAt=0; st.lastPollKey='';
       setLamp(lampOp,st.finalOp); setLamp(lampRun,st.finalRun); setPollBusy(false);
       renderTabs();
-    }} else if (timedOut) {{
-      const reply=parsed.body || paneDelta(st.opAtSend,j.op_text) || '超过 90 秒仍未检测到本轮结束';
-      addBubble('fail',reply,parsed);
-      logLine('err','停止轮询 · 已等待 90 秒，请检查 trigger 会话');
-      st.finalOp='red'; st.finalRun=j.run_live?'green':'red';
-      st.waiting=false; st.pollQuiet=0; st.waitStartedAt=0; st.lastPollKey='';
-      setLamp(lampOp,st.finalOp); setLamp(lampRun,st.finalRun); setPollBusy(false);
-      renderTabs();
+    }} else if (parsed.phase === 'running') {{
+      st.pollQuiet=0;
+      if (age >= LONG_RUNNING_MS && !st.longWarned) {{
+        logLine('poll','长任务 · 已运行 '+Math.floor(age/60000)+' 分钟，OpenCode 仍明确处于 running，继续等待');
+        st.longWarned=true;
+      }}
+      if (st.lastProgressAt && now-st.lastProgressAt >= STALLED_MS && !st.stallWarned) {{
+        logLine('err','可能停滞 · 10 分钟没有新的语义输出，但进程/TUI 仍存活；建议检查 provider');
+        st.stallWarned=true;
+      }}
+      if (age >= ATTENTION_MS && !st.attentionWarned) {{
+        logLine('err','需要关注 · 已运行 30 分钟；继续监测，不自动判失败');
+        st.attentionWarned=true;
+      }}
     }} else if (opChanged) {{
       const sum = parsed.body ? parsed.body.replace(/\\s+/g, ' ').slice(0, 140) : summarize(paneDelta(st.opAtSend, j.op_text) || j.op_text);
       const key = (parsed.model || '') + '|' + sum;
@@ -1496,10 +1540,8 @@ async function tick() {{
     setPollBusy(false);
     setLamp(lampOp, st.finalOp);
     setLamp(lampRun, st.finalRun);
-    if (opChanged || runChanged) {{
-      logLine('poll', (opChanged ? 'trigger 更新' : 'bullet 更新') + ' · op=' + opState + ' run=' + runState);
-    }}
   }}
+  st.lastCompletion = (j.op_parsed||{{}}).completion_id || st.lastCompletion;
   renderTabs();
 }}
 setInterval(tick, 1500);
@@ -1527,10 +1569,19 @@ sendf.addEventListener('submit', async (e) => {{
   const preview = st.lastAsk.replace(/\\s+/g, ' ').slice(0, 80);
   addBubble('ask', st.lastAsk);
   logLine('send', preview || '(empty)');
-  st.opAtSend = st.lastOp;
+  try {{
+    const baselineResponse=await fetch('/api/tunnel?t='+encodeURIComponent(st.name));
+    const baseline=await baselineResponse.json();
+    st.opAtSend=baseline.op_text||st.lastOp||'';
+    st.lastCompletion=(baseline.op_parsed||{{}}).completion_id||st.lastCompletion||'';
+  }} catch (_) {{ st.opAtSend=st.lastOp||''; }}
   st.waiting = true;
   st.pollQuiet = 0;
   st.waitStartedAt = Date.now();
+  st.completionAtSend = st.lastCompletion || '';
+  st.lastProgressAt = st.waitStartedAt;
+  st.lastMeaningfulKey = '';
+  st.longWarned = st.stallWarned = st.attentionWarned = false;
   setLamp(lampOp, 'yellow');
   setLamp(lampRun, 'yellow');
   setPollBusy(true);
