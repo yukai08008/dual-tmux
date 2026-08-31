@@ -1,0 +1,64 @@
+version: v0.4.45
+parent_final: v0.4.44
+title: 三客户端原生会话生命周期
+type: api
+prd: dev_plans/v0.4.44-v0.4.45/PRD.md
+test_cases: dev_plans/v0.4.44-v0.4.45/TEST_CASES.md
+
+invariants:
+  - "不能证明归属时不猜 session"
+  - "恢复不创建新 session ID"
+  - "OpenCode 行为与入口权威不回归"
+  - "运行时数据不在 git 追踪中"
+
+deliverables:
+  - module: src/dual_tmux/agents.py
+    change: 可执行的三客户端生命周期 adapter 合同
+    public_api: [discover_session, start_command, resume_command, session_probe]
+  - module: src/dual_tmux/cli.py
+    change: freeze/resume 统一经 adapter 编排
+  - module: tests/test_agent_sessions.py
+    change: 三客户端本地、SSH、Docker 发现和恢复命令测试
+
+feature_branches:
+  - name: feature/v0.4.45-native-agent-lifecycle
+    title: 三客户端原生生命周期适配
+    deps: []
+    files: [src/dual_tmux/agents.py, src/dual_tmux/agent_sessions.py, src/dual_tmux/cli.py, tests/test_agent_sessions.py]
+    acceptance:
+      - "A1 Codex 当前 UUID 会话可冻结和恢复"
+      - "A2 Claude 当前 UUID 会话可冻结和恢复"
+      - "A3 本地、SSH、Docker 使用同一保守归属规则"
+      - "A4 无可靠候选时不绑定历史会话"
+      - "A5 OpenCode 全量回归通过"
+    estimated_loc: ~550
+
+acceptance_count: 5
+total_estimated_loc: ~550
+
+risk_register:
+  - id: R1
+    risk: 历史会话误绑
+    mitigation: explicit argv first; cwd plus start-time fallback
+    severity: high
+  - id: R2
+    risk: client format drift
+    mitigation: conservative parser and fixtures
+    severity: high
+
+git_workflow:
+  branch_creation: from v0.4.44
+  merge_policy: pull-request
+  permission_mode: pm-maintainer
+  before_merge_checks:
+    - "pytest all PASS"
+    - "ruff focused PASS"
+    - "compileall PASS"
+    - "build and isolated install PASS"
+    - "git ls-files data/ 为空"
+  final_tag: null
+
+notes:
+  - "奇数 API 版默认不发布；完成后进入 v0.4.46 Web 版"
+
+signature: Agent-PM-v0.4.45
