@@ -1,9 +1,17 @@
+import json
+import threading
+from urllib.request import urlopen
+
 import pytest
 
+from dual_tmux.config import AppConfig, write_config
+from dual_tmux.store import save, tunnels_dir
 from dual_tmux.web import (
-    _open_browser,
+    Handler,
+    WebHTTPServer,
     _is_client_disconnect,
     _load_web_state,
+    _open_browser,
     _opencode_auto,
     _pane_name,
     _resume_tunnel,
@@ -15,8 +23,6 @@ from dual_tmux.web import (
     skills_page,
     tunnels_page,
 )
-from dual_tmux.store import save, tunnels_dir
-from dual_tmux.config import AppConfig, write_config
 
 
 def test_pane_name():
@@ -45,6 +51,23 @@ def test_open_browser_uses_new_tab(monkeypatch):
     monkeypatch.setattr("dual_tmux.web.webbrowser.open", lambda url, new=0: calls.append((url, new)))
     _open_browser("http://127.0.0.1:8787")
     assert calls == [("http://127.0.0.1:8787", 2)]
+
+
+def test_web_exposes_agent_capabilities_and_operation_catalog():
+    server = WebHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        root = f"http://127.0.0.1:{server.server_port}"
+        capabilities = json.load(urlopen(root + "/api/capabilities", timeout=3))
+        operations = json.load(urlopen(root + "/api/operations", timeout=3))
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+    assert capabilities["ok"] is True
+    assert [row["name"] for row in capabilities["data"]] == ["opencode", "codex", "claude"]
+    assert any(row["name"] == "pane.send" for row in operations["data"])
 
 
 def test_admin_tabs_and_search(tmp_path, monkeypatch):

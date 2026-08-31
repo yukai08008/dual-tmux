@@ -21,6 +21,7 @@ from . import skillmgr
 from . import tmux as tmux_ops
 from .paneparse import parse_pane, parser_id_for_side
 from .config import load_config
+from .control import ControlError, get_control_service
 from .paths import home_dir
 from .store import find_dt, iter_dt_files, load, normalize_dt
 
@@ -188,6 +189,8 @@ def _resume_tunnel(name: str) -> dict:
         run = data.get("run") or ""
         needed = not (op and run and tmux_ops.has_session(op) and tmux_ops.has_session(run))
         if needed:
+            # Keep this small seam patchable for local Web tests; the CLI wrapper
+            # delegates to the same ControlService used by the HTTP handlers.
             from .cli import apply_resume
 
             data = apply_resume(name, force=False)
@@ -1522,15 +1525,23 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/tunnels":
             self._send(200, json.dumps(_tunnels()), "application/json; charset=utf-8")
             return
+        if parsed.path == "/api/capabilities":
+            result = get_control_service().capabilities()
+            self._send(200, json.dumps(result.as_dict()), "application/json; charset=utf-8")
+            return
+        if parsed.path == "/api/operations":
+            result = get_control_service().operations()
+            self._send(200, json.dumps(result.as_dict()), "application/json; charset=utf-8")
+            return
         if parsed.path == "/api/web-state":
             self._send(200, json.dumps(_load_web_state()), "application/json; charset=utf-8")
             return
         if parsed.path == "/api/tunnel":
             name = (qs.get("t") or [""])[0]
             try:
-                data = load(find_dt(name))
-            except SystemExit as exc:
-                self._send(404, json.dumps({"error": str(exc)}), "application/json; charset=utf-8")
+                data = get_control_service().get_tunnel(name).data
+            except ControlError as exc:
+                self._send(exc.status, json.dumps(exc.as_dict()), "application/json; charset=utf-8")
                 return
             op = data.get("op") or ""
             run = data.get("run") or ""
@@ -1660,8 +1671,9 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/resume":
             try:
                 result = _resume_tunnel(name)
-            except SystemExit as exc:
-                self._send(409, str(exc), "text/plain; charset=utf-8")
+            except (SystemExit, ControlError) as exc:
+                status = exc.status if isinstance(exc, ControlError) else 409
+                self._send(status, str(exc), "text/plain; charset=utf-8")
                 return
             self._send(200, json.dumps(result), "application/json; charset=utf-8")
             return
@@ -1722,11 +1734,9 @@ class Handler(BaseHTTPRequestHandler):
             model = (form.get("model") or [""])[0]
             which = ["trigger"] if side == "op" else ["bullet"]
             try:
-                from .cli import apply_model
-
-                data = apply_model(name, model, which)
-            except SystemExit as exc:
-                self._send(400, str(exc), "text/plain; charset=utf-8")
+                data = get_control_service().model(name, model, which).data
+            except ControlError as exc:
+                self._send(exc.status, json.dumps(exc.as_dict()), "application/json; charset=utf-8")
                 return
             info = data.get("trigger") if side == "op" else data.get("bullet")
             self._send(
@@ -1744,11 +1754,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/freeze":
             try:
-                from .cli import apply_freeze
-
-                data = apply_freeze(name)
-            except SystemExit as exc:
-                self._send(400, str(exc), "text/plain; charset=utf-8")
+                data = get_control_service().freeze(name).data
+            except ControlError as exc:
+                self._send(exc.status, json.dumps(exc.as_dict()), "application/json; charset=utf-8")
                 return
             self._send(
                 200,
@@ -1769,13 +1777,10 @@ class Handler(BaseHTTPRequestHandler):
         side = (form.get("side") or ["op"])[0]
         text = (form.get("text") or [""])[0]
         try:
-            data = load(find_dt(name))
-            pane = _pane_name(data, side)
-            if not pane:
-                raise SystemExit("[err] no pane")
-            tmux_ops.send_keys(pane, text)
-        except SystemExit as exc:
-            self._send(400, str(exc), "text/plain; charset=utf-8")
+            result = get_control_service().send(name, text, side)
+            pane = result.data["pane"]
+        except ControlError as exc:
+            self._send(exc.status, json.dumps(exc.as_dict()), "application/json; charset=utf-8")
             return
         accept = self.headers.get("Accept") or ""
         if "application/json" in accept or self.headers.get("X-Requested-With"):

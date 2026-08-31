@@ -69,11 +69,19 @@ def cmd_version(_: argparse.Namespace) -> None:
 
 
 def cmd_ls(_: argparse.Namespace) -> None:
-    ui.print_ls([load(path) for path in iter_dt_files()])
+    from .control import get_control_service
+
+    ui.print_ls(get_control_service().list_tunnels().data)
 
 
 def cmd_show(args: argparse.Namespace) -> None:
-    print(json.dumps(_resolve(args.name), ensure_ascii=False, indent=2))
+    from .control import ControlError, get_control_service
+
+    try:
+        data = get_control_service().get_tunnel(args.name).data
+    except ControlError as exc:
+        raise SystemExit(str(exc)) from exc
+    print(json.dumps(data, ensure_ascii=False, indent=2))
 
 
 def print_inspect(data: dict) -> None:
@@ -398,8 +406,12 @@ def cmd_re(args: argparse.Namespace) -> None:
 
 
 def cmd_send(args: argparse.Namespace) -> None:
-    data = _resolve(args.name)
-    tmux_ops.send_keys(data["run"], args.text)
+    from .control import ControlError, get_control_service
+
+    try:
+        get_control_service().send(args.name, args.text, "bullet")
+    except ControlError as exc:
+        raise SystemExit(str(exc)) from exc
 
 
 def _ssh_argv(data: dict) -> list[str]:
@@ -562,7 +574,7 @@ def freeze_sides(
         _freeze_one(data, "bullet", data["run"], tool, wait)
 
 
-def apply_model(name: str, model: str, sides: list[str]) -> dict:
+def _apply_model_legacy(name: str, model: str, sides: list[str]) -> dict:
     data = _resolve(name)
     hub.require_active(data)
     model = (model or "").strip()
@@ -596,7 +608,16 @@ def apply_model(name: str, model: str, sides: list[str]) -> dict:
     return load(path)
 
 
-def apply_freeze(name: str, sides: list[str] | None = None, tool: str = "auto") -> dict:
+def apply_model(name: str, model: str, sides: list[str]) -> dict:
+    from .control import ControlError, get_control_service
+
+    try:
+        return get_control_service().model(name, model, sides).data
+    except ControlError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
+def _apply_freeze_legacy(name: str, sides: list[str] | None = None, tool: str = "auto") -> dict:
     data = _resolve(name)
     path = find_dt(data["name"])
     if not sides:
@@ -613,6 +634,15 @@ def apply_freeze(name: str, sides: list[str] | None = None, tool: str = "auto") 
     )
     hub.push_best_effort(wait=True)
     return load(path)
+
+
+def apply_freeze(name: str, sides: list[str] | None = None, tool: str = "auto") -> dict:
+    from .control import ControlError, get_control_service
+
+    try:
+        return get_control_service().freeze(name, sides, tool).data
+    except ControlError as exc:
+        raise SystemExit(str(exc)) from exc
 
 
 def cmd_model(args: argparse.Namespace) -> None:
@@ -695,7 +725,7 @@ def cmd_make(args: argparse.Namespace) -> None:
     hub.push_best_effort(wait=True)
 
 
-def apply_resume(name: str | None, force: bool = False) -> dict:
+def _apply_resume_legacy(name: str | None, force: bool = False) -> dict:
     """Resume a DST without attaching; shared by the CLI and local web UI."""
     data = _resolve(name)
     hub.require_active(data, force=force)
@@ -721,6 +751,15 @@ def apply_resume(name: str | None, force: bool = False) -> dict:
     ev.emit("dt.resume", name=data["name"])
     hub.push_best_effort()
     return data
+
+
+def apply_resume(name: str | None, force: bool = False) -> dict:
+    from .control import ControlError, get_control_service
+
+    try:
+        return get_control_service().resume(name, force).data
+    except ControlError as exc:
+        raise SystemExit(str(exc)) from exc
 
 
 def cmd_resume(args: argparse.Namespace) -> None:
