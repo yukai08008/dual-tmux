@@ -1364,6 +1364,22 @@ def cmd_web(args: argparse.Namespace) -> None:
     serve(HOST, port, open_browser=not args.no_open)
 
 
+def cmd_daemon(args: argparse.Namespace) -> None:
+    from . import daemon_service
+    from .daemon import read_daemon_status, serve
+
+    if args.install:
+        ui.ok(f"daemon installed  {daemon_service.install()}")
+        return
+    if args.remove:
+        ui.ok("daemon removed" if daemon_service.uninstall() else "daemon not installed")
+        return
+    if args.status:
+        print(json.dumps(read_daemon_status(), ensure_ascii=False, indent=2))
+        return
+    serve(once=bool(args.once))
+
+
 def cmd_upgrade(_: argparse.Namespace) -> None:
     ui.info(f"Current version: {__version__}")
     result = subprocess.run(
@@ -1384,9 +1400,11 @@ def cmd_feishu(args: argparse.Namespace) -> None:
         FeishuError,
         OperatorIdentity,
         PairingService,
+        AppRegistrationService,
         save_config,
         status,
         unbind_operator,
+        uninstall,
     )
 
     try:
@@ -1406,15 +1424,14 @@ def cmd_feishu(args: argparse.Namespace) -> None:
                 )
             }
         elif args.feishu_cmd == "pair":
-            from .feishu_bridge import begin_hub_pairing
-
-            cfg = load_config()
-            result = begin_hub_pairing(cfg=cfg) if cfg.hub_enabled else PairingService().begin()
+            result = AppRegistrationService().begin()
+        elif args.feishu_cmd == "poll":
+            result = AppRegistrationService().poll()
         elif args.feishu_cmd == "callback":
             identity = PairingService().callback(args.state, args.code)
             result = {"bound": True, "identity": identity.public_dict()}
         elif args.feishu_cmd == "unbind":
-            result = {"removed": unbind_operator(args.identity)}
+            result = uninstall() if not args.identity else {"removed": unbind_operator(args.identity)}
         elif args.feishu_cmd == "dispatch":
             identity = OperatorIdentity(
                 open_id=args.open_id,
@@ -1685,6 +1702,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_web.add_argument(
         "--no-open", action="store_true", help="do not open the default browser"
     )
+    p_daemon = sub.add_parser("daemon", help="run the persistent health/Feishu service")
+    daemon_mode = p_daemon.add_mutually_exclusive_group()
+    daemon_mode.add_argument("--install", action="store_true", help="install and start the user service")
+    daemon_mode.add_argument("--remove", action="store_true", help="stop and remove the user service")
+    daemon_mode.add_argument("--status", action="store_true", help="show daemon/connector state")
+    daemon_mode.add_argument("--once", action="store_true", help="run one supervisor iteration")
     p_feishu = sub.add_parser(
         "feishu", help="configure secure Feishu pairing and command dispatch"
     )
@@ -1699,7 +1722,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_fc.add_argument(
         "--allow-id", action="append", default=[], help="allowed open_id/union_id/user_id"
     )
-    fs.add_parser("pair", help="create a short-lived one-time OAuth URL")
+    fs.add_parser("pair", help="create a scan-to-create PersonalAgent QR URL")
+    fs.add_parser("poll", help="poll the active scan-to-create registration")
     fs.add_parser("sync", help="exchange callback/command envelopes with the Hub")
     p_fb = fs.add_parser("bridge", help="serve the tom7r callback/event bridge")
     p_fb.add_argument("--host", default="127.0.0.1")
@@ -1755,6 +1779,7 @@ def main() -> None:
         "web",
         "skill",
         "feishu",
+        "daemon",
     }:
         if not config_path().is_file():
             prompt_init()
@@ -1794,6 +1819,7 @@ def main() -> None:
         "web": cmd_web,
         "skill": cmd_skill,
         "feishu": cmd_feishu,
+        "daemon": cmd_daemon,
         "upgrade": cmd_upgrade,
     }
     ev.emit("cmd.start", cmd=command)
