@@ -102,6 +102,29 @@ def wait_command(name: str, wanted: set[str], timeout: float = 20) -> str:
     return current
 
 
+def wait_stable_command(
+    name: str, wanted: set[str], timeout: float = 20, stable_for: float = 0.8
+) -> str:
+    """Wait until a pane command remains wanted long enough to reject failed jumps."""
+    deadline = time.time() + timeout
+    current = pane_command(name)
+    since = 0.0
+    previous = ""
+    while time.time() < deadline:
+        current = pane_command(name)
+        now = time.monotonic()
+        if current in wanted:
+            if current != previous:
+                since = now
+            if since and now - since >= stable_for:
+                return current
+        else:
+            since = 0.0
+        previous = current
+        time.sleep(0.2)
+    return current
+
+
 def replay_hops(name: str, hops: list[dict]) -> None:
     ensure_session(name)
     for hop in hops:
