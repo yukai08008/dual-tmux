@@ -125,3 +125,4 @@ def test_persist_script_uses_tenant_not_login_home():
     assert "HOST:sessions/opencode" not in body
     assert "andy_messenger" not in body
     assert "tm_*" in body
+    assert 'grep -Fqx "server = \\"$HOST\\""' in body

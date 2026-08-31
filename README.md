@@ -16,19 +16,31 @@ Client (this machine)
 
 ## First start
 
-Install puts `dt` on PATH **and** a minute crontab (`dt tick`). The first real command asks for **three fields**. Jump directory is always `/workspace` until you override a tunnel with `dt new --dir`.
+Install puts `dt` on PATH **and** a minute crontab (`dt tick`). Start **local-only** with one Client name, or configure a synchronization Hub. Local tunnels default to the current directory; Hub-mode jumps default to `/workspace` until `dt new --dir` overrides them.
 
 | Field | What you type | What this CLI does **not** do |
 |-------|----------------|-------------------------------|
 | `client` | Legal **local source name**: `tm_` + `[A-Za-z0-9._-]`. Example: `tm_laptop`. Not a hostname. | Does not invent a name from `hostname`. |
-| `server` | Whatever `ssh` can reach. Paste `ssh -p 22 root@IP`: if `~/.ssh/config` has a matching Host, that alias is stored; otherwise `root@IP`. Pretty names are optional. | Does not write `~/.ssh/config`, keys, or `known_hosts`. Does not use the remote hostname. |
-| `user` | Person id: `[A-Za-z][A-Za-z0-9._-]`. Example: `ouc`. Not `tm_*`. | Does not create OS accounts. |
+| `server` | Optional synchronization Hub and default jump target. Whatever `ssh` can reach. | Does not write `~/.ssh/config`, keys, or `known_hosts`. |
+| `user` | Required with `server`. Person id: `[A-Za-z][A-Za-z0-9._-]`. Example: `ouc`. | Does not create OS accounts. |
 
 ```sh
+dt config --init --local --client tm_laptop  # no server dependency
+
+# Or configure the Hub immediately (the existing command stays compatible)
 dt config --init --client tm_laptop --server myserver --user ouc
 ssh myserver          # must already work
 dt doctor
 ```
+
+Attach, replace, or detach the Hub later:
+
+```sh
+dt config --server tom7r --user andy
+dt config --local
+```
+
+Switches merge before committing config: the old Hub is merged first when present, then the candidate Hub, and only then is `config.toml` atomically replaced. A failed SSH/rsync leaves the old config untouched. Sync does not propagate deletions.
 
 `~/.dual-tmux/config.toml`:
 
@@ -39,7 +51,7 @@ user = "ouc"           # person; remote persist ~/<user>/sessions
 workspace = "/workspace"  # default jump dir; not asked at init
 ```
 
-If config is missing, `dt` prompts for those three fields (TTY only). Then it checks Client tmux + `ssh <server>`. SSH stays yours.
+If config is missing, `dt` prompts for local or Hub mode (TTY only). Local mode checks the Client runtime only; Hub mode also checks `ssh <server>`. SSH stays yours.
 
 Also required: tmux on the Client. `op_*` / `run_*` are **local** sessions; `run_*` only uses ssh to reach the Server.
 
@@ -67,7 +79,7 @@ This is a **third tree**. It does not collide with tmux persist or OpenCode pers
 | OpenCode persist | `~/sessions/opencode/tm_*/` | conversation JSON |
 | **dt hub** | Server `~/<user>/dual-tmux/` | DT/DST bindings only |
 
-Hub sync is **automatic**: `new` / `freeze` / `bind` / `enter` / `work` / `resume` push in the background; the minute `dt tick` merges local and hub `tunnels/` + `entries/` by `updated_at`, so tunnels created on another Client appear automatically. Use `dt push` / `dt pull` for an immediate one-way sync. Never copies `config.toml`, `ops/`, or `events.jsonl`.
+Hub sync is **automatic**: `new` / `freeze` / `bind` / `enter` / `work` / `resume` push in the background; the minute `dt tick` merges local and Hub `tunnels/` + `entries/` by `updated_at`, so tunnels created on another Client appear automatically. Use `dt push` / `dt pull` for an immediate one-way sync. Local-only mode performs no network sync or distributed locking. Never copies `config.toml`, `ops/`, or `events.jsonl`.
 
 ```sh
 # other machine — tick discovers it automatically; pull to continue now
@@ -228,8 +240,10 @@ Freeze also records **work points** (`op_point` / `run_point`: kind, cwd, ssh, d
 | `dt log [-n] [--kind freeze] [--name dt-msg]` | CLI event log |
 | `dt show <name>` | raw tunnel JSON |
 | `dt` | attach latest op_* |
-| `dt doctor` | check Client tmux + ssh; apply persist tenant hotfix |
-| `dt config --init` | write client + server + user |
+| `dt doctor` | check Client tmux + optional Hub; reconcile persist sync |
+| `dt config --init [--local]` | initialize local-only or Hub mode |
+| `dt config --server H --user U` | safely attach or replace the Hub |
+| `dt config --local` | safely detach the Hub after a final merge |
 | `dt upgrade` | `uv tool upgrade dual-tmux`, then persist tenant hotfix |
 | `dt mem [name] [set k v]` | shared or per-agent MEMORY.json facts |
 | `dt note <name> '…'` | append sqlite note for that agent |
