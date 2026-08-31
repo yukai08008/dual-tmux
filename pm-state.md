@@ -4,9 +4,9 @@
 
 ## 状态树
 
-### v0.4.46 (ACTIVE) — Web 全功能控制面
+### v0.4.46 (RELEASED) — Web 全功能控制面
 
-- **feature/v0.4.46-web-control-plane** (CODE_COMPLETE): tunnel、三客户端、Hub 同步、健康恢复、配置模式、Memory、Events、Doctor 已统一落到 Web/ControlService；131 tests、浏览器 E2E、构建与隔离安装通过，待 PR 合并和正式发布。
+- **feature/v0.4.46-web-control-plane** (MERGED): PR #10 已合并并发布；tunnel、三客户端、Hub 同步、健康恢复、配置模式、Memory、Events、Doctor 已统一落到 Web/ControlService。131 tests、浏览器 E2E、构建、隔离安装与本机 0.4.44 → 0.4.46 无损升级通过。
 
 ### v0.4.45 (ARCHIVED) — 三客户端原生会话生命周期
 
@@ -56,7 +56,7 @@
 
 ## 当前焦点
 
-- 封板并发布 `v0.4.46` Web 控制面；随后进入飞书扫码绑定与管理版本。
+- 进入 `v0.4.47` 飞书绑定/鉴权 API 版，再由 `v0.4.48` Web 版完成扫码与飞书管理交互。
 
 ## 待办
 
@@ -75,6 +75,8 @@
 - [x] 完成 v0.4.45 三客户端原生生命周期适配并合并 PR #9
 - [x] 完成 v0.4.46 Web 全功能控制面、Memory/Events/Doctor 与安全确认
 - [x] 完成 131 tests、应用内浏览器 E2E、构建和隔离安装
+- [x] 合并 PR #10、发布 v0.4.46 并完成本机 0.4.44 → 0.4.46 无损升级
+- [x] 升级后验证配置/tunnel 哈希不变、dt-company_intro_v2 全层健康
 - [x] 定位 dt-msg2 bullet 接续失败并确认 session 数据未丢失
 - [x] 恢复 happy-circuit session，校正本地/中心工作点
 - [x] 合并 PR #5 并发布 v0.4.41 hotfix
