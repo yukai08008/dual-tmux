@@ -200,6 +200,8 @@ def cmd_branch(args: argparse.Namespace) -> None:
 
 
 def _side(data: dict, name: str) -> dict:
+    from .agentclient import empty as empty_agent_client
+
     side = data.setdefault(name, oc_ops.empty_side())
     side.setdefault("tool", "opencode")
     side.setdefault("parser", "")
@@ -207,6 +209,7 @@ def _side(data: dict, name: str) -> dict:
     side.setdefault("session_id", "")
     side.setdefault("slug", "")
     side.setdefault("agent", "")
+    side.setdefault("agent_client", empty_agent_client())
     if not side.get("parser"):
         from .paneparse import parser_id_for_side
 
@@ -220,8 +223,13 @@ def _bind_oc(data: dict, side: str, session: oc_ops.OcSession, tool: str = "") -
 
 
 def _print_side(label: str, info: dict) -> None:
+    client = info.get("agent_client") or {}
+    client_text = client.get("name") or "—"
+    if client.get("version"):
+        client_text += f"@{client['version']}"
     ui.info(
         f"{label}  tool={info.get('tool') or '—'}  "
+        f"client={client_text}  "
         f"model={info.get('model') or '—'}  "
         f"session={info.get('session_id') or '—'}"
     )
@@ -356,6 +364,8 @@ def _ssh_argv(data: dict) -> list[str]:
 
 
 def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) -> bool:
+    from . import agentclient
+
     point = wp.discover(tmux_name)
     data["op_point" if side == "trigger" else "run_point"] = point
     if side == "bullet":
@@ -364,6 +374,48 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
     exclude = (data.get(other) or {}).get("session_id") or ""
     info = tmux_ops.pane_info(tmux_name)
     pane_cmd = info.get("cmd") or ""
+    side_info = _side(data, side)
+    requested_tool = (side_info.get("tool") or "opencode") if tool in {"", "auto"} else tool
+    process_commands = [pane_cmd, *wp.walk_commands(info.get("pid") or "")]
+    actual_local_client = agentclient.detect_name(process_commands)
+    client_name = actual_local_client or agentclient.normalize_name(requested_tool)
+    location = "local" if actual_local_client else point.get("kind") or "local"
+    if location not in {"ssh", "docker"}:
+        location = "local"
+    runtime = data.get("runtime") or {}
+    client_meta = agentclient.collect(
+        client_name,
+        location=location,
+        ssh_argv=_ssh_argv(data) if location in {"ssh", "docker"} else None,
+        host=runtime.get("server") or point.get("ssh") or "",
+        container=point.get("container") or runtime.get("container") or "",
+    )
+    side_info["agent_client"] = client_meta
+    if client_name:
+        previous_tool = side_info.get("tool") or ""
+        side_info["tool"] = client_name
+        from .paneparse import parser_id_for_side
+
+        if previous_tool != client_name:
+            side_info["parser"] = ""
+            for key in ("model", "session_id", "slug", "agent", "directory", "frozen_at"):
+                side_info[key] = ""
+        if client_name != "opencode":
+            for key in ("model", "session_id", "slug", "agent", "directory", "frozen_at"):
+                side_info[key] = ""
+        side_info["parser"] = parser_id_for_side(side_info)
+    ev.emit(
+        "freeze.client.ok" if not client_meta.get("error") else "freeze.client.fail",
+        name=data.get("name"),
+        side=side,
+        client=client_meta.get("name"),
+        version=client_meta.get("version"),
+        location=client_meta.get("location"),
+        error=client_meta.get("error"),
+    )
+    if client_name and client_name != "opencode":
+        ui.warn(f"{side} {client_name} client captured; session freeze/resume is not implemented for this tool")
+        return False
     local_oc = pane_cmd == "opencode"
     session = oc_ops.from_pane(
         info.get("pid") or "",
@@ -382,7 +434,6 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
             local_oc = pane_cmd == "opencode"
             session = oc_ops.from_pane(info.get("pid") or "", info.get("cwd") or "", exclude, fallback=local_oc)
     if not session and not local_oc and point["kind"] in {"ssh", "docker"}:
-        runtime = data.get("runtime") or {}
         session = oc_ops.latest_remote(_ssh_argv(data), point.get("container") or runtime.get("container") or "")
     if not session:
         error = (
@@ -401,7 +452,8 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
         )
         ui.warn(f"{error}. dt {'enter' if side == 'trigger' else 'work'} --oc first")
         return False
-    _bind_oc(data, side, session, tool)
+    _bind_oc(data, side, session, client_name or "opencode")
+    data[side]["agent_client"] = client_meta
     ev.emit(
         "freeze.side.ok",
         name=data.get("name"),
@@ -409,6 +461,8 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
         tmux=tmux_name,
         session=session.session_id,
         model=session.model,
+        client=client_meta.get("name"),
+        client_version=client_meta.get("version"),
         cwd=point.get("cwd"),
         point_kind=point.get("kind"),
         ssh=point.get("ssh"),
@@ -419,7 +473,7 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
     return True
 
 
-def freeze_sides(data: dict, sides: list[str], tool: str = "opencode", wait: bool = False) -> None:
+def freeze_sides(data: dict, sides: list[str], tool: str = "auto", wait: bool = False) -> None:
     if "trigger" in sides:
         _freeze_one(data, "trigger", data["op"], tool, wait)
     if "bullet" in sides:
@@ -460,13 +514,13 @@ def apply_model(name: str, model: str, sides: list[str]) -> dict:
     return load(path)
 
 
-def apply_freeze(name: str, sides: list[str] | None = None, tool: str = "opencode") -> dict:
+def apply_freeze(name: str, sides: list[str] | None = None, tool: str = "auto") -> dict:
     data = _resolve(name)
     path = find_dt(data["name"])
     if not sides:
         sides = ["trigger", "bullet"]
     span = ev.timed("freeze", name=data["name"], sides=",".join(sides))
-    freeze_sides(data, sides, tool or "opencode")
+    freeze_sides(data, sides, tool or "auto")
     wp.stamp(data, "freeze_at")
     save(path, data)
     dst = oc_ops.is_dst(data)
@@ -496,7 +550,7 @@ def cmd_freeze(args: argparse.Namespace) -> None:
         sides.append("trigger")
     if args.bullet or (not args.trigger and not args.bullet):
         sides.append("bullet")
-    data = apply_freeze(args.name, sides, getattr(args, "tool", "") or "opencode")
+    data = apply_freeze(args.name, sides, getattr(args, "tool", "") or "auto")
     dst = oc_ops.is_dst(data)
     ui.ok(f"freeze {data['name']}  IS_DST={'yes' if dst else 'no'}")
     if not dst:
@@ -1029,12 +1083,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_freeze.add_argument("name", nargs="?", help="defaults to latest tunnel")
     p_freeze.add_argument("--trigger", action="store_true")
     p_freeze.add_argument("--bullet", action="store_true")
-    p_freeze.add_argument("--tool", default="opencode")
+    p_freeze.add_argument("--tool", choices=["auto", "opencode", "codex", "claude"], default="auto")
     p_cap = sub.add_parser("capture", help="alias of freeze")
     p_cap.add_argument("name", nargs="?", help="defaults to latest tunnel")
     p_cap.add_argument("--trigger", action="store_true")
     p_cap.add_argument("--bullet", action="store_true")
-    p_cap.add_argument("--tool", default="opencode")
+    p_cap.add_argument("--tool", choices=["auto", "opencode", "codex", "claude"], default="auto")
 
     p_make = sub.add_parser("make", help="dt make dst <name> — create DT + both oc and freeze")
     p_make.add_argument("target", choices=["dst"])

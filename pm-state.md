@@ -4,6 +4,10 @@
 
 ## 状态树
 
+### v0.05 (ACTIVE) — API 开发版
+
+- **feature/v0.05-agent-client-metadata** (CODE_COMPLETE): freeze 已采集 trigger/bullet 的 OpenCode、Codex、Claude 客户端名称、版本、路径和运行位置；66 项测试与真实本机/tom7r 容器验证通过。
+
 ### v0.04 (RELEASED) — 当前发布线
 
 - 发布包版本：`0.4.37`，标签 `v0.4.37` 指向 `b392601`
@@ -12,8 +16,7 @@
 
 ## 当前焦点
 
-- `v0.4.37` 已正式发布；GitHub Release 包含 sdist 与 wheel。
-- 本机通过 GitHub 安装源实测 `dt upgrade`：`0.4.36 → 0.4.37`，新版 `dt tick` 实测输出 `hub sync`。
+- v0.05 API 已完成；推进 v0.06 Web 展示与正式发布。
 
 ## 待办
 
@@ -24,6 +27,8 @@
 - [x] 经用户确认后推送 hotfix 分支并校验远端 SHA
 - [x] 创建 PR #1 并合并到 `main`
 - [x] 打 `v0.4.37` 标签、创建 GitHub Release 并验证 `dt upgrade`
+- [x] 完成 v0.05 三件套、采集器、freeze 集成与回归测试
+- [ ] 完成 v0.06 Web 展示、封板并发布 `0.4.38`
 
 ## Git 权限模式
 

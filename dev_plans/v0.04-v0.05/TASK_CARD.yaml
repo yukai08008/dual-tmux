@@ -1,0 +1,74 @@
+version: v0.05
+parent_final: v0.4.37
+title: Agent 客户端元数据
+type: api
+prd: dev_plans/v0.04-v0.05/PRD.md
+test_cases: dev_plans/v0.04-v0.05/TEST_CASES.md
+
+invariants:
+  - "旧隧道 JSON 向后兼容"
+  - "不采集凭据、配置或环境变量"
+  - "运行时数据不在 git 追踪中"
+
+deliverables:
+  - module: src/dual_tmux/agentclient.py
+    change: Agent CLI 白名单、版本解析、本地/SSH/Docker 采集
+    public_api:
+      - collect
+      - resolve_name
+  - module: src/dual_tmux/cli.py
+    change: freeze 固化 trigger/bullet agent_client
+  - module: src/dual_tmux/ui.py
+    change: inspect 展示客户端及版本
+
+feature_branches:
+  - name: feature/v0.05-agent-client-metadata
+    title: Agent 客户端元数据采集
+    deps: []
+    files:
+      - src/dual_tmux/agentclient.py
+      - src/dual_tmux/cli.py
+      - src/dual_tmux/oc.py
+      - src/dual_tmux/ui.py
+      - tests/test_agentclient.py
+    acceptance:
+      - AC-1 OpenCode/Codex/Claude 版本输出均能规范解析
+      - AC-2 trigger 与本地 bullet 能识别 pane 命令并采集
+      - AC-3 SSH/Docker bullet 在实际工作点采集
+      - AC-4 freeze 把 agent_client 写入对应 side
+      - AC-5 旧隧道无 agent_client 仍可 inspect/resume
+    estimated_loc: ~260
+
+acceptance_count: 5
+total_estimated_loc: ~260
+
+risk_register:
+  - id: R1
+    risk: 远端版本查询命令注入
+    mitigation: 固定 Agent 白名单并 shell quote
+    severity: high
+  - id: R2
+    risk: 远端 pane 只显示 ssh
+    mitigation: 保留 --tool 显式指定
+    severity: medium
+
+git_workflow:
+  branch_creation: from v0.4.37 main
+  feature_order: agentclient, freeze, ui, docs
+  merge_policy: --no-ff via PR
+  before_merge_checks:
+    - "uv run pytest -q"
+    - "uv run python -m compileall -q src tests"
+    - "uv build"
+    - "git ls-files data/ | wc -l == 0"
+  final_tag: null
+
+deployment_checklist:
+  - "真实 opencode/codex/claude --version 采集通过"
+  - "本地 trigger freeze JSON 包含 agent_client"
+  - "tom7r bullet 查询不泄露配置"
+
+notes:
+  - "v0.05 为 API 开发版，不单独 final 发布；后续双数版承接 Web 展示。"
+
+签名: Agent-PM-v0.05
