@@ -348,7 +348,7 @@ def _start_side(
     if sent:
         ui.ok(f"{side} {cmd} -> {tmux_name}" + (f"  cwd={cwd}" if cwd else ""))
     else:
-        ui.skip(f"{tmux_name} already running opencode")
+        ui.skip(f"{tmux_name} already running {info.get('tool') or 'agent'}")
 
 
 def _touch_point(data: dict, which: str) -> None:
@@ -501,15 +501,8 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
                 "frozen_at",
             ):
                 side_info[key] = ""
-        if client_name != "opencode":
-            for key in (
-                "model",
-                "session_id",
-                "slug",
-                "agent",
-                "directory",
-                "frozen_at",
-            ):
+        if client_name in {"codex", "claude"}:
+            for key in ("model", "session_id", "slug", "agent", "directory", "frozen_at"):
                 side_info[key] = ""
         side_info["parser"] = parser_id_for_side(side_info)
     ev.emit(
@@ -521,13 +514,58 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
         location=client_meta.get("location"),
         error=client_meta.get("error"),
     )
-    if client_name and client_name != "opencode":
+    if client_name in {"codex", "claude"}:
+        from . import agent_sessions
+
+        if location in {"ssh", "docker"}:
+            session = agent_sessions.discover_remote(
+                client_name,
+                _ssh_argv(data),
+                container=point.get("container") or runtime.get("container") or "",
+                cwd=(
+                    point.get("directory")
+                    or point.get("cwd")
+                    or runtime.get("directory")
+                    or ""
+                ),
+            )
+        else:
+            session = agent_sessions.discover_local(
+                client_name,
+                pid=info.get("pid") or "",
+                commands=process_commands,
+                cwd=point.get("cwd") or info.get("cwd") or "",
+            )
         if side == "bullet":
-            wp.capture_runtime(data, point)
+            if point.get("kind") == "local" or live_transport:
+                wp.capture_runtime(data, point)
             write_entry(data["run"], (data.get("runtime") or {}).get("cmd") or "")
-        ui.warn(
-            f"{side} {client_name} client captured; session freeze/resume is not implemented for this tool"
+        if not session:
+            ui.warn(
+                f"no provable {side} {client_name} session on {tmux_name}; not binding historical session"
+            )
+            return False
+        _bind_oc(data, side, session, client_name)
+        data[side]["agent_client"] = client_meta
+        ev.emit(
+            "freeze.side.ok",
+            name=data.get("name"),
+            side=side,
+            tmux=tmux_name,
+            session=session.session_id,
+            model=session.model,
+            client=client_name,
+            client_version=client_meta.get("version"),
+            cwd=session.directory or point.get("cwd"),
+            point_kind=point.get("kind"),
+            ssh=point.get("ssh"),
+            container=point.get("container"),
+            hops=len(point.get("hops") or []),
         )
+        _print_side(side, data[side])
+        return True
+    if client_name and client_name != "opencode":
+        ui.warn(f"unsupported {side} agent client: {client_name}")
         return False
     local_oc = pane_cmd == "opencode"
     session = oc_ops.from_pane(
@@ -787,9 +825,15 @@ def _apply_resume_legacy(name: str | None, force: bool = False) -> dict:
 
         if ensure_remote_session(data):
             ui.ok("imported remote bullet persist JSON")
-    if oc_ops.ensure_local(_side(data, "trigger")):
+    trigger = _side(data, "trigger")
+    bullet = _side(data, "bullet")
+    if (trigger.get("tool") or "opencode") == "opencode" and oc_ops.ensure_local(trigger):
         ui.ok("imported trigger persist JSON")
-    if not remote_bullet and oc_ops.ensure_local(_side(data, "bullet"), role="bullet"):
+    if (
+        not remote_bullet
+        and (bullet.get("tool") or "opencode") == "opencode"
+        and oc_ops.ensure_local(bullet, role="bullet")
+    ):
         ui.ok("imported local bullet persist JSON")
     _start_side(data, data["op"], "trigger", "", True)
     _start_side(data, data["run"], "bullet", "", True)

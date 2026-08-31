@@ -60,15 +60,20 @@ _FULL_OPENCODE = AgentCapabilities(
     resume=True,
     model=True,
 )
+_NATIVE_SESSION = AgentCapabilities(
+    start=True,
+    session_freeze=True,
+    resume=True,
+)
 
 _ADAPTERS = {
     "opencode": AgentAdapter("opencode", "OpenCode", ("opencode",), _FULL_OPENCODE),
-    "codex": AgentAdapter("codex", "Codex", ("codex", "codex-cli"), AgentCapabilities()),
+    "codex": AgentAdapter("codex", "Codex", ("codex", "codex-cli"), _NATIVE_SESSION),
     "claude": AgentAdapter(
         "claude",
         "Claude Code",
         ("claude", "claude-code"),
-        AgentCapabilities(),
+        _NATIVE_SESSION,
     ),
 }
 

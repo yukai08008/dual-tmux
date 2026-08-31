@@ -399,8 +399,15 @@ def as_bind(session: OcSession, tool: str = "") -> dict:
 def resume_cmd(info: dict) -> str:
     tool = info.get("tool") or "opencode"
     sid = info.get("session_id") or ""
+    if tool in {"codex", "claude"}:
+        from .agent_sessions import resume_command
+
+        try:
+            return resume_command(tool, sid)
+        except ValueError as exc:
+            raise SystemExit(f"[err] {exc}") from exc
     if tool != "opencode":
-        raise SystemExit(f"[err] resume for tool={tool} is not implemented")
+        raise SystemExit(f"[err] unsupported resume tool={tool}")
     if not sid:
         return start_cmd(info)
     return f"opencode --auto -s {sid}"
@@ -408,9 +415,16 @@ def resume_cmd(info: dict) -> str:
 
 def start_cmd(info: dict, model: str = "") -> str:
     tool = info.get("tool") or "opencode"
-    if tool != "opencode":
-        raise SystemExit(f"[err] start for tool={tool} is not implemented")
     chosen = model or info.get("model") or ""
+    if tool in {"codex", "claude"}:
+        from .agent_sessions import start_command
+
+        try:
+            return start_command(tool, chosen)
+        except ValueError as exc:
+            raise SystemExit(f"[err] {exc}") from exc
+    if tool != "opencode":
+        raise SystemExit(f"[err] unsupported start tool={tool}")
     if chosen:
         return f"opencode --model {chosen}"
     return "opencode"

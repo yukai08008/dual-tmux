@@ -167,9 +167,16 @@ def start_opencode(name: str, extra: str = "") -> None:
 
 
 def ensure_agent(name: str, cmd: str, cwd: str = "") -> bool:
-    """Start cmd if pane is not already opencode. Return True if a command was sent."""
+    """Start cmd unless the requested Agent already owns the pane."""
+    from .agentclient import detect_name
+    from .workpoint import walk_commands
+
     ensure_session(name, cwd=cwd)
-    if pane_command(name) == "opencode":
+    requested = detect_name([cmd])
+    info = pane_info(name)
+    current = info.get("cmd") or ""
+    active = detect_name([current, *walk_commands(info.get("pid") or "")])
+    if requested and active == requested:
         return False
     if cwd:
         current = pane_info(name).get("cwd") or ""

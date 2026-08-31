@@ -108,10 +108,14 @@ def _remote_probe(
     session_line = "echo DT_SESSION=0"
     if sid and tool == "opencode":
         session_line = f"{oc_ops.session_probe_script(sid)}; echo DT_SESSION=$?"
+    elif sid and tool in {"codex", "claude"}:
+        from .agent_sessions import remote_session_probe_script
+
+        session_line = f"{remote_session_probe_script(tool, sid)}; echo DT_SESSION=$?"
     # Bracket the first character so pgrep cannot match this probe shell's own
     # command line while still matching the real Agent command.
     process_tool = f"[{tool[0]}]{tool[1:]}" if tool else "false"
-    process_pattern = f"{process_tool}.*{sid}" if sid else process_tool
+    process_pattern = process_tool
     script = "\n".join(
         [
             "set +e",
@@ -262,6 +266,15 @@ def probe_tunnel(
         )
         if bullet_tool == "opencode" and bullet.get("session_id"):
             present = oc_ops.by_id(bullet["session_id"]) is not None
+            layers["session"] = _layer(
+                present,
+                "present" if present else "missing",
+                bullet["session_id"],
+            )
+        elif bullet_tool in {"codex", "claude"} and bullet.get("session_id"):
+            from .agent_sessions import session_exists
+
+            present = session_exists(bullet_tool, bullet["session_id"])
             layers["session"] = _layer(
                 present,
                 "present" if present else "missing",

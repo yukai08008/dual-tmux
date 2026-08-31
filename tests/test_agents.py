@@ -30,10 +30,11 @@ def test_capabilities_are_truthful_about_session_lifecycle():
         adapter = require_adapter(name)
         assert adapter.supports("detect")
         assert adapter.supports("version")
+        assert adapter.supports("start")
         assert adapter.supports("send")
         assert adapter.supports("metadata_freeze")
-        assert not adapter.supports("session_freeze")
-        assert not adapter.supports("resume")
+        assert adapter.supports("session_freeze")
+        assert adapter.supports("resume")
         assert not adapter.supports("model")
 
 

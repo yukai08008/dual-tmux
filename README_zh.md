@@ -183,8 +183,8 @@ dual-tmux 能识别 trigger 和 bullet pane 中的 OpenCode、Codex 与 Claude C
 | 采集本地 / SSH / Docker 元数据 | 是 | 是 | 是 |
 | 通过 tmux pane 发送文本 | 是 | 是 | 是 |
 | `freeze` 时记录客户端元数据 | 是 | 是 | 是 |
-| 启动并冻结可恢复的原生会话 | 是 | 尚未 | 尚未 |
-| 恢复冻结的原生会话 | 是 | 尚未 | 尚未 |
+| 启动并冻结可恢复的原生会话 | 是 | 是 | 是 |
+| 恢复冻结的原生会话 | 是 | 是 | 是 |
 | 由 dual-tmux 切换模型 | 是 | 尚未 | 尚未 |
 
 已经迁移的 CLI 与 Web 操作共用同一控制合同：
@@ -197,7 +197,7 @@ CLI / Web / 未来飞书
 Agent 能力注册表 + tunnel/tmux 操作
 ```
 
-本地 Web API 提供 `GET /api/capabilities` 和 `GET /api/operations`，供调用方查询能力与操作目录。Codex/Claude 的原生会话生命周期将在后续适配器迭代中补齐；当前 `freeze` 会如实记录客户端元数据，不伪造 session ID。
+本地 Web API 提供 `GET /api/capabilities` 和 `GET /api/operations`，供调用方查询能力与操作目录。原生生命周期发现采用保守规则：Codex/Claude 优先读取活动进程显式携带的 session UUID；否则会话文件必须同时唯一匹配 pane 工作目录与进程启动时间。候选含糊或只有历史记录时拒绝绑定，不猜最新会话。
 
 ## 默认 agent：OpenCode
 
@@ -273,7 +273,7 @@ dt send myapp '发给 bullet 的任务'
 
 `dt new` 不会创建 DST。`--oc` 可以不带 `--model`（用 harness 默认模型）。手工 `--oc` 之后必须 `dt freeze`。接续 DST 用 `dt resume`。
 
-每侧冻结后记下 `tool`、`model`、`session_id`，以及 `agent_client`（客户端名、版本、原始版本输出、可执行文件、local/ssh/docker 位置和采集时间）。支持识别 OpenCode、Codex 与 Claude Code；OpenCode 继续支持 session 接续，Codex/Claude 当前只记录客户端元数据，不伪造 session resume。远端 pane 只显示 ssh 时可用 `dt freeze --tool codex|claude` 明确指定。接续 OpenCode 用 `opencode --auto -s <id>`，禁用 `-c`。
+每侧冻结后记下 `tool`、`model`、`session_id`，以及 `agent_client`（客户端名、版本、原始版本输出、可执行文件、local/ssh/docker 位置和采集时间）。OpenCode、Codex 与 Claude Code 均支持原生 freeze/resume。远端 pane 只显示 ssh 时可用 `dt freeze --tool codex|claude` 明确指定。恢复始终沿用冻结 ID，分别执行 `opencode --auto -s <id>`、`codex resume <uuid>` 或 `claude --resume <uuid>`，不会退化为未经证明的“最新会话”。
 
 freeze 还会记下 **工作点**（`op_point` / `run_point`：kind、cwd、ssh、docker、resume_cmd）和 **时间**（`created_at`、`enter_at`、`work_at`、`freeze_at`、`resume_at`）。一侧失败不会丢掉另一侧。`dt inspect` 能看到这些。
 
