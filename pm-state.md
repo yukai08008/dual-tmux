@@ -1,12 +1,12 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-08-31 14:30 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-08-31 15:15 +08:00 | 更新者: Codex PM
 
 ## 状态树
 
 ### v0.4.48 (ACTIVE) — 飞书扫码 Web 与 tom7r 事件桥
 
-- **feature/v0.4.48-feishu-web-bridge** (CODE_COMPLETE): Web QR/绑定管理、tom7r mailbox bridge、飞书 callback/event、Client 离线可靠消费、outbox 回包合同与 Docker 部署模板已完成。159 tests、Browser E2E、编译/lint/build、tom7r 容器 build/health 全绿；等待 PR 合并。企业飞书真实 E2E 因缺 App 凭据/HTTPS callback 仍为 P1 发布门禁，合并后保持 ACTIVE、不创建 Release。
+- **feature/v0.4.48-feishu-web-bridge** (MERGED): PR #12 已合并，远端 main=`e1e2494`。Web QR/绑定管理、tom7r mailbox bridge、飞书 callback/event、Client 离线可靠消费、outbox 回包合同与 Docker 部署模板已完成；159 tests、Browser E2E、编译/lint/build、tom7r 容器 build/health 全绿。企业飞书真实 E2E 因缺 App 凭据/HTTPS callback 仍为 P1 发布门禁；v0.4.48 保持 ACTIVE，不创建 Release。
 
 ### v0.4.47 (ARCHIVED) — 飞书绑定与鉴权 API
 
@@ -68,8 +68,10 @@
 
 ## 待办
 
-- [ ] 完成 v0.4.47 飞书绑定/鉴权 API 与安全测试
-- [ ] 合并 v0.4.47（不单独发布），进入 v0.4.48 Web/中心事件桥
+- [x] 完成 v0.4.47 飞书绑定/鉴权 API 与安全测试
+- [x] 合并 v0.4.47（不单独发布），进入 v0.4.48 Web/中心事件桥
+- [x] 合并 PR #12，完成 v0.4.48 Web/中心事件桥代码与无凭据 E2E
+- [ ] 提供企业飞书 App 凭据与 HTTPS callback，完成真实扫码/消息 E2E 后发布 v0.4.48
 
 - [x] 完成 v0.4.42 三件套、health probe 与状态机
 - [x] 完成远端 session import、CLI/tick/Web 接入
