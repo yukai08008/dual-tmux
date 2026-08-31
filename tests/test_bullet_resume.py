@@ -1,6 +1,7 @@
 import pytest
 
 from dual_tmux import cli
+from dual_tmux import recovery
 from dual_tmux import workpoint as wp
 
 
@@ -75,6 +76,7 @@ def _patch_resume(monkeypatch, data: dict):
     monkeypatch.setattr(cli, "save", lambda *_args: None)
     monkeypatch.setattr(cli, "find_dt", lambda _name: None)
     monkeypatch.setattr(cli.ev, "emit", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(recovery, "ensure_remote_session", lambda *_args, **_kwargs: False)
 
 
 def test_resume_stops_before_session_command_when_jump_does_not_stay(monkeypatch):

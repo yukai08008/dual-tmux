@@ -23,6 +23,7 @@ from dual_tmux.web import (
     skills_page,
     tunnels_page,
 )
+from dual_tmux.recovery import read_state, save_state
 
 
 def test_pane_name():
@@ -70,6 +71,25 @@ def test_web_exposes_agent_capabilities_and_operation_catalog():
     assert any(row["name"] == "pane.send" for row in operations["data"])
 
 
+def test_health_endpoint_reads_cache_without_probing(tmp_path, monkeypatch):
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
+    write_config(AppConfig(client="tm_box"))
+    save(tunnels_dir() / "dt-msg.json", {"name": "dt-msg", "op": "op_msg", "run": "run_msg"})
+    state = read_state("dt-msg")
+    state["status"] = "attention"
+    save_state(state)
+    server = WebHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        payload = json.load(urlopen(f"http://127.0.0.1:{server.server_port}/api/health?t=dt-msg", timeout=3))
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+    assert payload["status"] == "attention"
+
+
 def test_admin_tabs_and_search(tmp_path, monkeypatch):
     monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
     write_config(AppConfig(client="tm_box", server="tom7r", user="andy"))
@@ -115,6 +135,8 @@ def test_admin_tabs_and_search(tmp_path, monkeypatch):
     assert "会话同步" in page
     assert "trigger client" in page
     assert "bullet client" in page
+    assert "healthbox" in page
+    assert "/api/health" in Handler.do_GET.__code__.co_consts
     assert "trigger_client" in page
     assert "bullet_client" in page
     assert "syncbox" in page
@@ -139,6 +161,7 @@ def test_admin_tabs_and_search(tmp_path, monkeypatch):
     assert [r["name"] for r in rows] == ["dt-msg"]
     assert rows[0]["trigger_client"]["version"] == "0.151.0"
     assert rows[0]["bullet_client"]["location"] == "docker"
+    assert rows[0]["health"]["status"] == "disabled"
     skills = skills_page()
     assert "Skills" in skills
     assert "btn-import" in skills

@@ -27,10 +27,13 @@ def test_source():
 
 def test_cmd():
     cmd = build_cmd("myserver", "box", "/workspace/app")
-    assert "ssh -t myserver" in cmd
+    assert "ssh -t" in cmd
+    assert "myserver" in cmd
+    assert "ServerAliveInterval=15" in cmd
+    assert "ServerAliveCountMax=3" in cmd
     assert "docker exec -it box" in cmd
     assert "/workspace/app" in cmd
-    assert build_cmd("myserver", "", "/workspace") == "ssh -t myserver"
+    assert build_cmd("myserver", "", "/workspace").endswith("myserver")
 
 
 def test_parse_ssh_target():

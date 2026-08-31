@@ -3,12 +3,32 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import sqlite3
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
 SES_RE = re.compile(r"ses_[A-Za-z0-9]+")
+
+
+def session_probe_script(session_id: str) -> str:
+    """Portable shell expression that checks an OpenCode sqlite session."""
+    sid = (session_id or "").strip()
+    if not SES_RE.fullmatch(sid):
+        return "false"
+    code = (
+        "import sqlite3,sys; "
+        "db=sys.argv[1]; sid=sys.argv[2]; "
+        "con=sqlite3.connect('file:'+db+'?mode=ro',uri=True); "
+        "raise SystemExit(0 if con.execute("
+        "'SELECT 1 FROM session WHERE id=? LIMIT 1',(sid,)).fetchone() else 1)"
+    )
+    return (
+        'db="${OPENCODE_DB:-$HOME/.local/share/opencode/opencode.db}"; '
+        f"test -f \"$db\" && python3 -c {shlex.quote(code)} "
+        f"\"$db\" {shlex.quote(sid)}"
+    )
 
 
 def db_path() -> Path:
