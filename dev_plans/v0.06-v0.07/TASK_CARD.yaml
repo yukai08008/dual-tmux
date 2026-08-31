@@ -1,0 +1,58 @@
+version: v0.07
+parent_final: v0.06-final
+title: Local-first configuration and safe Hub migration
+type: api
+prd: dev_plans/v0.06-v0.07/PRD.md
+test_cases: dev_plans/v0.06-v0.07/TEST_CASES.md
+
+invariants:
+  - "Switching does not delete local or remote records"
+  - "Failed migration keeps the old config"
+  - "Existing Hub configs remain compatible"
+  - "Runtime data is not tracked in Git"
+
+deliverables:
+  - module: src/dual_tmux/config.py
+    change: optional Hub model, validation, atomic config writes
+  - module: src/dual_tmux/hub.py
+    change: capability guards and safe attach/replace/detach transaction
+  - module: src/dual_tmux/cli.py
+    change: local setup and mode-aware command behavior
+  - module: src/dual_tmux/health.py
+    change: mode-aware diagnostics
+  - module: src/dual_tmux/hotfix.py
+    change: mode-aware persist cron reconciliation
+
+feature_branches:
+  - name: feature/v0.07-local-first-config
+    title: Local-first API and migration transaction
+    deps: []
+    acceptance:
+      - A-1 local config requires only a valid client
+      - A-2 old config parses as Hub mode
+      - A-3 attach/replace/detach is merge-before-commit
+      - A-4 local Hub helpers never invoke network
+      - A-5 partial Hub config is rejected
+
+acceptance_count: 5
+total_estimated_loc: ~300
+
+risk_register:
+  - id: R1
+    risk: data loss during server change
+    mitigation: merge old then new before atomic config write
+    severity: high
+  - id: R2
+    risk: background sync remains active after detach
+    mitigation: remove scoped persist cron entries
+    severity: high
+
+git_workflow:
+  branch_creation: from v0.4.38 main
+  merge_policy: PR, no force push
+  final_tag: absorbed by v0.08 package release
+
+notes:
+  - Odd API version is intentionally delivered with the following even interaction version.
+
+signature: Agent-PM-0.07
