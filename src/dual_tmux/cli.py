@@ -693,7 +693,7 @@ def cmd_tick(_: argparse.Namespace) -> None:
         except SystemExit:
             continue
         n += 1
-    hub.push_best_effort(wait=True)
+    hub.sync_best_effort(wait=True)
     ui.ok(f"tick  {n} live DT  log={activity.activity_path()}")
 
 
