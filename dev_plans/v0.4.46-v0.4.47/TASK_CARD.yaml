@@ -1,0 +1,77 @@
+version: v0.4.47
+parent_final: v0.4.46
+title: 飞书绑定与鉴权 API
+type: api
+prd: dev_plans/v0.4.46-v0.4.47/PRD.md
+test_cases: dev_plans/v0.4.46-v0.4.47/TEST_CASES.md
+
+invariants:
+  - "秘密与身份数据不进入 Git、tunnel JSON 或 Hub 同步树"
+  - "飞书只通过 ControlService 执行业务操作"
+  - "运行时数据不在 git 追踪中"
+  - "v0.4.48 前端 e2e 覆盖新功能"
+
+deliverables:
+  - module: src/dual_tmux/feishu.py
+    change: 飞书配置、秘密解析、pairing、身份绑定、防重放、命令策略和分发
+    public_api:
+      - FeishuConfig
+      - PairingService
+      - FeishuDispatcher
+  - module: src/dual_tmux/cli.py
+    change: dt feishu status/configure/pair/callback/unbind/dispatch
+
+feature_branches:
+  - name: feature/v0.4.47-feishu-binding-api
+    title: 飞书绑定与鉴权 API
+    deps: [v0.4.46]
+    files: [src/dual_tmux/feishu.py, src/dual_tmux/cli.py, tests/test_feishu.py]
+    acceptance:
+      - "F-1 secret 仅来自 env 或严格 0600 文件"
+      - "F-2 pairing state 高熵、TTL、一次性且 callback 严格校验"
+      - "F-3 三类 operator ID 可绑定并受 allowlist 约束"
+      - "F-4 event_id 重放被拒绝"
+      - "F-5 命令严格解析并委派 ControlService"
+      - "F-6 drop/rm 要求绑定目标和 operator 的一次性确认 token"
+      - "F-7 upgrade/hotfix/cron/shell/SSH 远程执行不可达"
+      - "F-8 所有授权结果和执行结果形成审计事件"
+    estimated_loc: ~650
+
+acceptance_count: 8
+total_estimated_loc: ~650
+
+risk_register:
+  - id: R1
+    risk: secret 泄露到同步或版本库
+    mitigation: 独立本地存储、权限检查、边界测试
+    severity: high
+  - id: R2
+    risk: OAuth 或事件重放
+    mitigation: 摘要存储、TTL、单次原子消费
+    severity: high
+  - id: R3
+    risk: 飞书云无法直达本机
+    mitigation: v0.4.48 实现 tom7r 中心事件桥
+    severity: high
+
+git_workflow:
+  branch_creation: from v0.4.46
+  feature_order: feishu-core
+  merge_policy: --no-ff via PR
+  before_merge_checks:
+    - "pytest tests/ all PASS"
+    - "compileall PASS"
+    - "ruff focused PASS"
+    - "git ls-files data/ 返回空"
+  final_tag: none (odd API version)
+
+deployment_checklist:
+  - "隔离 DUAL_TMUX_HOME 配置和 pair 冒烟通过"
+  - "secret 权限错误 fail closed"
+  - "既有 tunnel 文件哈希不变"
+  - "git ls-files data/ | wc -l == 0"
+
+notes:
+  - v0.4.47 不单独发布，能力并入 v0.4.48。
+
+signature: Agent-PM-0.4.47
