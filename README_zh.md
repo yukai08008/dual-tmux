@@ -2,21 +2,47 @@
 
 [English](README.md) · [Persist 同步](docs/persist-sync.md)
 
-双层 tmux 隧道。物理会话仍是普通 tmux；本 CLI 给它们命名，并按 1:1 绑定。
+双层 tmux 隧道。物理会话仍是普通 tmux；本 CLI 给它们命名，并按 1:1 绑定。dual-tmux 有两种基础运行模式：**纯本地模式**与 **Hub 同步模式**。
 
 ```
 Client（本机）
   op_<name>          trigger agent（默认 OpenCode）
        │  dt-<name>
-  run_<name>         ssh / docker exec → Server 工作目录
+  run_<name>         本地工作目录，或 ssh / docker exec → Server 工作目录
                           └─ bullet agent（默认 OpenCode）
 ```
 
-**Client** 是你坐的那台机器。**Server** 是干活的 ssh 主机（容器可选）。dual-tmux 不保存任何密钥。
+**Client** 是你坐的那台机器。**Server / Hub** 是可选的；配置后，它既是新隧道的默认 SSH 工作目标，也是隧道记录的同步中心。dual-tmux 不保存任何密钥。
+
+## 基础运行模式
+
+这是贯穿项目的持久运行模型，不只是首次安装选项。每台 Client 在任意时刻只处于以下一种模式：
+
+| 模式 | 必需配置 | 新隧道运行位置 | 隧道记录 | 网络与占用锁 |
+|---|---|---|---|---|
+| **纯本地模式** | `client` | 本机工作目录，默认当前目录 | 只保存在本机 `~/.dual-tmux/` | 不执行 SSH、rsync、Hub push/pull 或分布式锁 |
+| **Hub 同步模式** | `client` + `server` + `user` | 默认进入 `server` 的 `/workspace`，仍可按隧道覆盖 | 本机副本 + Hub 的 `~/<user>/dual-tmux/` | 自动合并同步，并使用单 Client 占用锁 |
+
+纯本地模式是完整可用的基础模式：不配置服务器也可以创建、进入、工作、freeze、resume 和管理本地隧道。Hub 模式在此基础上增加跨 Client 发现、同步、接管保护和远端 persist 集成；它不是基本使用的前置条件。
+
+用户可以随时切换模式：
+
+```sh
+# 从纯本地开始
+dt config --init --local --client tm_laptop
+
+# 首次接入 Hub，或更换当前 Hub
+dt config --server tom7r --user andy
+
+# 最后合并一次，再回到纯本地模式
+dt config --local
+```
+
+切换遵循“先合并、后提交配置”：存在旧 Hub 时先合并旧 Hub；接入或更换时再合并候选 Hub；所有必要同步成功后才原子写入 `config.toml`。SSH/rsync 失败时，原模式和原配置保持不变。切换不会改写已有隧道的 `runtime`，只会改变同步行为以及以后新建隧道的默认值。合并过程永不传播删除。
 
 ## 第一次启动
 
-安装会把 `dt` 放进 PATH，并加上每分钟 crontab（`dt tick`）。可以只填一个 Client 名称采用**纯本地模式**，也可以配置同步中心。纯本地隧道默认使用当前目录；Hub 模式的跳板目录默认 `/workspace`，某条隧道要用别的路径再 `dt new --dir`。
+安装会把 `dt` 放进 PATH，并加上每分钟 crontab（`dt tick`）。请选择一种基础运行模式。纯本地隧道默认使用当前目录；Hub 模式的跳板目录默认 `/workspace`，某条隧道要用别的路径再 `dt new --dir`。
 
 | 字段 | 你填什么 | 本 CLI **不会**做的 |
 |------|----------|---------------------|
@@ -33,16 +59,14 @@ ssh myserver          # 必须已经能通
 dt doctor
 ```
 
-以后可以随时接入、更换或退出中心：
+纯本地模式的 `~/.dual-tmux/config.toml`：
 
-```sh
-dt config --server tom7r --user andy
-dt config --local
+```toml
+client = "tm_laptop"
+workspace = "/path/to/my-project"
 ```
 
-切换采用“先合并、后落配置”的事务：存在旧 Hub 时先合并旧 Hub，再合并候选 Hub，全部成功后才原子替换 `config.toml`。SSH/rsync 失败时旧配置保持不变；同步不会传播删除。
-
-`~/.dual-tmux/config.toml`：
+Hub 模式的 `~/.dual-tmux/config.toml`：
 
 ```toml
 client = "tm_laptop"   # 本机源名
@@ -69,7 +93,7 @@ workspace = "/workspace"  # 默认跳板目录；初始化不问
 └── ops/op_<name>/AGENTS.md   # trigger OpenCode 的启动目录
 ```
 
-## 另一台 Client 接续 DST
+## Hub 模式下由另一台 Client 接续 DST
 
 这是 **第三棵树**，和 tmux persist、OpenCode persist 不冲突。
 
