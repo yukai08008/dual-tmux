@@ -1,12 +1,12 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-08-31 13:30 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-08-31 13:36 +08:00 | 更新者: Codex PM
 
 ## 状态树
 
-### v0.4.40 (ACTIVE) — Agent Adapter 与统一控制内核
+### v0.4.40 (RELEASED) — Agent Adapter 与统一控制内核
 
-- **feature/v0.4.40-control-kernel** (DEVELOPING): 建立三客户端真实能力注册表与 CLI/Web/未来飞书共用的 ControlService。
+- **feature/v0.4.40-control-kernel** (MERGED): PR #4 已合并；三客户端真实能力注册表、CLI/Web/未来飞书共用 ControlService、能力/操作 Web API 已发布。
 
 > 版本编号说明：从本版本起，L1 与实际 Python 包版本/Git 标签保持一致。以下 `v0.04`～`v0.08` 是历史内部里程碑，仅作记录，不再延续编号。
 
@@ -35,15 +35,16 @@
 
 ## 当前焦点
 
-- 推进 `v0.4.40`：先交付 Agent Adapter、能力矩阵和统一控制内核，再执行 PR、发布与真实升级验证。
+- `v0.4.40` 已正式发布；本机真实 `dt upgrade` 从 `0.4.39` 升到 `0.4.40`，配置和 tunnel 集合 SHA-256 均保持不变。下一阶段为 `v0.4.41` 三客户端原生生命周期适配。
 
 ## 待办
 
-- [ ] 完成 v0.4.40 三件套与 Agent Adapter
-- [ ] 完成 ControlService 并迁移 CLI/Web 操作
-- [ ] 完成全量测试、浏览器 E2E、构建与封板报告
-- [ ] 创建并合并 PR，发布 v0.4.40
-- [ ] 本机真实执行 `dt upgrade` 并验证数据无损
+- [x] 完成 v0.4.40 三件套与 Agent Adapter
+- [x] 完成 ControlService 并迁移 CLI/Web 操作
+- [x] 完成 88 tests、浏览器 E2E、构建与封板报告
+- [x] 创建并合并 PR #4，发布 v0.4.40
+- [x] 本机真实执行 `dt upgrade` 并验证数据无损
+- [ ] 立项 v0.4.41：补齐 OpenCode、Codex、Claude 三客户端原生生命周期适配
 
 - [x] 核对本地、tom7r、另一 Client 三方数据事实
 - [x] 使用显式 `dt pull` 恢复本机缺失的 4 条隧道
