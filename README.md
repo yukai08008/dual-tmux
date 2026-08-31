@@ -195,7 +195,7 @@ dt send myapp 'task for bullet'
 
 `dt new` never creates DST. `--oc` may omit `--model` (harness default). `dt freeze` is required after manual `--oc`. `dt resume` is the DST continue command (not a typo for `dsh`).
 
-Each frozen side stores `tool` (default `opencode`), `model`, `session_id`. Resume uses `opencode --auto -s <id>`, never `-c`.
+Each frozen side stores `tool`, `model`, `session_id`, and `agent_client` (client name, version, raw version output, executable, local/ssh/docker location, and collection time). OpenCode, Codex, and Claude Code are recognized. OpenCode keeps session resume support; Codex/Claude currently record client metadata only and never fabricate a resumable session. If a remote pane only exposes `ssh`, select it explicitly with `dt freeze --tool codex|claude`. OpenCode resume uses `opencode --auto -s <id>`, never `-c`.
 
 Freeze also records **work points** (`op_point` / `run_point`: kind, cwd, ssh, docker, resume_cmd) and **timestamps** (`created_at`, `enter_at`, `work_at`, `freeze_at`, `resume_at`). One side failing does not throw away the other. `dt inspect` shows all of this.
 

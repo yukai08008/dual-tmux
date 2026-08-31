@@ -237,7 +237,8 @@ def latest_remote(ssh_argv: list[str], container: str = "") -> OcSession | None:
     )
 
 
-def empty_side(tool: str = "opencode") -> dict[str, str]:
+def empty_side(tool: str = "opencode") -> dict:
+    from .agentclient import empty as empty_agent_client
     from .paneparse import parser_id_for_side
 
     info = {
@@ -247,12 +248,13 @@ def empty_side(tool: str = "opencode") -> dict[str, str]:
         "session_id": "",
         "slug": "",
         "agent": "",
+        "agent_client": empty_agent_client(),
     }
     info["parser"] = parser_id_for_side(info)
     return info
 
 
-def as_bind(session: OcSession, tool: str = "") -> dict[str, str]:
+def as_bind(session: OcSession, tool: str = "") -> dict:
     from .workpoint import now_iso
 
     from .paneparse import parser_id_for_side
