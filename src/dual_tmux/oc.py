@@ -344,11 +344,11 @@ def import_snapshot(path: Path) -> None:
         raise SystemExit(f"[err] opencode import {path.name}: {err[-1] if err else 'failed'}")
 
 
-def ensure_local(info: dict, *, importer=None) -> bool:
-    """Import persist JSON if this Client sqlite lacks the trigger session.
+def ensure_local(info: dict, *, importer=None, role: str = "trigger") -> bool:
+    """Import persist JSON if this Client sqlite lacks a local-side session.
 
-    Returns True if import ran. Bullet must not call this: that sqlite is
-    at the jump target, not on this laptop.
+    Returns True if import ran. A remote bullet must not call this; a bullet
+    whose captured runtime is local uses the same persist recovery as trigger.
     """
     sid = (info.get("session_id") or "").strip()
     if not sid:
@@ -359,7 +359,7 @@ def ensure_local(info: dict, *, importer=None) -> bool:
     if path is None:
         slug = info.get("slug") or "—"
         raise SystemExit(
-            f"[err] trigger session {sid} ({slug}) not in local sqlite and no persist JSON "
+            f"[err] {role} session {sid} ({slug}) not in local sqlite and no persist JSON "
             f"under {persist_root()}/tm_*/. Pull persist, then dt resume."
         )
     (importer or import_snapshot)(path)

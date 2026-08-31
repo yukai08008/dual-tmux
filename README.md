@@ -120,7 +120,7 @@ dt pull
 dt resume dt-msg              # imports trigger JSON, then -s; bullet -s on the jump host
 ```
 
-`dt pull` restores the binding only. `dt resume` imports **trigger** JSON from persist into this Client sqlite, then `opencode --auto -s <id>` in `op_*`. Bullet stays at the jump target sqlite — replay `runtime.cmd`, then `-s` there. Do not import bullet JSON onto the laptop. See [docs/persist-sync.md](docs/persist-sync.md).
+`dt pull` restores the binding only. `dt resume` imports **trigger** JSON from persist into this Client sqlite, then `opencode --auto -s <id>` in `op_*`. A remote bullet replays `runtime.cmd`, waits for the jump to stay connected, then runs `-s` at the target sqlite. A local-mode bullet imports its JSON into the Client sqlite. See [docs/persist-sync.md](docs/persist-sync.md).
 
 One Client at a time: hub lock `~/<user>/dual-tmux/locks/<dt-name>` (`client@epoch`, TTL 300s). `enter` / `work` / `resume` claim it.
 
