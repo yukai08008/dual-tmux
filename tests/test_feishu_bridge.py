@@ -21,8 +21,8 @@ from dual_tmux.feishu_bridge import (
     BridgeHTTPServer,
     BridgeStore,
     _read_envelope,
-    sync_client,
     publish_installation_to_hub,
+    sync_client,
 )
 
 
@@ -160,6 +160,7 @@ def test_sync_client_processes_command_once_and_writes_response(dt_home, monkeyp
         {
             "event_id": "evt-1",
             "message_id": "om_1",
+            "chat_id": "oc_1",
             "identity": identity.public_dict(),
             "text": "/dt ls",
         },
@@ -208,7 +209,9 @@ def test_sync_client_processes_command_once_and_writes_response(dt_home, monkeyp
     assert first == {"ok": True, "mode": "hub", "callbacks": 0, "commands": 1, "errors": 0}
     assert second["commands"] == 0
     response = next((remote_base / "responses" / "tm_laptop").glob("*.json"))
-    assert _read_envelope(response)["message_id"] == "om_1"
+    envelope = _read_envelope(response)
+    assert envelope["message_id"] == "om_1"
+    assert envelope["chat_id"] == "oc_1"
 
 
 def test_publish_installation_sends_only_encrypted_bundle_and_hashed_route(

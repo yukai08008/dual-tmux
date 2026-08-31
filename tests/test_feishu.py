@@ -20,6 +20,7 @@ from dual_tmux.feishu import (
     save_config,
     status,
     unbind_operator,
+    uninstall,
 )
 
 
@@ -280,3 +281,58 @@ def test_registration_expires_without_persisting_credentials(dt_home):
     clock[0] += 601
     assert service.poll() == {"status": "expired"}
     assert not (feishu_dir() / "installation.json").exists()
+
+
+class EmptyRegistration(FakeRegistration):
+    def poll(self, device_code):
+        assert device_code == "DEVICE-SECRET"
+        return {}
+
+
+def test_empty_registration_poll_remains_pending(dt_home):
+    clock = [1000.0]
+    service = AppRegistrationService(
+        transport=EmptyRegistration(), clock=lambda: clock[0]
+    )
+    service.begin()
+    assert service.poll() == {"status": "pending"}
+    assert (feishu_dir() / "registration.json").is_file()
+    assert not (feishu_dir() / "installation.json").exists()
+
+
+class IncompleteRegistration(FakeRegistration):
+    def poll(self, device_code):
+        assert device_code == "DEVICE-SECRET"
+        return {"client_id": "cli_auto"}
+
+
+def test_incomplete_registration_credentials_fail_closed(dt_home):
+    service = AppRegistrationService(transport=IncompleteRegistration())
+    service.begin()
+    assert service.poll() == {
+        "status": "rejected",
+        "reason": "incomplete_credentials",
+    }
+    assert not (feishu_dir() / "registration.json").exists()
+    assert not (feishu_dir() / "installation.json").exists()
+
+
+def test_hub_uninstall_failure_preserves_local_installation(
+    dt_home, monkeypatch
+):
+    from dual_tmux import feishu_bridge
+    from dual_tmux.config import AppConfig, write_config
+
+    write_config(AppConfig(client="tm_laptop", server="tom7r", user="andy"))
+    CredentialVault().save("cli_auto", "APP-SECRET", {"open_id": "ou_a"})
+    bind_operator(OperatorIdentity(open_id="ou_a"))
+
+    def fail_remove(cfg):
+        raise FeishuError("hub_unbind_failed", "Hub unavailable")
+
+    monkeypatch.setattr(feishu_bridge, "remove_installation_from_hub", fail_remove)
+    with pytest.raises(FeishuError) as caught:
+        uninstall()
+    assert caught.value.code == "hub_unbind_failed"
+    assert CredentialVault().load()["app_secret"] == "APP-SECRET"
+    assert list_bindings()[0].open_id == "ou_a"

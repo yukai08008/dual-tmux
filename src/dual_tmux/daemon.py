@@ -145,7 +145,7 @@ def run_feishu_connector() -> None:
                 reply = _result_text(result)
         except FeishuError as exc:
             reply = f"请求未执行：{exc}"
-        except Exception as exc:  # SDK callback must always reply or log, never crash silently.
+        except Exception as exc:  # noqa: BLE001 - SDK callback must not crash silently.
             log.emit("feishu.ws.message.error", reason=type(exc).__name__)
             reply = "请求处理失败，请稍后重试。"
         _reply_text(api_client, str(message.chat_id), reply)
@@ -180,7 +180,7 @@ def run_feishu_connector() -> None:
                         if chat_id:
                             _reply_text(api_client, chat_id, str(item.get("text") or ""))
                             path.unlink(missing_ok=True)
-                    except Exception as exc:
+                    except Exception as exc:  # noqa: BLE001 - keep the outbox worker alive.
                         log.emit("feishu.ws.response.error", reason=type(exc).__name__)
                 time.sleep(2)
 
