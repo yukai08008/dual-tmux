@@ -201,6 +201,8 @@ Agent 能力注册表 + tunnel/tmux 操作
 
 v0.4.46 Web 控制面覆盖日常 tunnel 全闭环：创建本地/Hub tunnel、两侧客户端选择、pane 输入输出、freeze/resume、权威入口重连、drop/删除、Hub push/pull、健康检查/恢复、自动恢复开关，以及无损的本地/Hub 模式切换。破坏性操作必须显式确认。主机维护命令（`upgrade`、`hotfix`、cron 安装）仍只允许从 CLI 执行，并在 Web 指南中给出入口。
 
+v0.4.47 增加飞书安全绑定 API，供 v0.4.48 的扫码页面和 tom7r 事件桥复用。OAuth access token 永不持久化；App Secret 只从环境变量或严格 `0600` 的本地文件读取；pairing state、事件 ID 和破坏性操作确认 token 均限时且单次使用。详见 [飞书控制 API](docs/feishu.md)。本 API 版尚不负责把飞书云事件路由到只监听 `127.0.0.1` 的 Client。
+
 ## 默认 agent：OpenCode
 
 `op_*`（trigger）和 `run_*`（bullet）默认给 **[OpenCode](https://opencode.ai)** 会话用。

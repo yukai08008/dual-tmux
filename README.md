@@ -1,6 +1,6 @@
 # dual-tmux
 
-[中文文档](README_zh.md) · [Persist sync](docs/persist-sync.md) · [Memory](docs/memory.md)
+[中文文档](README_zh.md) · [Persist sync](docs/persist-sync.md) · [Memory](docs/memory.md) · [Feishu API](docs/feishu.md)
 
 Dual tmux tunnels. Physical sessions stay ordinary tmux; this CLI names them and binds them 1:1. dual-tmux has two foundational operating modes: **local-only** and **Hub sync**.
 
@@ -200,6 +200,8 @@ Agent capability registry + tunnel/tmux operations
 The local Web API exposes `GET /api/capabilities` and `GET /api/operations` for capability-aware clients. Native lifecycle discovery is conservative: Codex/Claude use an explicit session UUID from the live process when available, otherwise a unique session file must match both the pane cwd and process start time. Ambiguous or historical candidates are rejected instead of guessing the newest session.
 
 The v0.4.46 Web control plane covers daily tunnel work end to end: local/Hub tunnel creation, per-side client selection, pane I/O, freeze/resume, authoritative-entry reconnect, drop/remove, Hub push/pull, health probe/recovery, auto-recovery settings, and lossless local/Hub mode switching. Destructive actions require explicit confirmation. Host maintenance (`upgrade`, `hotfix`, cron installation) remains CLI-only and is documented in the Web guide.
+
+v0.4.47 adds the secure Feishu binding API that will back the v0.4.48 QR-code UI and tom7r event bridge. OAuth access tokens are never persisted; App Secret comes only from an environment variable or a strict mode-`0600` local file. Pairing state, event IDs, and destructive confirmation tokens expire and are one-time. See [Feishu control](docs/feishu.md). This API version does not yet route Feishu cloud events to a Client on `127.0.0.1`.
 
 ## Default agent: OpenCode
 

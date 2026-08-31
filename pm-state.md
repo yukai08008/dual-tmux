@@ -1,8 +1,12 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-08-31 13:59 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-08-31 14:30 +08:00 | 更新者: Codex PM
 
 ## 状态树
+
+### v0.4.47 (ACTIVE) — 飞书绑定与鉴权 API
+
+- **feature/v0.4.47-feishu-binding-api** (CODE_COMPLETE): secret 边界、OAuth pairing state、operator allowlist、事件防重放、命令策略、二次确认与 ControlService 分发已完成；151 tests、编译、聚焦 Ruff、build 和隔离 CLI 冒烟通过。等待 PR 合并；奇数 API 版不单独发布，随后进入 v0.4.48。
 
 ### v0.4.46 (RELEASED) — Web 全功能控制面
 
@@ -59,6 +63,9 @@
 - 进入 `v0.4.47` 飞书绑定/鉴权 API 版，再由 `v0.4.48` Web 版完成扫码与飞书管理交互。
 
 ## 待办
+
+- [ ] 完成 v0.4.47 飞书绑定/鉴权 API 与安全测试
+- [ ] 合并 v0.4.47（不单独发布），进入 v0.4.48 Web/中心事件桥
 
 - [x] 完成 v0.4.42 三件套、health probe 与状态机
 - [x] 完成远端 session import、CLI/tick/Web 接入

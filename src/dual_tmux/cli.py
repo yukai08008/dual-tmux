@@ -10,7 +10,14 @@ import sys
 import time
 from pathlib import Path
 
-from . import __version__
+from . import __version__, activity, hub, opsdir, skillmgr, ui
+from . import cron as cron_ops
+from . import hotfix as hotfix_ops
+from . import log as ev
+from . import memory as mem_ops
+from . import oc as oc_ops
+from . import tmux as tmux_ops
+from . import workpoint as wp
 from .config import (
     AppConfig,
     init_config,
@@ -19,13 +26,11 @@ from .config import (
     switch_config,
     write_config,
 )
-from . import oc as oc_ops
-from .identity import SOURCE_HINT, USER_HINT, remote_dt_root, remote_sessions_root
-from . import hub
-from .sshutil import list_ssh_hosts, parse_ssh_target
 from .health import collect_checks, ensure_ready, guide_if_needed, print_checks
+from .identity import SOURCE_HINT, USER_HINT, remote_dt_root, remote_sessions_root
 from .paths import config_path, home_dir, tunnels_dir
 from .runtime import build_cmd
+from .sshutil import list_ssh_hosts, parse_ssh_target
 from .store import (
     default_names,
     find_dt,
@@ -34,22 +39,12 @@ from .store import (
     legal_op,
     legal_run,
     load,
+    now_iso,
     occupied,
+    remove_dt,
     save,
     write_entry,
-    now_iso,
-    remove_dt,
 )
-from . import activity
-from . import cron as cron_ops
-from . import hotfix as hotfix_ops
-from . import memory as mem_ops
-from . import skillmgr
-from . import log as ev
-from . import opsdir
-from . import tmux as tmux_ops
-from . import ui
-from . import workpoint as wp
 
 
 def require_config() -> AppConfig:
@@ -1376,6 +1371,56 @@ def cmd_upgrade(_: argparse.Namespace) -> None:
     os.execv(dt, [dt, "hotfix"])
 
 
+def cmd_feishu(args: argparse.Namespace) -> None:
+    from .feishu import (
+        FeishuConfig,
+        FeishuDispatcher,
+        FeishuError,
+        OperatorIdentity,
+        PairingService,
+        save_config,
+        status,
+        unbind_operator,
+    )
+
+    try:
+        if args.feishu_cmd == "status":
+            result = status()
+        elif args.feishu_cmd == "configure":
+            result = {
+                "path": str(
+                    save_config(
+                        FeishuConfig(
+                            app_id=args.app_id,
+                            redirect_uri=args.redirect_uri,
+                            secret_file=args.secret_file,
+                            allowlist=tuple(args.allow_id or []),
+                        )
+                    )
+                )
+            }
+        elif args.feishu_cmd == "pair":
+            result = PairingService().begin()
+        elif args.feishu_cmd == "callback":
+            identity = PairingService().callback(args.state, args.code)
+            result = {"bound": True, "identity": identity.public_dict()}
+        elif args.feishu_cmd == "unbind":
+            result = {"removed": unbind_operator(args.identity)}
+        elif args.feishu_cmd == "dispatch":
+            identity = OperatorIdentity(
+                open_id=args.open_id,
+                union_id=args.union_id,
+                user_id=args.user_id,
+            )
+            result = FeishuDispatcher().dispatch(args.event_id, identity, args.message)
+        else:
+            raise FeishuError("invalid_command", "choose a dt feishu subcommand")
+    except FeishuError as exc:
+        print(json.dumps(exc.as_dict(), ensure_ascii=False, indent=2))
+        raise SystemExit(2) from exc
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="dt",
@@ -1622,6 +1667,32 @@ def build_parser() -> argparse.ArgumentParser:
     p_web.add_argument(
         "--no-open", action="store_true", help="do not open the default browser"
     )
+    p_feishu = sub.add_parser(
+        "feishu", help="configure secure Feishu pairing and command dispatch"
+    )
+    fs = p_feishu.add_subparsers(dest="feishu_cmd")
+    fs.add_parser("status", help="show configuration and bound operators")
+    p_fc = fs.add_parser("configure", help="write non-secret Feishu App settings")
+    p_fc.add_argument("--app-id", required=True)
+    p_fc.add_argument("--redirect-uri", required=True)
+    p_fc.add_argument(
+        "--secret-file", default="", help="mode-0600 file; or use DT_FEISHU_APP_SECRET"
+    )
+    p_fc.add_argument(
+        "--allow-id", action="append", default=[], help="allowed open_id/union_id/user_id"
+    )
+    fs.add_parser("pair", help="create a short-lived one-time OAuth URL")
+    p_fcb = fs.add_parser("callback", help="consume OAuth state and bind the operator")
+    p_fcb.add_argument("--state", required=True)
+    p_fcb.add_argument("--code", required=True)
+    p_fu = fs.add_parser("unbind", help="unbind one identity ID, or all when omitted")
+    p_fu.add_argument("identity", nargs="?", default="")
+    p_fd = fs.add_parser("dispatch", help="bridge/test one authenticated Feishu event")
+    p_fd.add_argument("--event-id", required=True)
+    p_fd.add_argument("--open-id", default="")
+    p_fd.add_argument("--union-id", default="")
+    p_fd.add_argument("--user-id", default="")
+    p_fd.add_argument("message", help='for example: "/dt ls"')
     sub.add_parser(
         "doctor", help="check config, tmux, ssh; apply persist tenant hotfix"
     )
@@ -1661,6 +1732,7 @@ def main() -> None:
         "notes",
         "web",
         "skill",
+        "feishu",
     }:
         if not config_path().is_file():
             prompt_init()
@@ -1699,6 +1771,7 @@ def main() -> None:
         "hotfix": cmd_hotfix,
         "web": cmd_web,
         "skill": cmd_skill,
+        "feishu": cmd_feishu,
         "upgrade": cmd_upgrade,
     }
     ev.emit("cmd.start", cmd=command)
