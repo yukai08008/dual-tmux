@@ -1,0 +1,65 @@
+version: v0.4.42
+parent_final: v0.4.41
+title: 抗抖动健康检测与自动恢复
+type: reliability-web
+prd: dev_plans/v0.4.41-v0.4.42/PRD.md
+test_cases: dev_plans/v0.4.41-v0.4.42/TEST_CASES.md
+
+invariants:
+  - "单次抖动不恢复"
+  - "无 Hub ownership 不恢复"
+  - "失败不删除 session/persist"
+  - "本地模式不调用 SSH"
+  - "运行时数据不在 git 追踪中"
+  - "Web 变更执行浏览器 E2E"
+
+deliverables:
+  - module: src/dual_tmux/recovery.py
+    change: 分层 probe、持久状态、退避熔断、恢复编排
+    public_api: [probe_tunnel, observe, recover_now, read_state]
+  - module: src/dual_tmux/oc.py
+    change: 远端 session 查询和安全 persist import
+  - module: src/dual_tmux/cli.py
+    change: health/recover 命令与 tick 自动恢复
+  - module: src/dual_tmux/web.py
+    change: Dashboard/Tunnels 健康状态展示与只读 API
+
+feature_branches:
+  - name: feature/v0.4.42-health-recovery
+    title: 健康检测与自动恢复
+    deps: []
+    files: [src/dual_tmux/recovery.py, src/dual_tmux/oc.py, src/dual_tmux/cli.py, src/dual_tmux/web.py]
+    acceptance:
+      - "A1 分层健康 JSON 可查询"
+      - "A2 三次失败后才恢复"
+      - "A3 退避与五次熔断生效"
+      - "A4 远端 session 缺失可从 persist 导入"
+      - "A5 Web 展示缓存状态且无探测副作用"
+    estimated_loc: ~700
+
+acceptance_count: 5
+total_estimated_loc: ~700
+
+risk_register:
+  - id: R1
+    risk: 恢复误触发
+    mitigation: explicit opt-in + ownership + hysteresis
+    severity: high
+  - id: R2
+    risk: 远端 import 目标错误
+    mitigation: recorded target only + verify before import
+    severity: high
+
+git_workflow:
+  branch_creation: from v0.4.41 main
+  merge_policy: pull-request
+  permission_mode: pm-maintainer
+  before_merge_checks:
+    - "pytest all PASS"
+    - "fault injection PASS"
+    - "browser E2E PASS"
+    - "build and isolated install PASS"
+    - "git ls-files data/ 为空"
+  final_tag: v0.4.42
+
+signature: Agent-PM-v0.4.42

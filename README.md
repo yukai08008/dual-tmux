@@ -25,6 +25,22 @@ This is a persistent project model, not only a first-install choice. Every Clien
 
 Local-only mode is fully functional: it can create, enter, work, freeze, resume, and manage local tunnels without a server. Hub mode adds cross-Client discovery, synchronization, takeover protection, and remote persist integration; it is not required for basic operation.
 
+## Health detection and recovery
+
+`dt tick` records layered health for tmux, SSH transport, the recorded container and directory, the Agent process, and the OpenCode session. It does not treat an unchanged pane as failure: an idle or frozen-looking screen is not sufficient evidence to restart work.
+
+Automatic recovery is disabled per tunnel until explicitly enabled:
+
+```sh
+dt health myapp --json          # probe now and update the local cache
+dt recover myapp --enable       # opt in for this tunnel
+dt recover myapp --status       # read cached state
+dt recover myapp --now          # recover immediately under the Hub ownership gate
+dt recover myapp --disable
+```
+
+Three consecutive structural failures are required before automatic recovery. Failed attempts back off for 60, 120, 300, 600, then 1800 seconds; five failures enter `attention` with a circuit breaker. SSH runtimes use keepalives (`15s × 3`) so dead links return control to the local tmux. Recovery never guesses a container, clears a session id, deletes persist JSON, or changes the last healthy workpoint. The Web UI and `GET /api/health` only read the cache and never run an SSH probe from a browser request.
+
 Mode changes are supported at any time:
 
 ```sh

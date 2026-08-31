@@ -4,6 +4,10 @@
 
 ## 状态树
 
+### v0.4.42 (ACTIVE) — 抗抖动健康检测与自动恢复
+
+- **feature/v0.4.42-health-recovery** (CODE_COMPLETE): 分层 probe、状态机、显式自动恢复、远端 session import、CLI/Web 状态；103 tests、构建、隔离安装与浏览器 E2E 已通过。
+
 ### v0.4.40 (RELEASED) — Agent Adapter 与统一控制内核
 
 - **feature/v0.4.40-control-kernel** (MERGED): PR #4 已合并；三客户端真实能力注册表、CLI/Web/未来飞书共用 ControlService、能力/操作 Web API 已发布。
@@ -36,9 +40,13 @@
 
 ## 当前焦点
 
-- `v0.4.41` hotfix 已正式发布；`dt-msg2` 的原 bullet session 已恢复并保持运行，本地与中心 tunnel 均为真实本地工作点。本机真实升级 `0.4.40 → 0.4.41` 后数据哈希不变。
+- 推进 `v0.4.42`：建立网络抖动与断开的检测、退避、熔断和安全恢复闭环。
 
 ## 待办
+
+- [x] 完成 v0.4.42 三件套、health probe 与状态机
+- [x] 完成远端 session import、CLI/tick/Web 接入
+- [ ] 完成故障注入、浏览器 E2E、发布与真实升级（发布/升级待执行）
 
 - [x] 完成 v0.4.40 三件套与 Agent Adapter
 - [x] 完成 ControlService 并迁移 CLI/Web 操作
