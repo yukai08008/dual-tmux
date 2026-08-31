@@ -11,4 +11,5 @@
 
 | 日期 | 案例 | 问题 | 解决方案 | 状态 |
 |---|---|---|---|---|
+| 2026-09-01 | Web trigger 完成结果未归集 | [trouble](trouble/20260901-web-trigger-result-not-collected.md) | [solution](solution/20260901-web-trigger-result-not-collected-solution.md) | RESOLVED |
 | 2026-08-31 | 中心隧道未自动同步 | [trouble](trouble/20260831-中心隧道未自动同步.md) | [solution](solution/20260831-中心隧道未自动同步-解决.md) | RESOLVED |
