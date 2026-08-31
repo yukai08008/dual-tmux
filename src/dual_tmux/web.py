@@ -23,6 +23,7 @@ from .paneparse import parse_pane, parser_id_for_side
 from .config import load_config
 from .control import ControlError, get_control_service
 from .paths import home_dir
+from .recovery import read_state as read_health_state
 from .store import find_dt, iter_dt_files, load, normalize_dt
 
 HOST = "127.0.0.1"
@@ -167,6 +168,8 @@ def _tunnels() -> list[dict]:
                 "bullet_model": (data.get("bullet") or {}).get("model") or "",
                 "trigger_client": (data.get("trigger") or {}).get("agent_client") or {},
                 "bullet_client": (data.get("bullet") or {}).get("agent_client") or {},
+                "auto_recover": bool(data.get("auto_recover")),
+                "health": read_health_state(data.get("name") or path.stem),
             }
         )
     rows.sort(key=lambda r: r["name"])
@@ -441,10 +444,11 @@ def dashboard_page() -> str:
     cards = []
     for r in rows:
         live_s = "live" if (r["op_live"] or r["run_live"]) else "down"
+        health_s = r["health"].get("status") or "disabled"
         kind = "DST" if r["dst"] else "DT"
         cards.append(
             f'<div class="stat"><b>{html.escape(r["name"])}</b>'
-            f'<span>{kind} · {live_s} · op {html.escape(r["op_cmd"] or "—")} · '
+            f'<span>{kind} · {live_s} · health {html.escape(health_s)} · op {html.escape(r["op_cmd"] or "—")} · '
             f'run {html.escape(r["run_cmd"] or "—")}</span></div>'
         )
     body = f"""
@@ -797,6 +801,7 @@ def tunnels_page(selected: str = "") -> str:
         <div class="sync" id="clientbox" style="margin-top:8px">
           <span id="client-op">trigger client —</span> · <span id="client-run">bullet client —</span>
         </div>
+        <div class="sync" id="healthbox" style="margin-top:8px">health —</div>
         <div class="models" id="models">
           <div class="field"><label>trigger 模型</label><input id="m-op" placeholder="模糊搜索 provider/id" autocomplete="off"><div class="mhits" id="mh-op"></div></div>
           <div class="field"><label>bullet 模型</label><input id="m-run" placeholder="模糊搜索 provider/id" autocomplete="off"><div class="mhits" id="mh-run"></div></div>
@@ -848,6 +853,7 @@ const tname = document.getElementById('tname');
 const meta = document.getElementById('meta');
 const clientOp = document.getElementById('client-op');
 const clientRun = document.getElementById('client-run');
+const healthBox = document.getElementById('healthbox');
 const logEl = document.getElementById('log');
 const box = document.getElementById('box');
 const opout = document.getElementById('opout');
@@ -994,6 +1000,9 @@ function applyState(st) {{
     const cv=c=>c&&c.name?(c.name+(c.version?' '+c.version:'')+' · '+(c.location||'unknown')):'—';
     clientOp.textContent='trigger client '+cv(row.trigger_client);
     clientRun.textContent='bullet client '+cv(row.bullet_client);
+    const hs=(row.health&&row.health.status)||'disabled';
+    const he=(row.health&&row.health.last_error)||'—';
+    healthBox.textContent='health '+hs+' · auto '+(row.auto_recover?'on':'off')+' · '+he;
   }} else {{
     mop.value = '';
     mrun.value = '';
@@ -1002,6 +1011,7 @@ function applyState(st) {{
     meta.textContent = st.name ? st.name : '未选隧道';
     clientOp.textContent='trigger client —';
     clientRun.textContent='bullet client —';
+    healthBox.textContent='health —';
   }}
   setLamp(lampOp, st.waiting ? 'yellow' : st.finalOp);
   setLamp(lampRun, st.waiting ? 'yellow' : st.finalRun);
@@ -1216,7 +1226,7 @@ function renderSync(s) {{
 }}
 async function ensureResumed(st) {{
   const row=rows.find(item=>item.name===st.name);
-  if (!row || !row.dst || (row.op_live && row.run_live)) return;
+  if (!row || !row.dst || !row.auto_recover || (row.op_live && row.run_live)) return;
   if (Date.now()-(st.resumeTriedAt||0) < 30000) return;
   st.resumeTriedAt=Date.now();
   logFor(st,'resume','本机会话离线，正在自动 resume '+st.name);
@@ -1525,6 +1535,19 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/tunnels":
             self._send(200, json.dumps(_tunnels()), "application/json; charset=utf-8")
             return
+        if parsed.path == "/api/health":
+            name = (qs.get("t") or [""])[0]
+            if name:
+                try:
+                    data = load(find_dt(name))
+                except SystemExit as exc:
+                    self._send(404, json.dumps({"error": str(exc)}), "application/json; charset=utf-8")
+                    return
+                payload = read_health_state(data.get("name") or name)
+            else:
+                payload = {row["name"]: row["health"] for row in _tunnels()}
+            self._send(200, json.dumps(payload), "application/json; charset=utf-8")
+            return
         if parsed.path == "/api/capabilities":
             result = get_control_service().capabilities()
             self._send(200, json.dumps(result.as_dict()), "application/json; charset=utf-8")
@@ -1565,6 +1588,8 @@ class Handler(BaseHTTPRequestHandler):
                 "bullet_model": (data.get("bullet") or {}).get("model") or "",
                 "trigger_client": (data.get("trigger") or {}).get("agent_client") or {},
                 "bullet_client": (data.get("bullet") or {}).get("agent_client") or {},
+                "auto_recover": bool(data.get("auto_recover")),
+                "health": read_health_state(data.get("name") or name),
                 "sync": _sync_info(data),
             }
             self._send(200, json.dumps(payload), "application/json; charset=utf-8")
