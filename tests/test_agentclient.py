@@ -201,7 +201,6 @@ def test_freeze_opencode_keeps_session_and_client_metadata(monkeypatch):
         lambda *args, **kwargs: OcSession("ses_1", "slug", model="provider/model"),
     )
     monkeypatch.setattr(cli.ev, "emit", lambda *args, **kwargs: None)
-
     assert cli._freeze_one(data, "trigger", "op_test", "auto", False)
     assert data["trigger"]["session_id"] == "ses_1"
     assert data["trigger"]["agent_client"]["version"] == "1.18.20"
@@ -234,6 +233,9 @@ def test_freeze_non_opencode_records_client_without_fake_session(monkeypatch, na
         },
     )
     monkeypatch.setattr(cli.ev, "emit", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "dual_tmux.agent_sessions.discover_local", lambda *args, **kwargs: None
+    )
 
     assert cli._freeze_one(data, "trigger", "op_test", "auto", False) is False
     assert data["trigger"]["tool"] == name
