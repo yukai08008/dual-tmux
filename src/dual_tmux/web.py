@@ -43,14 +43,16 @@ _CLIENT_DISCONNECT_ERRNOS = {
 
 def _is_client_disconnect(exc: BaseException | None) -> bool:
     """Recognize socket failures caused by a browser closing its request."""
-    return isinstance(exc, (BrokenPipeError, ConnectionAbortedError, ConnectionResetError)) or (
-        isinstance(exc, OSError) and exc.errno in _CLIENT_DISCONNECT_ERRNOS
-    )
+    return isinstance(
+        exc, (BrokenPipeError, ConnectionAbortedError, ConnectionResetError)
+    ) or (isinstance(exc, OSError) and exc.errno in _CLIENT_DISCONNECT_ERRNOS)
 
 
 def _opencode_auto(text: str) -> bool:
     """Return whether the latest captured OpenCode Build footer is in auto mode."""
-    matches = list(re.finditer(r"\bBuild(?P<auto>\s+auto)?\s*[·•]", text or "", re.IGNORECASE))
+    matches = list(
+        re.finditer(r"\bBuild(?P<auto>\s+auto)?\s*[·•]", text or "", re.IGNORECASE)
+    )
     return bool(matches and matches[-1].group("auto"))
 
 
@@ -63,10 +65,17 @@ def _clean_web_state(data: object) -> dict:
     history_src = src.get("history") if isinstance(src.get("history"), dict) else {}
     history: dict[str, dict] = {}
     for name, raw in list(history_src.items())[:50]:
-        if not isinstance(name, str) or not name or len(name) > 160 or not isinstance(raw, dict):
+        if (
+            not isinstance(name, str)
+            or not name
+            or len(name) > 160
+            or not isinstance(raw, dict)
+        ):
             continue
         thread = []
-        for item in (raw.get("thread") if isinstance(raw.get("thread"), list) else [])[-60:]:
+        for item in (raw.get("thread") if isinstance(raw.get("thread"), list) else [])[
+            -60:
+        ]:
             if not isinstance(item, dict):
                 continue
             extra = item.get("extra") if isinstance(item.get("extra"), dict) else {}
@@ -74,13 +83,20 @@ def _clean_web_state(data: object) -> dict:
                 {
                     "kind": str(item.get("kind") or "ans")[:16],
                     "text": str(item.get("text") or "")[:8000],
-                    "extra": {str(k)[:32]: str(v)[:300] for k, v in list(extra.items())[:8]},
+                    "extra": {
+                        str(k)[:32]: str(v)[:300] for k, v in list(extra.items())[:8]
+                    },
                 }
             )
         log = []
         for item in (raw.get("log") if isinstance(raw.get("log"), list) else [])[-100:]:
             if isinstance(item, dict):
-                log.append({"kind": str(item.get("kind") or "idle")[:16], "text": str(item.get("text") or "")[:1000]})
+                log.append(
+                    {
+                        "kind": str(item.get("kind") or "idle")[:16],
+                        "text": str(item.get("text") or "")[:1000],
+                    }
+                )
         try:
             visits = int(raw.get("visits") or 0)
         except (TypeError, ValueError):
@@ -102,7 +118,12 @@ def _clean_web_state(data: object) -> dict:
         if len(open_tabs) >= 20:
             break
     active = str(src.get("active") or "")
-    return {"version": 1, "open_tabs": open_tabs, "active": active if active in open_tabs else "", "history": history}
+    return {
+        "version": 1,
+        "open_tabs": open_tabs,
+        "active": active if active in open_tabs else "",
+        "history": history,
+    }
 
 
 def _load_web_state() -> dict:
@@ -121,14 +142,19 @@ def _save_web_state(data: object) -> dict:
     with _WEB_STATE_LOCK:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(cleaned, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        tmp.write_text(
+            json.dumps(cleaned, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
         tmp.replace(path)
     return cleaned
 
 
 def _multipart(raw: bytes, content_type: str) -> tuple[dict[str, str], list[bytes]]:
     message = BytesParser(policy=policy.default).parsebytes(
-        b"Content-Type: " + content_type.encode("ascii", "replace") + b"\r\nMIME-Version: 1.0\r\n\r\n" + raw
+        b"Content-Type: "
+        + content_type.encode("ascii", "replace")
+        + b"\r\nMIME-Version: 1.0\r\n\r\n"
+        + raw
     )
     fields: dict[str, str] = {}
     files: list[bytes] = []
@@ -166,6 +192,8 @@ def _tunnels() -> list[dict]:
                 "bullet": (data.get("bullet") or {}).get("slug") or "",
                 "trigger_model": (data.get("trigger") or {}).get("model") or "",
                 "bullet_model": (data.get("bullet") or {}).get("model") or "",
+                "trigger_tool": (data.get("trigger") or {}).get("tool") or "opencode",
+                "bullet_tool": (data.get("bullet") or {}).get("tool") or "opencode",
                 "trigger_client": (data.get("trigger") or {}).get("agent_client") or {},
                 "bullet_client": (data.get("bullet") or {}).get("agent_client") or {},
                 "auto_recover": bool(data.get("auto_recover")),
@@ -190,7 +218,9 @@ def _resume_tunnel(name: str) -> dict:
             raise SystemExit("[err] automatic resume requires a DST")
         op = data.get("op") or ""
         run = data.get("run") or ""
-        needed = not (op and run and tmux_ops.has_session(op) and tmux_ops.has_session(run))
+        needed = not (
+            op and run and tmux_ops.has_session(op) and tmux_ops.has_session(run)
+        )
         if needed:
             # Keep this small seam patchable for local Web tests; the CLI wrapper
             # delegates to the same ControlService used by the HTTP handlers.
@@ -218,7 +248,9 @@ def _switch_trigger_auto(name: str) -> dict:
         if (trigger.get("tool") or "opencode") != "opencode":
             raise SystemExit("[err] trigger is not OpenCode")
         if not trigger.get("session_id"):
-            raise SystemExit("[err] trigger has no frozen session id; run dt freeze first")
+            raise SystemExit(
+                "[err] trigger has no frozen session id; run dt freeze first"
+            )
         if _opencode_auto(_capture(op)):
             return {"ok": True, "changed": False, "auto": True, "pane": op}
         if tmux_ops.pane_command(op) == "opencode" and not tmux_ops.quit_opencode(op):
@@ -231,7 +263,9 @@ def _switch_trigger_auto(name: str) -> dict:
             if not tmux_ops.has_session(op):
                 break
             time.sleep(0.4)
-        raise SystemExit("[err] trigger auto mode did not become ready within 20 seconds")
+        raise SystemExit(
+            "[err] trigger auto mode did not become ready within 20 seconds"
+        )
 
 
 def _mtime_iso(path: Path) -> str:
@@ -251,7 +285,9 @@ def _sync_info(data: dict) -> dict:
     slug = trigger.get("slug") or ""
     op = data.get("op") or ""
     run = data.get("run") or ""
-    sessions = Path(os.environ.get("DT_SESSIONS_HOME", Path.home() / "sessions")).expanduser()
+    sessions = Path(
+        os.environ.get("DT_SESSIONS_HOME", Path.home() / "sessions")
+    ).expanduser()
     oc_json = sessions / "opencode" / source / f"{slug}.json" if slug else Path()
     tmux_dir = sessions / "tmux" / source
     last_link = tmux_dir / "last"
@@ -429,12 +465,57 @@ def _nav(page: str) -> str:
     tun = "active" if page == "tunnels" else ""
     sk = "active" if page == "skills" else ""
     guide = "active" if page == "guide" else ""
+    memory = "active" if page == "memory" else ""
+    events = "active" if page == "events" else ""
+    doctor = "active" if page == "doctor" else ""
     return (
         f'<a class="{dash}" href="/">Dashboard</a>'
         f'<a class="{tun}" href="/tunnels">隧道</a>'
+        f'<a class="{memory}" href="/memory">Memory</a>'
+        f'<a class="{events}" href="/events">Events</a>'
+        f'<a class="{doctor}" href="/doctor">Doctor</a>'
         f'<a class="{sk}" href="/skills">Skills</a>'
         f'<a class="{guide}" href="/guide">指南</a>'
     )
+
+
+def memory_page() -> str:
+    options = "".join(
+        f'<option value="{html.escape(row["name"])}">{html.escape(row["name"])}</option>'
+        for row in _tunnels()
+    )
+    body = f"""
+    <div class="top"><h1>Memory</h1><p>共享 facts 与每个 trigger 的 notes/FTS</p></div>
+    <div class="content">
+      <div class="card models"><div class="field"><label>Tunnel（留空为共享 facts）</label><select id="mem-tunnel"><option value="">共享</option>{options}</select></div><button id="mem-load">刷新</button></div>
+      <div class="card"><h2>Facts</h2><pre class="out" id="mem-facts" style="height:220px"></pre><form id="factf" class="models"><div class="field"><label>Key</label><input id="fact-key"></div><div class="field"><label>Value（JSON 或文本）</label><input id="fact-value"></div><button type="submit">保存 fact</button></form></div>
+      <div class="card"><h2>Notes</h2><div id="notes" class="log" style="height:260px"></div><form id="notef" class="models"><div class="field"><label>标题</label><input id="note-title"></div><div class="field"><label>内容</label><input id="note-body"></div><button type="submit">新增 note</button></form></div>
+    </div>
+    <script>
+    async function loadMem(){{const t=document.getElementById('mem-tunnel').value; const r=await fetch('/api/memory?t='+encodeURIComponent(t)); const j=await r.json(); document.getElementById('mem-facts').textContent=JSON.stringify(j.memory||{{}},null,2); document.getElementById('notes').innerHTML=(j.notes||[]).map(n=>'<div class="row"><b>'+String(n.title||n.kind||'note')+'</b><span class="msg">'+String(n.body||'')+'</span></div>').join('')||'暂无 notes';}}
+    async function post(url,f){{const r=await fetch(url,{{method:'POST',headers:{{'Content-Type':'application/x-www-form-urlencoded'}},body:new URLSearchParams(f)}});if(!r.ok)throw new Error(await r.text());return r.json();}}
+    document.getElementById('mem-load').onclick=loadMem;
+    document.getElementById('factf').onsubmit=async e=>{{e.preventDefault();await post('/api/memory/fact',{{t:document.getElementById('mem-tunnel').value,key:document.getElementById('fact-key').value,value:document.getElementById('fact-value').value}});await loadMem();}};
+    document.getElementById('notef').onsubmit=async e=>{{e.preventDefault();const t=document.getElementById('mem-tunnel').value;if(!t){{alert('新增 note 需要选择 tunnel');return}}await post('/api/memory/note',{{t,title:document.getElementById('note-title').value,body:document.getElementById('note-body').value}});await loadMem();}};
+    loadMem();
+    </script>"""
+    return _shell(_nav("memory"), body, "dt web · memory")
+
+
+def events_page() -> str:
+    body = """
+    <div class="top"><h1>Events</h1><p>CLI/Web/恢复审计事件</p></div>
+    <div class="content"><div class="card models"><div class="field"><label>Kind 前缀</label><input id="event-kind"></div><div class="field"><label>Tunnel</label><input id="event-name"></div><button id="event-load">刷新</button></div><div class="card"><pre class="out" id="event-out" style="height:70vh"></pre></div></div>
+    <script>async function loadEvents(){const q=new URLSearchParams({kind:document.getElementById('event-kind').value,t:document.getElementById('event-name').value});const r=await fetch('/api/events?'+q);document.getElementById('event-out').textContent=JSON.stringify(await r.json(),null,2)}document.getElementById('event-load').onclick=loadEvents;loadEvents();</script>"""
+    return _shell(_nav("events"), body, "dt web · events")
+
+
+def doctor_page() -> str:
+    body = """
+    <div class="top"><h1>Doctor</h1><p>页面加载不执行 SSH；点击后才运行完整检查</p></div>
+    <div class="content"><div class="card"><button id="doctor-run">运行 Doctor</button><p class="meta">升级、hotfix、cron 安装属于主机维护面：请使用 <code>dt upgrade</code>、<code>dt hotfix</code>、<code>dt cron --install</code>。</p></div><div class="card"><pre class="out" id="doctor-out" style="height:60vh">尚未运行</pre></div></div>
+    <script>document.getElementById('doctor-run').onclick=async()=>{const r=await fetch('/api/doctor/run',{method:'POST'});document.getElementById('doctor-out').textContent=JSON.stringify(await r.json(),null,2)}</script>"""
+    return _shell(_nav("doctor"), body, "dt web · doctor")
 
 
 def dashboard_page() -> str:
@@ -448,8 +529,8 @@ def dashboard_page() -> str:
         kind = "DST" if r["dst"] else "DT"
         cards.append(
             f'<div class="stat"><b>{html.escape(r["name"])}</b>'
-            f'<span>{kind} · {live_s} · health {html.escape(health_s)} · op {html.escape(r["op_cmd"] or "—")} · '
-            f'run {html.escape(r["run_cmd"] or "—")}</span></div>'
+            f"<span>{kind} · {live_s} · health {html.escape(health_s)} · op {html.escape(r['op_cmd'] or '—')} · "
+            f"run {html.escape(r['run_cmd'] or '—')}</span></div>"
         )
     body = f"""
     <div class="top"><h1>Dashboard</h1><p>本机隧道一览（dt ls）</p></div>
@@ -475,12 +556,36 @@ def guide_page() -> str:
             "dt config --server myserver --user andy\n"
             "dt doctor",
         ),
-        ("创建完整 DST", "一次建立 op/run tmux、两侧 Agent 并冻结绑定。", "dt make dst myapp --model provider/model\ndt inspect myapp\ndt web"),
-        ("分步创建", "先建 DT，再分别启动 trigger 与 bullet。", "dt new myapp\ndt enter myapp --oc\ndt work myapp --oc\ndt freeze myapp"),
-        ("日常继续工作", "恢复已冻结会话；Web 选择离线 DST 时也会自动 resume。", "dt resume myapp\ndt enter myapp\ndt work myapp"),
-        ("另一台 Client 接续", "拉取绑定后恢复；正常锁冲突不会强制抢占。", "dt pull\ndt resume myapp\n# 确认需要抢占时\ndt resume myapp --force"),
-        ("分叉独立工作", "复制跳板与模型，但为两侧创建新的 Agent 会话。", "dt branch myapp myapp-v2"),
-        ("模型与现场", "切换单侧模型，或重新发送远端跳转命令。", "dt model myapp --op provider/model\ndt model myapp --run provider/model\ndt re myapp"),
+        (
+            "创建完整 DST",
+            "一次建立 op/run tmux、两侧 Agent 并冻结绑定。",
+            "dt make dst myapp --model provider/model\ndt inspect myapp\ndt web",
+        ),
+        (
+            "分步创建",
+            "先建 DT，再分别启动 trigger 与 bullet。",
+            "dt new myapp\ndt enter myapp --oc\ndt work myapp --oc\ndt freeze myapp",
+        ),
+        (
+            "日常继续工作",
+            "恢复已冻结会话；Web 选择离线 DST 时也会自动 resume。",
+            "dt resume myapp\ndt enter myapp\ndt work myapp",
+        ),
+        (
+            "另一台 Client 接续",
+            "拉取绑定后恢复；正常锁冲突不会强制抢占。",
+            "dt pull\ndt resume myapp\n# 确认需要抢占时\ndt resume myapp --force",
+        ),
+        (
+            "分叉独立工作",
+            "复制跳板与模型，但为两侧创建新的 Agent 会话。",
+            "dt branch myapp myapp-v2",
+        ),
+        (
+            "模型与现场",
+            "切换单侧模型，或重新发送远端跳转命令。",
+            "dt model myapp --op provider/model\ndt model myapp --run provider/model\ndt re myapp",
+        ),
         ("释放本机", "停止本机 tmux 并释放锁，远端绑定保持可恢复。", "dt drop myapp"),
     ]
     cards = "".join(
@@ -509,7 +614,7 @@ def guide_page() -> str:
         ("dt upgrade", "升级 dual-tmux 并应用必要 hotfix"),
     ]
     rows = "".join(
-        f'<tr><td><code>{html.escape(command)}</code></td><td>{html.escape(desc)}</td></tr>'
+        f"<tr><td><code>{html.escape(command)}</code></td><td>{html.escape(desc)}</td></tr>"
         for command, desc in commands
     )
     body = f"""
@@ -777,19 +882,44 @@ def tunnels_page(selected: str = "") -> str:
             data = {}
     op = data.get("op") or ""
     run = data.get("run") or ""
-    trigger_out = html.escape(_capture(op)) if selected else "选定隧道后显示 trigger（op_*）"
-    bullet_out = html.escape(_capture(run)) if selected else "选定隧道后显示 bullet（run_*）"
+    trigger_out = (
+        html.escape(_capture(op)) if selected else "选定隧道后显示 trigger（op_*）"
+    )
+    bullet_out = (
+        html.escape(_capture(run)) if selected else "选定隧道后显示 bullet（run_*）"
+    )
     meta = ""
     if selected and data:
         meta = (
-            f'{html.escape(selected)} · op=<code>{html.escape(op)}</code> · '
-            f'run=<code>{html.escape(run)}</code> · '
-            f'DST={"yes" if oc_ops.is_dst(data) else "no"}'
+            f"{html.escape(selected)} · op=<code>{html.escape(op)}</code> · "
+            f"run=<code>{html.escape(run)}</code> · "
+            f"DST={'yes' if oc_ops.is_dst(data) else 'no'}"
         )
     sel = html.escape(selected)
     body = f"""
     <div class="top"><h1>隧道</h1><p>模糊搜索选定 DT，向 trigger 提交，下方轮询 op / run 屏</p></div>
     <div class="content">
+      <details class="card" id="create-panel">
+        <summary><b>新建隧道 / 运行模式</b></summary>
+        <form id="createf" class="models" style="margin-top:12px">
+          <div class="field"><label>名称</label><input id="new-name" required placeholder="myapp"></div>
+          <div class="field"><label>工作目录</label><input id="new-dir" placeholder="本地路径或远端 /workspace"></div>
+          <div class="field"><label>运行位置</label><select id="new-local"><option value="0">沿用当前配置</option><option value="1">强制仅本地</option></select></div>
+          <div class="field"><label>Server（留空沿用配置）</label><input id="new-server" placeholder="tom7r 或 user@host"></div>
+          <div class="field"><label>Container</label><input id="new-container" placeholder="可选"></div>
+          <div class="field"><label>trigger 客户端</label><select id="new-trigger-tool"><option value="opencode">OpenCode</option><option value="codex">Codex</option><option value="claude">Claude Code</option></select></div>
+          <div class="field"><label>bullet 客户端</label><select id="new-bullet-tool"><option value="opencode">OpenCode</option><option value="codex">Codex</option><option value="claude">Claude Code</option></select></div>
+          <button type="submit">创建</button>
+        </form>
+        <form id="modef" class="models" style="margin-top:14px">
+          <div class="field"><label>模式</label><select id="cfg-mode"><option value="local">仅本地</option><option value="hub">Hub 同步</option></select></div>
+          <div class="field"><label>Client</label><input id="cfg-client" placeholder="tm_laptop"></div>
+          <div class="field"><label>Workspace</label><input id="cfg-workspace" placeholder="/workspace"></div>
+          <div class="field"><label>Hub Server</label><input id="cfg-server" placeholder="tom7r"></div>
+          <div class="field"><label>Hub User</label><input id="cfg-user" placeholder="andy"></div>
+          <button type="submit" class="ghost">安全切换模式</button>
+        </form>
+      </details>
       <div class="card pick">
         <label>选择隧道（dt ls）</label>
         <input id="q" type="search" placeholder="输入名称模糊搜索…" value="{sel}" autocomplete="off">
@@ -802,13 +932,26 @@ def tunnels_page(selected: str = "") -> str:
           <span id="client-op">trigger client —</span> · <span id="client-run">bullet client —</span>
         </div>
         <div class="sync" id="healthbox" style="margin-top:8px">health —</div>
+        <div class="models" id="lifecycle">
+          <div class="field"><label>freeze 范围</label><select id="freeze-side"><option value="both">trigger + bullet</option><option value="trigger">trigger</option><option value="bullet">bullet</option></select></div>
+          <div class="field"><label>远端客户端</label><select id="freeze-tool"><option value="auto">自动识别</option><option value="opencode">OpenCode</option><option value="codex">Codex</option><option value="claude">Claude Code</option></select></div>
+          <button type="button" class="ghost" id="btn-freeze">Freeze</button>
+          <button type="button" class="ghost" id="btn-resume">Resume</button>
+          <button type="button" class="ghost" id="btn-reconnect">重连入口</button>
+          <button type="button" class="ghost" id="btn-drop">Drop</button>
+          <button type="button" class="ghost" id="btn-health">立即健康检查</button>
+          <button type="button" class="ghost" id="btn-recover">恢复</button>
+          <button type="button" class="ghost" id="btn-auto-recover">自动恢复：切换</button>
+          <button type="button" class="ghost" id="btn-hub-push">Hub Push</button>
+          <button type="button" class="ghost" id="btn-hub-pull">Hub Pull</button>
+          <button type="button" class="ghost" id="btn-remove">删除隧道</button>
+        </div>
         <div class="models" id="models">
           <div class="field"><label>trigger 模型</label><input id="m-op" placeholder="模糊搜索 provider/id" autocomplete="off"><div class="mhits" id="mh-op"></div></div>
           <div class="field"><label>bullet 模型</label><input id="m-run" placeholder="模糊搜索 provider/id" autocomplete="off"><div class="mhits" id="mh-run"></div></div>
           <button type="button" id="btn-model-op">切换 trigger</button>
           <button type="button" id="btn-model-run">切换 bullet</button>
           <button type="button" class="ghost" id="btn-auto-op" hidden>trigger 转为 auto</button>
-          <button type="button" class="ghost" id="btn-freeze">Freeze</button>
         </div>
       </div>
       <div class="card">
@@ -877,6 +1020,17 @@ let visitHistory = {{}};
 let saveTimer = 0;
 let lastServerState = '';
 function esc(s) {{ return String(s||'').replace(/[&<>"']/g,c=>({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}})[c]); }}
+
+async function loadConfig() {{
+  try {{
+    const r=await fetch('/api/config'), c=await r.json();
+    document.getElementById('cfg-mode').value=c.mode||'local';
+    document.getElementById('cfg-client').value=c.client||'';
+    document.getElementById('cfg-workspace').value=c.workspace||'';
+    document.getElementById('cfg-server').value=c.server||'';
+    document.getElementById('cfg-user').value=c.user||'';
+  }} catch(_) {{}}
+}}
 
 function emptyState(name) {{
   return {{
@@ -1260,7 +1414,11 @@ async function tick() {{
   snap(opout, j.op_text || '');
   snap(runout, j.run_text || '');
   if (j.sync) renderSync(j.sync);
-  autoOp.hidden = !st.name || j.op_auto !== false || !j.op_live;
+  autoOp.hidden = !st.name || j.trigger_tool !== 'opencode' || j.op_auto !== false || !j.op_live;
+  document.getElementById('btn-model-op').disabled = j.trigger_tool !== 'opencode';
+  document.getElementById('btn-model-run').disabled = j.bullet_tool !== 'opencode';
+  document.getElementById('m-op').disabled = j.trigger_tool !== 'opencode';
+  document.getElementById('m-run').disabled = j.bullet_tool !== 'opencode';
   if (j.trigger_model != null) {{
     const row = rows.find(r => r.name === st.name);
     if (row) {{
@@ -1457,7 +1615,7 @@ document.getElementById('btn-freeze').addEventListener('click', async () => {{
   if (!st || !st.name) return;
   logLine('send', 'freeze ' + st.name);
   try {{
-    const j = await postForm('/api/freeze', {{ t: st.name }});
+    const j = await postForm('/api/freeze', {{ t: st.name, side: document.getElementById('freeze-side').value, tool: document.getElementById('freeze-tool').value }});
     syncRowModels(j);
     const row = rows.find(r => r.name === st.name);
     if (row) row.dst = !!j.dst;
@@ -1465,6 +1623,31 @@ document.getElementById('btn-freeze').addEventListener('click', async () => {{
     applyState(st);
   }} catch (err) {{ logLine('err', String(err.message || err)); }}
 }});
+async function tunnelAction(buttonId, url, fields, done) {{
+  document.getElementById(buttonId).addEventListener('click', async () => {{
+    const st=activeTab; if(!st||!st.name) return;
+    try {{
+      const value=typeof fields==='function'?fields(st):{{t:st.name}};
+      if(value===null) return;
+      const j=await postForm(url,value);
+      logLine('done',done+' · '+st.name);
+      await refreshRows(); await tick();
+      return j;
+    }} catch(err) {{ logLine('err',String(err.message||err)); }}
+  }});
+}}
+tunnelAction('btn-resume','/api/resume',st=>({{t:st.name}}),'resume 完成');
+tunnelAction('btn-reconnect','/api/tunnel/reconnect',st=>({{t:st.name}}),'入口已重连');
+tunnelAction('btn-drop','/api/tunnel/drop',st=>confirm('Drop 本机 tmux，但保留绑定？')?{{t:st.name,confirm:st.name}}:null,'本机 pane 已 drop');
+tunnelAction('btn-health','/api/health/probe',st=>({{t:st.name}}),'健康检查完成');
+tunnelAction('btn-recover','/api/health/recover',st=>({{t:st.name}}),'恢复完成');
+tunnelAction('btn-auto-recover','/api/health/auto',st=>{{const row=rows.find(r=>r.name===st.name);return {{t:st.name,enabled:row&&row.auto_recover?'0':'1'}}}},'自动恢复设置已更新');
+tunnelAction('btn-hub-push','/api/hub/push',st=>({{t:st.name}}),'Hub push 完成');
+tunnelAction('btn-hub-pull','/api/hub/pull',st=>({{t:st.name}}),'Hub pull 完成');
+tunnelAction('btn-remove','/api/tunnel/remove',st=>{{
+  const confirmName=prompt('这是破坏性操作。输入隧道全名确认删除：', '');
+  return confirmName===null?null:{{t:st.name,confirm:confirmName,kill:'0'}};
+}},'隧道已删除');
 function bindModelPicker(inputId, hitsId) {{
   const inp = document.getElementById(inputId);
   const box = document.getElementById(hitsId);
@@ -1499,6 +1682,41 @@ function bindModelPicker(inputId, hitsId) {{
 }}
 bindModelPicker('m-op', 'mh-op');
 bindModelPicker('m-run', 'mh-run');
+document.getElementById('createf').addEventListener('submit', async e => {{
+  e.preventDefault();
+  try {{
+    const j=await postForm('/api/tunnel/create',{{
+      name:document.getElementById('new-name').value.trim(),
+      directory:document.getElementById('new-dir').value.trim(),
+      local:document.getElementById('new-local').value,
+      server:document.getElementById('new-server').value.trim(),
+      container:document.getElementById('new-container').value.trim(),
+      trigger_tool:document.getElementById('new-trigger-tool').value,
+      bullet_tool:document.getElementById('new-bullet-tool').value
+    }});
+    await refreshRows();
+    const name=j.data&&j.data.name||document.getElementById('new-name').value.trim();
+    const existing=tabs.find(st=>st.name===name); activate(existing||addTab(name));
+    logLine('done','隧道已创建 · '+name);
+  }} catch(err) {{ alert(String(err.message||err)); }}
+}});
+document.getElementById('modef').addEventListener('submit', async e => {{
+  e.preventDefault();
+  if(!confirm('模式切换会先合并相关 Hub 记录再写配置。继续？')) return;
+  try {{
+    const j=await postForm('/api/config/switch',{{
+      mode:document.getElementById('cfg-mode').value,
+      client:document.getElementById('cfg-client').value.trim(),
+      workspace:document.getElementById('cfg-workspace').value.trim(),
+      server:document.getElementById('cfg-server').value.trim(),
+      user:document.getElementById('cfg-user').value.trim(),
+      confirm:'switch-mode'
+    }});
+    alert('已切换为 '+(j.data&&j.data.mode||'目标')+' 模式');
+    await loadConfig(); await refreshRows();
+  }} catch(err) {{ alert(String(err.message||err)); }}
+}});
+loadConfig();
 restoreTabs({json.dumps(selected)});
 </script>
     """
@@ -1520,7 +1738,12 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args) -> None:
         return
 
-    def _send(self, code: int, body: str | bytes, content_type: str = "text/html; charset=utf-8") -> None:
+    def _send(
+        self,
+        code: int,
+        body: str | bytes,
+        content_type: str = "text/html; charset=utf-8",
+    ) -> None:
         data = body.encode("utf-8") if isinstance(body, str) else body
         self.send_response(code)
         self.send_header("Content-Type", content_type)
@@ -1528,6 +1751,19 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(data)
+
+    def _same_origin(self) -> bool:
+        origin = (self.headers.get("Origin") or "").strip()
+        if not origin:
+            return True
+        parsed = urlparse(origin)
+        host = (parsed.hostname or "").lower()
+        request_netloc = (self.headers.get("Host") or "").lower()
+        return (
+            parsed.scheme == "http"
+            and host in {"127.0.0.1", "localhost"}
+            and parsed.netloc.lower() == request_netloc
+        )
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
@@ -1541,7 +1777,11 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     data = load(find_dt(name))
                 except SystemExit as exc:
-                    self._send(404, json.dumps({"error": str(exc)}), "application/json; charset=utf-8")
+                    self._send(
+                        404,
+                        json.dumps({"error": str(exc)}),
+                        "application/json; charset=utf-8",
+                    )
                     return
                 payload = read_health_state(data.get("name") or name)
             else:
@@ -1550,21 +1790,61 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/capabilities":
             result = get_control_service().capabilities()
-            self._send(200, json.dumps(result.as_dict()), "application/json; charset=utf-8")
+            self._send(
+                200, json.dumps(result.as_dict()), "application/json; charset=utf-8"
+            )
             return
         if parsed.path == "/api/operations":
             result = get_control_service().operations()
-            self._send(200, json.dumps(result.as_dict()), "application/json; charset=utf-8")
+            self._send(
+                200, json.dumps(result.as_dict()), "application/json; charset=utf-8"
+            )
+            return
+        if parsed.path == "/api/config":
+            cfg = load_config()
+            self._send(
+                200,
+                json.dumps(
+                    {
+                        "mode": cfg.mode,
+                        "client": cfg.client,
+                        "server": cfg.server,
+                        "ssh_port": cfg.ssh_port,
+                        "user": cfg.user,
+                        "workspace": cfg.workspace,
+                    }
+                ),
+                "application/json; charset=utf-8",
+            )
+            return
+        if parsed.path == "/api/events":
+            result = get_control_service().events(
+                limit=min(500, int((qs.get("limit") or ["100"])[0] or 100)),
+                kind=(qs.get("kind") or [""])[0],
+                name=(qs.get("t") or [""])[0],
+            )
+            self._send(200, json.dumps(result.data), "application/json; charset=utf-8")
+            return
+        if parsed.path == "/api/memory":
+            name = (qs.get("t") or [""])[0]
+            result = get_control_service().memory(name)
+            self._send(200, json.dumps(result.data), "application/json; charset=utf-8")
             return
         if parsed.path == "/api/web-state":
-            self._send(200, json.dumps(_load_web_state()), "application/json; charset=utf-8")
+            self._send(
+                200, json.dumps(_load_web_state()), "application/json; charset=utf-8"
+            )
             return
         if parsed.path == "/api/tunnel":
             name = (qs.get("t") or [""])[0]
             try:
                 data = get_control_service().get_tunnel(name).data
             except ControlError as exc:
-                self._send(exc.status, json.dumps(exc.as_dict()), "application/json; charset=utf-8")
+                self._send(
+                    exc.status,
+                    json.dumps(exc.as_dict()),
+                    "application/json; charset=utf-8",
+                )
                 return
             op = data.get("op") or ""
             run = data.get("run") or ""
@@ -1582,8 +1862,12 @@ class Handler(BaseHTTPRequestHandler):
                 "op_text": op_text,
                 "run_text": run_text,
                 "op_auto": _opencode_auto(op_text),
-                "op_parsed": parse_pane(op_text, parser_id_for_side(data.get("trigger"))).as_dict(),
-                "run_parsed": parse_pane(run_text, parser_id_for_side(data.get("bullet"))).as_dict(),
+                "op_parsed": parse_pane(
+                    op_text, parser_id_for_side(data.get("trigger"))
+                ).as_dict(),
+                "run_parsed": parse_pane(
+                    run_text, parser_id_for_side(data.get("bullet"))
+                ).as_dict(),
                 "trigger_model": (data.get("trigger") or {}).get("model") or "",
                 "bullet_model": (data.get("bullet") or {}).get("model") or "",
                 "trigger_client": (data.get("trigger") or {}).get("agent_client") or {},
@@ -1614,56 +1898,129 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path in {"/skills"}:
             self._send(200, skills_page())
             return
+        if parsed.path == "/memory":
+            self._send(200, memory_page())
+            return
+        if parsed.path == "/events":
+            self._send(200, events_page())
+            return
+        if parsed.path == "/doctor":
+            self._send(200, doctor_page())
+            return
         if parsed.path == "/api/skills":
-            self._send(200, json.dumps(skillmgr.list_catalog()), "application/json; charset=utf-8")
+            self._send(
+                200,
+                json.dumps(skillmgr.list_catalog()),
+                "application/json; charset=utf-8",
+            )
             return
         if parsed.path == "/api/skill-tree":
             name = (qs.get("name") or [""])[0]
             try:
-                self._send(200, json.dumps(skillmgr.skill_tree(name)), "application/json; charset=utf-8")
+                self._send(
+                    200,
+                    json.dumps(skillmgr.skill_tree(name)),
+                    "application/json; charset=utf-8",
+                )
             except SystemExit as exc:
-                self._send(404, json.dumps({"error": str(exc)}), "application/json; charset=utf-8")
+                self._send(
+                    404,
+                    json.dumps({"error": str(exc)}),
+                    "application/json; charset=utf-8",
+                )
             return
         if parsed.path == "/api/skill-installed-file":
             name = (qs.get("name") or [""])[0]
             rel = (qs.get("rel") or [""])[0]
             try:
                 body = skillmgr.read_skill_file(name, rel)
-                self._send(200, json.dumps({"body": body, "rel": rel}), "application/json; charset=utf-8")
+                self._send(
+                    200,
+                    json.dumps({"body": body, "rel": rel}),
+                    "application/json; charset=utf-8",
+                )
             except SystemExit as exc:
-                self._send(404, json.dumps({"error": str(exc)}), "application/json; charset=utf-8")
+                self._send(
+                    404,
+                    json.dumps({"error": str(exc)}),
+                    "application/json; charset=utf-8",
+                )
             return
         if parsed.path == "/api/skill-preview":
             src = (qs.get("src") or [""])[0]
             try:
-                self._send(200, json.dumps(skillmgr.preview_source(src)), "application/json; charset=utf-8")
+                self._send(
+                    200,
+                    json.dumps(skillmgr.preview_source(src)),
+                    "application/json; charset=utf-8",
+                )
             except SystemExit as exc:
-                self._send(400, json.dumps({"error": str(exc)}), "application/json; charset=utf-8")
+                self._send(
+                    400,
+                    json.dumps({"error": str(exc)}),
+                    "application/json; charset=utf-8",
+                )
             return
         if parsed.path == "/api/skill-file":
             src = (qs.get("src") or [""])[0]
             rel = (qs.get("rel") or [""])[0]
             try:
                 body = skillmgr.read_source_file(src, rel)
-                self._send(200, json.dumps({"body": body, "rel": rel}), "application/json; charset=utf-8")
+                self._send(
+                    200,
+                    json.dumps({"body": body, "rel": rel}),
+                    "application/json; charset=utf-8",
+                )
             except SystemExit as exc:
-                self._send(400, json.dumps({"error": str(exc)}), "application/json; charset=utf-8")
+                self._send(
+                    400,
+                    json.dumps({"error": str(exc)}),
+                    "application/json; charset=utf-8",
+                )
             return
         if parsed.path == "/api/skill-body":
             name = (qs.get("name") or [""])[0]
             try:
-                self._send(200, json.dumps({"body": skillmgr.skill_body(name)}), "application/json; charset=utf-8")
+                self._send(
+                    200,
+                    json.dumps({"body": skillmgr.skill_body(name)}),
+                    "application/json; charset=utf-8",
+                )
             except SystemExit as exc:
-                self._send(404, json.dumps({"error": str(exc)}), "application/json; charset=utf-8")
+                self._send(
+                    404,
+                    json.dumps({"error": str(exc)}),
+                    "application/json; charset=utf-8",
+                )
             return
         if parsed.path == "/api/skill-log":
             n = int((qs.get("n") or ["40"])[0] or 40)
-            self._send(200, json.dumps(skillmgr.read_log(limit=n)), "application/json; charset=utf-8")
+            self._send(
+                200,
+                json.dumps(skillmgr.read_log(limit=n)),
+                "application/json; charset=utf-8",
+            )
             return
         self._send(404, "not found")
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
+        if not self._same_origin():
+            self._send(
+                403,
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": {
+                            "code": "origin_rejected",
+                            "message": "Web control writes require a local same-origin request",
+                            "detail": {},
+                        },
+                    }
+                ),
+                "application/json; charset=utf-8",
+            )
+            return
         length = int(self.headers.get("Content-Length") or 0)
         if length > 30 * 1024 * 1024:
             self._send(413, "[err] upload is too large", "text/plain; charset=utf-8")
@@ -1680,15 +2037,76 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/skill-upload":
             try:
-                fields, files = _multipart(raw_bytes, self.headers.get("Content-Type") or "")
+                fields, files = _multipart(
+                    raw_bytes, self.headers.get("Content-Type") or ""
+                )
                 paths = json.loads(fields.get("paths") or "[]")
-                if not isinstance(paths, list) or not all(isinstance(p, str) for p in paths):
+                if not isinstance(paths, list) or not all(
+                    isinstance(p, str) for p in paths
+                ):
                     raise SystemExit("[err] invalid upload paths")
-                imported = skillmgr.import_upload(fields.get("kind") or "", paths, files)
+                imported = skillmgr.import_upload(
+                    fields.get("kind") or "", paths, files
+                )
             except (SystemExit, ValueError, zipfile.BadZipFile) as exc:
                 self._send(400, str(exc), "text/plain; charset=utf-8")
                 return
-            self._send(200, json.dumps({"ok": True, "name": imported}), "application/json; charset=utf-8")
+            self._send(
+                200,
+                json.dumps({"ok": True, "name": imported}),
+                "application/json; charset=utf-8",
+            )
+            return
+        if parsed.path == "/api/memory/fact":
+            raw = raw_bytes.decode("utf-8")
+            form = parse_qs(raw)
+            value_raw = (form.get("value") or [""])[0]
+            try:
+                value = json.loads(value_raw)
+            except json.JSONDecodeError:
+                value = value_raw
+            try:
+                result = get_control_service().put_memory_fact(
+                    (form.get("key") or [""])[0],
+                    value,
+                    (form.get("t") or [""])[0],
+                )
+            except ControlError as exc:
+                self._send(
+                    exc.status,
+                    json.dumps(exc.as_dict()),
+                    "application/json; charset=utf-8",
+                )
+                return
+            self._send(
+                200, json.dumps(result.as_dict()), "application/json; charset=utf-8"
+            )
+            return
+        if parsed.path == "/api/memory/note":
+            raw = raw_bytes.decode("utf-8")
+            form = parse_qs(raw)
+            try:
+                result = get_control_service().add_memory_note(
+                    (form.get("t") or [""])[0],
+                    (form.get("body") or [""])[0],
+                    (form.get("title") or [""])[0],
+                )
+            except ControlError as exc:
+                self._send(
+                    exc.status,
+                    json.dumps(exc.as_dict()),
+                    "application/json; charset=utf-8",
+                )
+                return
+            self._send(
+                200, json.dumps(result.as_dict()), "application/json; charset=utf-8"
+            )
+            return
+        if parsed.path == "/api/doctor/run":
+            result = get_control_service().doctor()
+            self._send(
+                200, json.dumps(result.as_dict()), "application/json; charset=utf-8"
+            )
             return
         raw = raw_bytes.decode("utf-8")
         form = parse_qs(raw)
@@ -1716,7 +2134,11 @@ class Handler(BaseHTTPRequestHandler):
             except SystemExit as exc:
                 self._send(400, str(exc), "text/plain; charset=utf-8")
                 return
-            self._send(200, json.dumps({"ok": True, "name": imported}), "application/json; charset=utf-8")
+            self._send(
+                200,
+                json.dumps({"ok": True, "name": imported}),
+                "application/json; charset=utf-8",
+            )
             return
         if parsed.path == "/api/skill-enable":
             try:
@@ -1761,7 +2183,11 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 data = get_control_service().model(name, model, which).data
             except ControlError as exc:
-                self._send(exc.status, json.dumps(exc.as_dict()), "application/json; charset=utf-8")
+                self._send(
+                    exc.status,
+                    json.dumps(exc.as_dict()),
+                    "application/json; charset=utf-8",
+                )
                 return
             info = data.get("trigger") if side == "op" else data.get("bullet")
             self._send(
@@ -1778,10 +2204,24 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
         if parsed.path == "/api/freeze":
+            sides = []
+            side = (form.get("side") or ["both"])[0]
+            if side in {"both", "trigger", "op"}:
+                sides.append("trigger")
+            if side in {"both", "bullet", "run"}:
+                sides.append("bullet")
             try:
-                data = get_control_service().freeze(name).data
+                data = (
+                    get_control_service()
+                    .freeze(name, sides, (form.get("tool") or ["auto"])[0])
+                    .data
+                )
             except ControlError as exc:
-                self._send(exc.status, json.dumps(exc.as_dict()), "application/json; charset=utf-8")
+                self._send(
+                    exc.status,
+                    json.dumps(exc.as_dict()),
+                    "application/json; charset=utf-8",
+                )
                 return
             self._send(
                 200,
@@ -1796,6 +2236,67 @@ class Handler(BaseHTTPRequestHandler):
                 "application/json; charset=utf-8",
             )
             return
+        service = get_control_service()
+        try:
+            if parsed.path == "/api/tunnel/create":
+                result = service.create_tunnel(
+                    (form.get("name") or [""])[0],
+                    server=(form.get("server") or [""])[0],
+                    container=(form.get("container") or [""])[0],
+                    directory=(form.get("directory") or [""])[0],
+                    trigger_tool=(form.get("trigger_tool") or ["opencode"])[0],
+                    bullet_tool=(form.get("bullet_tool") or ["opencode"])[0],
+                    local=(form.get("local") or ["0"])[0] == "1",
+                )
+            elif parsed.path == "/api/tunnel/remove":
+                result = service.remove_tunnel(
+                    name,
+                    confirm=(form.get("confirm") or [""])[0],
+                    kill=(form.get("kill") or ["0"])[0] == "1",
+                )
+            elif parsed.path == "/api/tunnel/reconnect":
+                result = service.reconnect(name)
+            elif parsed.path == "/api/tunnel/drop":
+                result = service.drop(name, confirm=(form.get("confirm") or [""])[0])
+            elif parsed.path in {"/api/hub/push", "/api/hub/pull"}:
+                result = service.hub_sync(parsed.path.rsplit("/", 1)[-1])
+            elif parsed.path == "/api/config/switch":
+                result = service.switch_mode(
+                    mode=(form.get("mode") or [""])[0],
+                    client=(form.get("client") or [""])[0],
+                    workspace=(form.get("workspace") or [""])[0],
+                    server=(form.get("server") or [""])[0],
+                    user=(form.get("user") or [""])[0],
+                    confirm=(form.get("confirm") or [""])[0],
+                )
+            elif parsed.path == "/api/health/probe":
+                result = service.probe_health(name)
+            elif parsed.path == "/api/health/recover":
+                result = service.recover(
+                    name,
+                    force=(form.get("force") or ["0"])[0] == "1",
+                    confirm=(form.get("confirm") or [""])[0],
+                )
+            elif parsed.path == "/api/health/auto":
+                result = service.set_auto_recover(
+                    name, (form.get("enabled") or ["0"])[0] == "1"
+                )
+            else:
+                result = None
+        except ControlError as exc:
+            self._send(
+                exc.status,
+                json.dumps(exc.as_dict()),
+                "application/json; charset=utf-8",
+            )
+            return
+        if result is not None:
+            self._send(
+                200,
+                json.dumps(result.as_dict()),
+                "application/json; charset=utf-8",
+            )
+            return
         if parsed.path != "/send":
             self._send(404, "not found")
             return
@@ -1805,11 +2306,17 @@ class Handler(BaseHTTPRequestHandler):
             result = get_control_service().send(name, text, side)
             pane = result.data["pane"]
         except ControlError as exc:
-            self._send(exc.status, json.dumps(exc.as_dict()), "application/json; charset=utf-8")
+            self._send(
+                exc.status, json.dumps(exc.as_dict()), "application/json; charset=utf-8"
+            )
             return
         accept = self.headers.get("Accept") or ""
         if "application/json" in accept or self.headers.get("X-Requested-With"):
-            self._send(200, json.dumps({"ok": True, "pane": pane}), "application/json; charset=utf-8")
+            self._send(
+                200,
+                json.dumps({"ok": True, "pane": pane}),
+                "application/json; charset=utf-8",
+            )
             return
         self.send_response(303)
         self.send_header("Location", f"/tunnels?t={normalize_dt(name)}")
@@ -1824,7 +2331,9 @@ def _open_browser(url: str) -> None:
         pass
 
 
-def serve(host: str = HOST, port: int = DEFAULT_PORT, open_browser: bool = True) -> None:
+def serve(
+    host: str = HOST, port: int = DEFAULT_PORT, open_browser: bool = True
+) -> None:
     with WebHTTPServer((host, port), Handler) as httpd:
         url = f"http://{host}:{port}"
         print(f"dt web  {url}  (Ctrl-C stop)")
