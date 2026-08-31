@@ -199,6 +199,8 @@ Agent capability registry + tunnel/tmux operations
 
 The local Web API exposes `GET /api/capabilities` and `GET /api/operations` for capability-aware clients. Native lifecycle discovery is conservative: Codex/Claude use an explicit session UUID from the live process when available, otherwise a unique session file must match both the pane cwd and process start time. Ambiguous or historical candidates are rejected instead of guessing the newest session.
 
+The v0.4.46 Web control plane covers daily tunnel work end to end: local/Hub tunnel creation, per-side client selection, pane I/O, freeze/resume, authoritative-entry reconnect, drop/remove, Hub push/pull, health probe/recovery, auto-recovery settings, and lossless local/Hub mode switching. Destructive actions require explicit confirmation. Host maintenance (`upgrade`, `hotfix`, cron installation) remains CLI-only and is documented in the Web guide.
+
 ## Default agent: OpenCode
 
 The intended occupants of `op_*` (trigger) and `run_*` (bullet) are **[OpenCode](https://opencode.ai)** sessions.

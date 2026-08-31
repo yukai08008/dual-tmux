@@ -1,0 +1,64 @@
+version: v0.4.46
+parent_final: v0.4.45
+title: Web 全功能控制面
+type: web
+prd: dev_plans/v0.4.45-v0.4.46/PRD.md
+test_cases: dev_plans/v0.4.45-v0.4.46/TEST_CASES.md
+
+invariants:
+  - "Web 不绕过 ownership/capability/recovery safety gates"
+  - "GET 无副作用"
+  - "高风险操作二次确认"
+  - "本地模式不调用 SSH"
+  - "运行时数据不在 git 追踪中"
+  - "浏览器 E2E 覆盖新功能"
+
+deliverables:
+  - module: src/dual_tmux/control.py
+    change: tunnel/sync/health/config 完整控制合同
+  - module: src/dual_tmux/web.py
+    change: 全功能 API 与基于能力的管理 UI
+  - module: tests/test_control.py
+    change: 权限、风险确认与结构化错误测试
+  - module: tests/test_web.py
+    change: Web API 和无副作用测试
+
+feature_branches:
+  - name: feature/v0.4.46-web-control-plane
+    title: Web 全功能控制面
+    deps: [feature/v0.4.45-native-agent-lifecycle]
+    files: [src/dual_tmux/control.py, src/dual_tmux/web.py, tests/test_control.py, tests/test_web.py]
+    acceptance:
+      - "A1 Web 完成 tunnel 创建/连接/删除闭环"
+      - "A2 Web 完成三客户端 freeze/resume/send"
+      - "A3 Web 完成 Hub push/pull 与安全模式切换"
+      - "A4 Web 完成 health probe/recover/auto 开关"
+      - "A5 capability 驱动 UI 且 GET 无副作用"
+      - "A6 浏览器 E2E 通过"
+    estimated_loc: ~1000
+
+acceptance_count: 6
+total_estimated_loc: ~1000
+
+risk_register:
+  - id: R1
+    risk: destructive web action
+    mitigation: explicit confirmation token
+    severity: high
+  - id: R2
+    risk: CLI/Web drift
+    mitigation: shared ControlService
+    severity: high
+
+git_workflow:
+  branch_creation: from merged v0.4.45
+  merge_policy: pull-request
+  permission_mode: pm-maintainer
+  before_merge_checks:
+    - "pytest all PASS"
+    - "browser E2E PASS"
+    - "build and isolated install PASS"
+    - "git ls-files data/ 为空"
+  final_tag: v0.4.46
+
+signature: Agent-PM-v0.4.46

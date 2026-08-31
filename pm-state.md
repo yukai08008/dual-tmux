@@ -4,9 +4,13 @@
 
 ## 状态树
 
-### v0.4.45 (ACTIVE) — 三客户端原生会话生命周期
+### v0.4.46 (ACTIVE) — Web 全功能控制面
 
-- **feature/v0.4.45-native-agent-lifecycle** (CODE_COMPLETE): OpenCode、Codex、Claude 已建立统一 session 发现/冻结/恢复合同；125 tests、编译、专项 Ruff、构建通过，不能证明当前会话归属时不猜历史记录。待合并后直接进入 v0.4.46 Web 版，不发布奇数 API 版。
+- **feature/v0.4.46-web-control-plane** (CODE_COMPLETE): tunnel、三客户端、Hub 同步、健康恢复、配置模式、Memory、Events、Doctor 已统一落到 Web/ControlService；131 tests、浏览器 E2E、构建与隔离安装通过，待 PR 合并和正式发布。
+
+### v0.4.45 (ARCHIVED) — 三客户端原生会话生命周期
+
+- **feature/v0.4.45-native-agent-lifecycle** (MERGED): PR #9 已合并；OpenCode、Codex、Claude 已建立统一 session 发现/冻结/恢复合同。奇数 API 版不单独发布，能力进入 v0.4.46。
 
 ### v0.4.44 (RELEASED) — hotfix: persisted entry authority
 
@@ -52,7 +56,7 @@
 
 ## 当前焦点
 
-- 合并 `v0.4.45` API 能力后推进 `v0.4.46`：将三客户端与现有 ControlService 的全部安全操作落到 Web，并补浏览器 E2E。
+- 封板并发布 `v0.4.46` Web 控制面；随后进入飞书扫码绑定与管理版本。
 
 ## 待办
 
@@ -68,7 +72,9 @@
 - [x] 完成 88 tests、浏览器 E2E、构建与封板报告
 - [x] 创建并合并 PR #4，发布 v0.4.40
 - [x] 本机真实执行 `dt upgrade` 并验证数据无损
-- [ ] 完成 v0.4.45 三客户端原生生命周期适配
+- [x] 完成 v0.4.45 三客户端原生生命周期适配并合并 PR #9
+- [x] 完成 v0.4.46 Web 全功能控制面、Memory/Events/Doctor 与安全确认
+- [x] 完成 131 tests、应用内浏览器 E2E、构建和隔离安装
 - [x] 定位 dt-msg2 bullet 接续失败并确认 session 数据未丢失
 - [x] 恢复 happy-circuit session，校正本地/中心工作点
 - [x] 合并 PR #5 并发布 v0.4.41 hotfix

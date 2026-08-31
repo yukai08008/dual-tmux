@@ -107,7 +107,10 @@ def cmd_new(args: argparse.Namespace) -> None:
     other = occupied("run", run, skip=name)
     if other:
         raise SystemExit(f"[err] {run} already used by {other}")
-    if args.server:
+    if getattr(args, "local", False):
+        server = ""
+        ssh_port = 22
+    elif args.server:
         target = parse_ssh_target(args.server)
         server = target.dest
         ssh_port = target.port
@@ -1410,6 +1413,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_new.add_argument("--run", help="defaults to run_<name>")
     p_new.add_argument(
         "--server", default="", help="overrides config server (ssh host)"
+    )
+    p_new.add_argument(
+        "--local", action="store_true", help="force local runtime even in Hub mode"
     )
     p_new.add_argument("--container", default="")
     p_new.add_argument("--dir", default="", help="remote working directory")

@@ -199,6 +199,8 @@ Agent 能力注册表 + tunnel/tmux 操作
 
 本地 Web API 提供 `GET /api/capabilities` 和 `GET /api/operations`，供调用方查询能力与操作目录。原生生命周期发现采用保守规则：Codex/Claude 优先读取活动进程显式携带的 session UUID；否则会话文件必须同时唯一匹配 pane 工作目录与进程启动时间。候选含糊或只有历史记录时拒绝绑定，不猜最新会话。
 
+v0.4.46 Web 控制面覆盖日常 tunnel 全闭环：创建本地/Hub tunnel、两侧客户端选择、pane 输入输出、freeze/resume、权威入口重连、drop/删除、Hub push/pull、健康检查/恢复、自动恢复开关，以及无损的本地/Hub 模式切换。破坏性操作必须显式确认。主机维护命令（`upgrade`、`hotfix`、cron 安装）仍只允许从 CLI 执行，并在 Web 指南中给出入口。
+
 ## 默认 agent：OpenCode
 
 `op_*`（trigger）和 `run_*`（bullet）默认给 **[OpenCode](https://opencode.ai)** 会话用。

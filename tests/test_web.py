@@ -1,10 +1,13 @@
 import json
 import threading
-from urllib.request import urlopen
+from urllib.error import HTTPError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 import pytest
 
 from dual_tmux.config import AppConfig, write_config
+from dual_tmux.recovery import read_state, save_state
 from dual_tmux.store import save, tunnels_dir
 from dual_tmux.web import (
     Handler,
@@ -19,11 +22,13 @@ from dual_tmux.web import (
     _switch_trigger_auto,
     _tunnels,
     dashboard_page,
+    doctor_page,
+    events_page,
     guide_page,
+    memory_page,
     skills_page,
     tunnels_page,
 )
-from dual_tmux.recovery import read_state, save_state
 
 
 def test_pane_name():
@@ -49,7 +54,9 @@ def test_expected_browser_disconnect_errors_are_quiet():
 
 def test_open_browser_uses_new_tab(monkeypatch):
     calls = []
-    monkeypatch.setattr("dual_tmux.web.webbrowser.open", lambda url, new=0: calls.append((url, new)))
+    monkeypatch.setattr(
+        "dual_tmux.web.webbrowser.open", lambda url, new=0: calls.append((url, new))
+    )
     _open_browser("http://127.0.0.1:8787")
     assert calls == [("http://127.0.0.1:8787", 2)]
 
@@ -67,14 +74,117 @@ def test_web_exposes_agent_capabilities_and_operation_catalog():
         server.server_close()
         thread.join(timeout=3)
     assert capabilities["ok"] is True
-    assert [row["name"] for row in capabilities["data"]] == ["opencode", "codex", "claude"]
+    assert [row["name"] for row in capabilities["data"]] == [
+        "opencode",
+        "codex",
+        "claude",
+    ]
     assert any(row["name"] == "pane.send" for row in operations["data"])
+    assert any(row["name"] == "tunnel.create" for row in operations["data"])
+    assert any(row["name"] == "health.recover" for row in operations["data"])
+
+
+def test_web_control_endpoints_delegate_and_return_structured_results(monkeypatch):
+    from dual_tmux.control import ControlResult
+
+    service = type(
+        "Service",
+        (),
+        {
+            "create_tunnel": lambda self, name, **kwargs: ControlResult(
+                "tunnel.create", {"name": name, **kwargs}, "audit.create"
+            ),
+            "probe_health": lambda self, name: ControlResult(
+                "health.probe", {"name": name, "healthy": True}, "audit.health"
+            ),
+        },
+    )()
+    monkeypatch.setattr("dual_tmux.web.get_control_service", lambda: service)
+    server = WebHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    def post(path, fields):
+        body = urlencode(fields).encode()
+        request = Request(
+            f"http://127.0.0.1:{server.server_port}{path}",
+            data=body,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        return json.load(urlopen(request, timeout=3))
+
+    try:
+        created = post(
+            "/api/tunnel/create",
+            {
+                "name": "web-smoke",
+                "directory": "/tmp",
+                "trigger_tool": "codex",
+                "bullet_tool": "claude",
+            },
+        )
+        health = post("/api/health/probe", {"t": "web-smoke"})
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+    assert created["operation"] == "tunnel.create"
+    assert created["data"]["trigger_tool"] == "codex"
+    assert health["operation"] == "health.probe"
+    assert health["data"]["healthy"] is True
+
+
+def test_web_config_get_is_read_only(tmp_path, monkeypatch):
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
+    write_config(AppConfig(client="tm_box", workspace="/tmp"))
+    before = (tmp_path / "config.toml").read_bytes()
+    server = WebHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        payload = json.load(
+            urlopen(f"http://127.0.0.1:{server.server_port}/api/config", timeout=3)
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+    assert payload["mode"] == "local"
+    assert payload["client"] == "tm_box"
+    assert (tmp_path / "config.toml").read_bytes() == before
+
+
+def test_web_rejects_cross_origin_writes():
+    server = WebHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    request = Request(
+        f"http://127.0.0.1:{server.server_port}/api/health/probe",
+        data=urlencode({"t": "dt-msg"}).encode(),
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Origin": "https://evil.example",
+        },
+    )
+    try:
+        with pytest.raises(HTTPError) as caught:
+            urlopen(request, timeout=3)
+        payload = json.loads(caught.value.read())
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+    assert caught.value.code == 403
+    assert payload["error"]["code"] == "origin_rejected"
 
 
 def test_health_endpoint_reads_cache_without_probing(tmp_path, monkeypatch):
     monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
     write_config(AppConfig(client="tm_box"))
-    save(tunnels_dir() / "dt-msg.json", {"name": "dt-msg", "op": "op_msg", "run": "run_msg"})
+    save(
+        tunnels_dir() / "dt-msg.json",
+        {"name": "dt-msg", "op": "op_msg", "run": "run_msg"},
+    )
     state = read_state("dt-msg")
     state["status"] = "attention"
     save_state(state)
@@ -82,7 +192,11 @@ def test_health_endpoint_reads_cache_without_probing(tmp_path, monkeypatch):
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        payload = json.load(urlopen(f"http://127.0.0.1:{server.server_port}/api/health?t=dt-msg", timeout=3))
+        payload = json.load(
+            urlopen(
+                f"http://127.0.0.1:{server.server_port}/api/health?t=dt-msg", timeout=3
+            )
+        )
     finally:
         server.shutdown()
         server.server_close()
@@ -99,8 +213,20 @@ def test_admin_tabs_and_search(tmp_path, monkeypatch):
             "name": "dt-msg",
             "op": "op_msg",
             "run": "run_msg",
-            "trigger": {"agent_client": {"name": "codex", "version": "0.151.0", "location": "local"}},
-            "bullet": {"agent_client": {"name": "claude", "version": "2.1.191", "location": "docker"}},
+            "trigger": {
+                "agent_client": {
+                    "name": "codex",
+                    "version": "0.151.0",
+                    "location": "local",
+                }
+            },
+            "bullet": {
+                "agent_client": {
+                    "name": "claude",
+                    "version": "2.1.191",
+                    "location": "docker",
+                }
+            },
         },
     )
     dash = dashboard_page()
@@ -118,7 +244,7 @@ def test_admin_tabs_and_search(tmp_path, monkeypatch):
     assert "lamp-op" in page
     assert "trigger 问答" in page
     assert "setPollBusy" in page
-    assert 'lamp gray' in page
+    assert "lamp gray" in page
     assert "addBubble" in page
     assert "summarize" in page
     assert "pollspin" in page
@@ -128,6 +254,21 @@ def test_admin_tabs_and_search(tmp_path, monkeypatch):
     assert "tabadd" in page
     assert "closeTab" in page
     assert "btn-freeze" in page
+    assert "createf" in page
+    assert "/api/tunnel/create" in page
+    assert "/api/tunnel/remove" in page
+    assert "/api/tunnel/reconnect" in page
+    assert "/api/tunnel/drop" in page
+    assert "/api/health/probe" in page
+    assert "/api/health/recover" in page
+    assert "/api/health/auto" in page
+    assert "/api/hub/push" in page
+    assert "/api/hub/pull" in page
+    assert "/api/config/switch" in page
+    assert "new-trigger-tool" in page
+    assert "new-bullet-tool" in page
+    assert "j.trigger_tool !== 'opencode'" in page
+    assert "j.bullet_tool !== 'opencode'" in page
     assert "m-op" in page
     assert "/api/model" in page
     assert "/api/models" in page
@@ -186,6 +327,12 @@ def test_admin_tabs_and_search(tmp_path, monkeypatch):
     assert "dt config --server myserver --user andy" in guide
     assert 'href="/guide"' in guide
     assert 'rel="icon"' in guide
+    assert "/api/memory" in memory_page()
+    assert "/api/events" in events_page()
+    assert "/api/doctor/run" in doctor_page()
+    assert 'href="/memory"' in page
+    assert 'href="/events"' in page
+    assert 'href="/doctor"' in page
 
 
 def test_web_state_keeps_closed_tunnel_history(tmp_path, monkeypatch):
@@ -199,7 +346,11 @@ def test_web_state_keeps_closed_tunnel_history(tmp_path, monkeypatch):
                 "lastVisitedAt": "2026-08-29T11:00:00+08:00",
                 "visits": 3,
                 "thread": [
-                    {"kind": "ask", "text": "继续上次任务", "extra": {"ts": "2026-08-29T11:00:00+08:00"}},
+                    {
+                        "kind": "ask",
+                        "text": "继续上次任务",
+                        "extra": {"ts": "2026-08-29T11:00:00+08:00"},
+                    },
                     {"kind": "ans", "text": "已经完成第一步", "extra": {"model": "m"}},
                 ],
                 "log": [{"kind": "done", "text": "本轮结束"}],
@@ -267,8 +418,14 @@ def test_web_switches_bound_trigger_to_auto(tmp_path, monkeypatch):
     monkeypatch.setattr(web, "_capture", lambda _: next(captures))
     monkeypatch.setattr(web.tmux_ops, "has_session", lambda _: True)
     monkeypatch.setattr(web.tmux_ops, "pane_command", lambda _: "opencode")
-    monkeypatch.setattr(web.tmux_ops, "quit_opencode", lambda pane: calls.append(("quit", pane)) or True)
-    monkeypatch.setattr(web.tmux_ops, "start_opencode", lambda pane, cmd: calls.append(("start", pane, cmd)))
+    monkeypatch.setattr(
+        web.tmux_ops, "quit_opencode", lambda pane: calls.append(("quit", pane)) or True
+    )
+    monkeypatch.setattr(
+        web.tmux_ops,
+        "start_opencode",
+        lambda pane, cmd: calls.append(("start", pane, cmd)),
+    )
 
     result = _switch_trigger_auto("dt-msg")
     assert result == {"ok": True, "changed": True, "auto": True, "pane": "op_msg"}
@@ -282,7 +439,13 @@ def test_web_trigger_auto_requires_frozen_session(tmp_path, monkeypatch):
     monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
     save(
         tunnels_dir() / "dt-msg.json",
-        {"name": "dt-msg", "op": "op_msg", "run": "run_msg", "trigger": {}, "bullet": {}},
+        {
+            "name": "dt-msg",
+            "op": "op_msg",
+            "run": "run_msg",
+            "trigger": {},
+            "bullet": {},
+        },
     )
     monkeypatch.setattr("dual_tmux.web.tmux_ops.has_session", lambda _: True)
     with pytest.raises(SystemExit, match="no frozen session id"):
