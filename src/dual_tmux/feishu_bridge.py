@@ -196,6 +196,31 @@ def publish_installation_to_hub(
     return f"{host}:{remote}"
 
 
+def remove_installation_from_hub(cfg: AppConfig | None = None) -> None:
+    """Stop the Hub connector by atomically removing its active installation."""
+    from . import hub
+
+    cfg = cfg or load_config()
+    if not cfg.hub_enabled:
+        return
+    remote = f"{hub.remote_root(cfg)}/feishu"
+    result = hub._run(
+        hub.ssh_argv(cfg)
+        + [
+            "rm",
+            "-f",
+            f"{remote}/installation.json",
+            f"{remote}/credential.key",
+        ]
+    )
+    if result.returncode != 0:
+        raise FeishuError(
+            "hub_unbind_failed",
+            "Hub did not confirm credential removal; installation remains bound",
+        )
+    log.emit("feishu.installation.hub_remove", host=cfg.server)
+
+
 def _format_result(payload: dict) -> str:
     if payload.get("confirmation_required"):
         return (

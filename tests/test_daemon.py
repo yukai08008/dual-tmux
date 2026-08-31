@@ -1,6 +1,6 @@
+from dual_tmux.config import AppConfig, write_config
 from dual_tmux.daemon import ConnectorManager, DualTmuxDaemon, read_daemon_status
 from dual_tmux.feishu import CredentialVault
-from dual_tmux.config import AppConfig, write_config
 
 
 class FakeProcess:
@@ -120,3 +120,21 @@ def test_hub_mode_client_never_starts_local_ws(monkeypatch, tmp_path):
         "next_retry_at": 0,
     }
     assert manager.process is None
+
+
+def test_explicit_hub_role_starts_ws_without_client_lease(monkeypatch, tmp_path):
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
+    monkeypatch.setenv("DT_FEISHU_ROLE", "hub")
+    CredentialVault().save("cli_auto", "secret")
+    manager = ConnectorManager(
+        process_factory=FakeProcess,
+        lease_acquire=lambda: (False, "another-client"),
+        lease_release=lambda: None,
+    )
+    assert manager.step() == {
+        "connector": "starting",
+        "owner": "hub",
+        "failures": 0,
+        "next_retry_at": 0,
+    }
+    assert manager.process is not None

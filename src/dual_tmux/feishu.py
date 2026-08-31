@@ -16,10 +16,10 @@ import tempfile
 import time
 import urllib.parse
 import urllib.request
-from urllib.error import HTTPError
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Protocol
+from urllib.error import HTTPError
 
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -308,6 +308,14 @@ class AppRegistrationService:
             return {"status": "rejected", "reason": error}
         app_id = str(result.get("client_id") or "")
         app_secret = str(result.get("client_secret") or "")
+        if not app_id and not app_secret:
+            session.update(status="pending", next_poll_at=now + interval)
+            _atomic_json(self.path, session)
+            return {"status": "pending"}
+        if not app_id or not app_secret:
+            self.path.unlink(missing_ok=True)
+            log.emit("feishu.registration.reject", reason="incomplete_credentials")
+            return {"status": "rejected", "reason": "incomplete_credentials"}
         public = self.vault.save(app_id, app_secret, result.get("user_info") or {})
         identity = OperatorIdentity.from_dict(result.get("user_info") or {})
         if identity.ids():
@@ -320,7 +328,7 @@ class AppRegistrationService:
                 from .feishu_bridge import publish_installation_to_hub
 
                 publish_installation_to_hub(cfg, identity)
-        except (SystemExit, OSError) as exc:
+        except (FeishuError, SystemExit, OSError) as exc:
             log.emit("feishu.installation.hub_pending", reason=type(exc).__name__)
         self.path.unlink(missing_ok=True)
         log.emit("feishu.registration.ok", app_id=_digest(app_id)[:12])
@@ -540,6 +548,16 @@ def unbind_operator(identity_id: str = "") -> int:
 
 
 def uninstall() -> dict:
+    try:
+        from .config import load_config
+
+        cfg = load_config()
+        if cfg.hub_enabled:
+            from .feishu_bridge import remove_installation_from_hub
+
+            remove_installation_from_hub(cfg)
+    except FileNotFoundError:
+        pass
     removed = CredentialVault().remove()
     AppRegistrationService().cancel()
     operators = unbind_operator("")

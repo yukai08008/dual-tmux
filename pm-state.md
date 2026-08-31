@@ -1,14 +1,14 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-08-31 16:42 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-08-31 18:28 +08:00 | 更新者: Codex PM
 
 ## 状态树
 
 ### v0.4.48 (ACTIVE) — 飞书扫码 Web 与 tom7r 事件桥
 
 - **feature/v0.4.48-feishu-web-bridge** (MERGED): PR #12 已合并，远端 main=`e1e2494`。Web QR/绑定管理、tom7r mailbox bridge、飞书 callback/event、Client 离线可靠消费、outbox 回包合同与 Docker 部署模板已完成；159 tests、Browser E2E、编译/lint/build、tom7r 容器 build/health 全绿。企业飞书真实 E2E 因缺 App 凭据/HTTPS callback 仍为 P1 发布门禁；v0.4.48 保持 ACTIVE，不创建 Release。
-- **feature/v0.4.48-feishu-scan-ws** (DEVELOPING): 用户确认列装目标是 Multica 式扫码即用；正在用飞书 Device Registration + 自动加密凭据 + 独立 `dt daemon` WS 取代手填 App/公网 callback。
-  - **issue-feishu-scan-to-create** (FIXING): 当前实现错误地要求用户预建 App 并提供 callback；修正为扫码自动创建 PersonalAgent，本地/Hub 单活长连接。
+- **feature/v0.4.48-feishu-scan-ws** (CODE_COMPLETE): 飞书 Device Registration、自动加密凭据、独立 `dt daemon`、local/Hub 单活 WS、mailbox 路由与回包均已实现；174 tests、Browser 官方 QR/TTL 验收、构建和 tom7r 隔离 daemon 镜像验证全绿。待企业飞书真实扫码与 `/dt ls` 回包 E2E 后进入 MERGE_PENDING。
+  - **issue-feishu-scan-to-create** (RESOLVED): 已移除正式路径中的 App ID/Secret/callback 配置，改为扫码自动创建 PersonalAgent；Hub 删除失败时保留本地安装。
 
 ### v0.4.47 (ARCHIVED) — 飞书绑定与鉴权 API
 
@@ -73,8 +73,8 @@
 - [x] 完成 v0.4.47 飞书绑定/鉴权 API 与安全测试
 - [x] 合并 v0.4.47（不单独发布），进入 v0.4.48 Web/中心事件桥
 - [x] 合并 PR #12，完成 v0.4.48 Web/中心事件桥代码与无凭据 E2E
-- [ ] 完成 scan-to-create、自动凭据加密、dt daemon 与 WS Connector Manager
-- [ ] 完成 local/Hub 单活租约、断线重连、状态诊断和真实扫码/消息 E2E
+- [x] 完成 scan-to-create、自动凭据加密、dt daemon 与 WS Connector Manager
+- [ ] 完成企业飞书真实扫码、tom7r WS connected 与消息回包 E2E
 - [ ] 将 v0.4.46.post1 Web progress hotfix 正向合入 main 后发布 v0.4.48
 
 - [x] 完成 v0.4.42 三件套、health probe 与状态机

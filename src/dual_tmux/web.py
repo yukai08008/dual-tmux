@@ -19,9 +19,9 @@ from urllib.parse import parse_qs, urlparse
 from . import oc as oc_ops
 from . import skillmgr
 from . import tmux as tmux_ops
-from .paneparse import parse_pane, parser_id_for_side
 from .config import load_config
 from .control import ControlError, get_control_service
+from .paneparse import parse_pane, parser_id_for_side
 from .paths import home_dir
 from .recovery import read_state as read_health_state
 from .store import find_dt, iter_dt_files, load, normalize_dt
@@ -499,7 +499,7 @@ def feishu_page() -> str:
       <div class="card">
         <h2>扫码绑定</h2>
         <p>不需要 App ID、App Secret 或公网 callback。飞书确认后会自动创建 PersonalAgent，凭据只以加密形式保存在服务端。</p>
-        <div class="models"><button id="fs-pair">生成 10 分钟二维码</button><button class="ghost" id="fs-unbind">解绑机器人</button></div>
+        <div class="models"><button id="fs-pair">生成一次性二维码</button><button class="ghost" id="fs-unbind">解绑机器人</button></div>
         <div id="fs-pair-box" style="display:none;margin-top:12px"><img id="fs-qr" alt="飞书绑定二维码" width="260" height="260"><p><a id="fs-url" target="_blank" rel="noopener">在飞书授权页打开</a></p><p class="meta" id="fs-expiry"></p></div>
         <pre class="out" id="fs-result" style="height:180px">等待操作</pre>
       </div>
@@ -1984,24 +1984,6 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/feishu":
             self._send(200, feishu_page())
-            return
-        if parsed.path == "/feishu/callback":
-            from .feishu import FeishuError, PairingService
-
-            try:
-                identity = PairingService().callback(
-                    (qs.get("state") or [""])[0], (qs.get("code") or [""])[0]
-                )
-                self._send(
-                    200,
-                    _shell(
-                        _nav("feishu"),
-                        '<div class="content"><div class="card"><h1>飞书绑定成功</h1><p>可以关闭此页面并回到 dt Web。</p></div></div>',
-                        "dt web · 飞书绑定成功",
-                    ),
-                )
-            except FeishuError as exc:
-                self._send(400, json.dumps(exc.as_dict()), "application/json; charset=utf-8")
             return
         if parsed.path in {"/guide", "/help"}:
             self._send(200, guide_page())

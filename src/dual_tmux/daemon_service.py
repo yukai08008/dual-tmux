@@ -58,7 +58,7 @@ WantedBy=default.target
 
 
 def _run(argv: list[str]) -> None:
-    result = subprocess.run(argv, capture_output=True, text=True)
+    result = subprocess.run(argv, capture_output=True, text=True, check=False)
     if result.returncode != 0:
         message = (result.stderr or result.stdout or "service manager failed").strip()
         raise SystemExit(f"[err] daemon service: {message}")
@@ -74,6 +74,7 @@ def install() -> Path:
             ["launchctl", "bootout", f"gui/{__import__('os').getuid()}", str(path)],
             capture_output=True,
             text=True,
+            check=False,
         )
         _run(["launchctl", "bootstrap", f"gui/{__import__('os').getuid()}", str(path)])
         return path
