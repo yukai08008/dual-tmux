@@ -203,6 +203,8 @@ v0.4.46 Web 控制面覆盖日常 tunnel 全闭环：创建本地/Hub tunnel、�
 
 v0.4.47 增加飞书安全绑定 API，供 v0.4.48 的扫码页面和 tom7r 事件桥复用。OAuth access token 永不持久化；App Secret 只从环境变量或严格 `0600` 的本地文件读取；pairing state、事件 ID 和破坏性操作确认 token 均限时且单次使用。详见 [飞书控制 API](docs/feishu.md)。本 API 版尚不负责把飞书云事件路由到只监听 `127.0.0.1` 的 Client。
 
+v0.4.48 完成这条链路：Web 的“飞书”页可配置非秘密 App 合同、生成限时二维码、查看绑定、同步事件桥和解绑。tom7r mailbox bridge 接收 OAuth callback 与经过 verification token 校验的飞书消息，Client 离线时保留命令；`dt tick` 恢复后在本机通过 `ControlService` 执行并回传结果。本地 Web 仍只监听 `127.0.0.1`，不会暴露给飞书。正式推广前仍需企业飞书 App、HTTPS callback 路由和带真实凭据的 E2E。
+
 ## 默认 agent：OpenCode
 
 `op_*`（trigger）和 `run_*`（bullet）默认给 **[OpenCode](https://opencode.ai)** 会话用。

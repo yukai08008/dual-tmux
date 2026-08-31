@@ -468,15 +468,58 @@ def _nav(page: str) -> str:
     memory = "active" if page == "memory" else ""
     events = "active" if page == "events" else ""
     doctor = "active" if page == "doctor" else ""
+    feishu = "active" if page == "feishu" else ""
     return (
         f'<a class="{dash}" href="/">Dashboard</a>'
         f'<a class="{tun}" href="/tunnels">隧道</a>'
         f'<a class="{memory}" href="/memory">Memory</a>'
         f'<a class="{events}" href="/events">Events</a>'
         f'<a class="{doctor}" href="/doctor">Doctor</a>'
+        f'<a class="{feishu}" href="/feishu">飞书</a>'
         f'<a class="{sk}" href="/skills">Skills</a>'
         f'<a class="{guide}" href="/guide">指南</a>'
     )
+
+
+def feishu_page() -> str:
+    body = """
+    <div class="top"><h1>飞书</h1><p>扫码绑定与 tom7r 中心事件桥；Secret 不会进入页面或 Hub</p></div>
+    <div class="content">
+      <div class="grid">
+        <div class="stat"><b id="fs-configured">—</b><span>配置状态</span></div>
+        <div class="stat"><b id="fs-bound">0</b><span>已绑定 operator</span></div>
+        <div class="stat"><b id="fs-bridge">—</b><span>事件桥</span></div>
+      </div>
+      <div class="card">
+        <h2>App 配置（不接收 Secret 本体）</h2>
+        <form id="fs-config" class="models">
+          <div class="field"><label>App ID</label><input id="fs-app-id" required placeholder="cli_xxx"></div>
+          <div class="field"><label>OAuth callback</label><input id="fs-redirect" required placeholder="https://tom7r.example/feishu/callback"></div>
+          <div class="field"><label>Secret 文件</label><input id="fs-secret-file" placeholder="~/.dual-tmux/feishu-app-secret (0600)"></div>
+          <div class="field"><label>Operator allowlist（一行一个 ID）</label><textarea id="fs-allow" style="height:7em;min-height:7em"></textarea></div>
+          <button type="submit">保存配置</button>
+        </form>
+        <p class="meta">也可在启动 dt 时设置 <code>DT_FEISHU_APP_SECRET</code>。页面永远不会回显 Secret。</p>
+      </div>
+      <div class="card">
+        <h2>扫码绑定</h2>
+        <div class="models"><button id="fs-pair">生成 10 分钟二维码</button><button class="ghost" id="fs-sync">立即同步事件桥</button><button class="ghost" id="fs-unbind">解绑全部</button></div>
+        <div id="fs-pair-box" style="display:none;margin-top:12px"><img id="fs-qr" alt="飞书绑定二维码" width="260" height="260"><p><a id="fs-url" target="_blank" rel="noopener">在飞书授权页打开</a></p><p class="meta" id="fs-expiry"></p></div>
+        <pre class="out" id="fs-result" style="height:180px">等待操作</pre>
+      </div>
+      <div class="card"><h2>已绑定身份</h2><div id="fs-bindings" class="log" style="height:220px"></div></div>
+    </div>
+    <script>
+    const out=document.getElementById('fs-result');
+    async function api(url,body){const r=await fetch(url,{method:body?'POST':'GET',headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined});const j=await r.json();if(!r.ok)throw new Error((j.error&&j.error.message)||JSON.stringify(j));return j}
+    async function refresh(){try{const s=await api('/api/feishu/status');document.getElementById('fs-configured').textContent=s.configured?'ready':'missing';document.getElementById('fs-bound').textContent=(s.bindings||[]).length;document.getElementById('fs-bridge').textContent=s.bridge||'local';document.getElementById('fs-app-id').value=s.app_id||'';document.getElementById('fs-redirect').value=s.redirect_uri||'';document.getElementById('fs-secret-file').value=s.secret_file||'';document.getElementById('fs-allow').value=(s.allowlist||[]).join('\\n');document.getElementById('fs-bindings').innerHTML=(s.bindings||[]).map(x=>'<div class="row"><span class="tag done">bound</span><span class="msg">'+Object.entries(x).filter(([k,v])=>v).map(([k,v])=>k+'='+v).join(' · ')+'</span></div>').join('')||'尚未绑定';}catch(e){out.textContent=e.message}}
+    document.getElementById('fs-config').onsubmit=async e=>{e.preventDefault();try{const j=await api('/api/feishu/configure',{app_id:document.getElementById('fs-app-id').value,redirect_uri:document.getElementById('fs-redirect').value,secret_file:document.getElementById('fs-secret-file').value,allowlist:document.getElementById('fs-allow').value.split(/\\n+/).map(x=>x.trim()).filter(Boolean)});out.textContent=JSON.stringify(j,null,2);await refresh()}catch(e){out.textContent=e.message}};
+    document.getElementById('fs-pair').onclick=async()=>{try{const j=await api('/api/feishu/pair',{});document.getElementById('fs-pair-box').style.display='block';document.getElementById('fs-qr').src=j.qr;document.getElementById('fs-url').href=j.authorization_url;document.getElementById('fs-expiry').textContent='有效期 '+j.expires_in+' 秒 · route '+(j.via||'local callback');out.textContent='二维码已生成；扫码授权后状态会自动刷新。'}catch(e){out.textContent=e.message}};
+    document.getElementById('fs-sync').onclick=async()=>{try{out.textContent=JSON.stringify(await api('/api/feishu/sync',{}),null,2);await refresh()}catch(e){out.textContent=e.message}};
+    document.getElementById('fs-unbind').onclick=async()=>{if(!confirm('解绑本机全部飞书 operator？'))return;try{out.textContent=JSON.stringify(await api('/api/feishu/unbind',{}),null,2);await refresh()}catch(e){out.textContent=e.message}};
+    refresh();setInterval(refresh,5000);
+    </script>"""
+    return _shell(_nav("feishu"), body, "dt web · 飞书")
 
 
 def memory_page() -> str:
@@ -1817,6 +1860,14 @@ class Handler(BaseHTTPRequestHandler):
                 "application/json; charset=utf-8",
             )
             return
+        if parsed.path == "/api/feishu/status":
+            from .feishu import status
+
+            payload = status()
+            cfg = load_config()
+            payload["bridge"] = cfg.server if cfg.hub_enabled else "local-only"
+            self._send(200, json.dumps(payload), "application/json; charset=utf-8")
+            return
         if parsed.path == "/api/events":
             result = get_control_service().events(
                 limit=min(500, int((qs.get("limit") or ["100"])[0] or 100)),
@@ -1891,6 +1942,27 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path in {"/tunnels", "/t"}:
             self._send(200, tunnels_page((qs.get("t") or [""])[0]))
+            return
+        if parsed.path == "/feishu":
+            self._send(200, feishu_page())
+            return
+        if parsed.path == "/feishu/callback":
+            from .feishu import FeishuError, PairingService
+
+            try:
+                identity = PairingService().callback(
+                    (qs.get("state") or [""])[0], (qs.get("code") or [""])[0]
+                )
+                self._send(
+                    200,
+                    _shell(
+                        _nav("feishu"),
+                        '<div class="content"><div class="card"><h1>飞书绑定成功</h1><p>可以关闭此页面并回到 dt Web。</p></div></div>',
+                        "dt web · 飞书绑定成功",
+                    ),
+                )
+            except FeishuError as exc:
+                self._send(400, json.dumps(exc.as_dict()), "application/json; charset=utf-8")
             return
         if parsed.path in {"/guide", "/help"}:
             self._send(200, guide_page())
@@ -2026,6 +2098,43 @@ class Handler(BaseHTTPRequestHandler):
             self._send(413, "[err] upload is too large", "text/plain; charset=utf-8")
             return
         raw_bytes = self.rfile.read(length)
+        if parsed.path.startswith("/api/feishu/"):
+            from .feishu import FeishuConfig, FeishuError, PairingService, save_config, unbind_operator
+            from .feishu_bridge import begin_hub_pairing, sync_client
+
+            try:
+                payload = json.loads(raw_bytes.decode("utf-8") or "{}")
+                if not isinstance(payload, dict):
+                    raise FeishuError("invalid_request", "JSON object required")
+                if parsed.path == "/api/feishu/configure":
+                    allowed = {"app_id", "redirect_uri", "secret_file", "allowlist"}
+                    if set(payload) - allowed:
+                        raise FeishuError("invalid_request", "unknown or secret fields are not accepted")
+                    config = FeishuConfig.from_dict(payload)
+                    result = {"ok": True, "path": str(save_config(config))}
+                elif parsed.path == "/api/feishu/pair":
+                    cfg = load_config()
+                    result = begin_hub_pairing(cfg=cfg) if cfg.hub_enabled else PairingService().begin()
+                    import segno
+
+                    result["qr"] = segno.make(result["authorization_url"]).svg_data_uri(scale=5)
+                    result["ok"] = True
+                elif parsed.path == "/api/feishu/sync":
+                    result = sync_client()
+                elif parsed.path == "/api/feishu/unbind":
+                    result = {"ok": True, "removed": unbind_operator(str(payload.get("identity") or ""))}
+                else:
+                    self._send(404, "not found")
+                    return
+            except (json.JSONDecodeError, FeishuError) as exc:
+                body = exc.as_dict() if isinstance(exc, FeishuError) else {
+                    "ok": False,
+                    "error": {"code": "invalid_json", "message": "invalid JSON", "detail": {}},
+                }
+                self._send(400, json.dumps(body), "application/json; charset=utf-8")
+                return
+            self._send(200, json.dumps(result), "application/json; charset=utf-8")
+            return
         if parsed.path == "/api/web-state":
             try:
                 payload = json.loads(raw_bytes.decode("utf-8"))

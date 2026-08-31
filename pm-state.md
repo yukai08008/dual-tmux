@@ -4,9 +4,13 @@
 
 ## 状态树
 
-### v0.4.47 (ACTIVE) — 飞书绑定与鉴权 API
+### v0.4.48 (ACTIVE) — 飞书扫码 Web 与 tom7r 事件桥
 
-- **feature/v0.4.47-feishu-binding-api** (CODE_COMPLETE): secret 边界、OAuth pairing state、operator allowlist、事件防重放、命令策略、二次确认与 ControlService 分发已完成；151 tests、编译、聚焦 Ruff、build 和隔离 CLI 冒烟通过。等待 PR 合并；奇数 API 版不单独发布，随后进入 v0.4.48。
+- **feature/v0.4.48-feishu-web-bridge** (CODE_COMPLETE): Web QR/绑定管理、tom7r mailbox bridge、飞书 callback/event、Client 离线可靠消费、outbox 回包合同与 Docker 部署模板已完成。159 tests、Browser E2E、编译/lint/build 全绿；等待 PR 合并。企业飞书真实 E2E 因缺 App 凭据/HTTPS callback 仍为 P1 发布门禁，合并后保持 ACTIVE、不创建 Release。
+
+### v0.4.47 (ARCHIVED) — 飞书绑定与鉴权 API
+
+- **feature/v0.4.47-feishu-binding-api** (MERGED): PR #11 已合并至 main（`6b1d371`）；secret 边界、OAuth pairing、operator allowlist、防重放、确认与 ControlService 分发完成。奇数 API 版未单独发布，能力进入 v0.4.48。
 
 ### v0.4.46 (RELEASED) — Web 全功能控制面
 
@@ -60,7 +64,7 @@
 
 ## 当前焦点
 
-- 进入 `v0.4.47` 飞书绑定/鉴权 API 版，再由 `v0.4.48` Web 版完成扫码与飞书管理交互。
+- 推进 `v0.4.48` 飞书扫码 Web 与 tom7r 中心事件桥，完成偶数版封板发布。
 
 ## 待办
 
