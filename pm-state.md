@@ -4,9 +4,9 @@
 
 ## 状态树
 
-### v0.4.42 (ACTIVE) — 抗抖动健康检测与自动恢复
+### v0.4.42 (RELEASED) — 抗抖动健康检测与自动恢复
 
-- **feature/v0.4.42-health-recovery** (CODE_COMPLETE): 分层 probe、状态机、显式自动恢复、远端 session import、CLI/Web 状态；103 tests、构建、隔离安装与浏览器 E2E 已通过。
+- **feature/v0.4.42-health-recovery** (MERGED): PR #6 已合并；分层 probe、状态机、显式自动恢复、远端 session import、CLI/Web 状态已发布。
 
 ### v0.4.40 (RELEASED) — Agent Adapter 与统一控制内核
 
@@ -40,13 +40,13 @@
 
 ## 当前焦点
 
-- 推进 `v0.4.42`：建立网络抖动与断开的检测、退避、熔断和安全恢复闭环。
+- `v0.4.42` 已正式发布；本机真实升级 `0.4.41 → 0.4.42`，配置、tunnel 与 entry 内容哈希不变，默认自动恢复保持关闭。
 
 ## 待办
 
 - [x] 完成 v0.4.42 三件套、health probe 与状态机
 - [x] 完成远端 session import、CLI/tick/Web 接入
-- [ ] 完成故障注入、浏览器 E2E、发布与真实升级（发布/升级待执行）
+- [x] 完成故障注入、浏览器 E2E、PR #6、v0.4.42 发布与真实升级
 
 - [x] 完成 v0.4.40 三件套与 Agent Adapter
 - [x] 完成 ControlService 并迁移 CLI/Web 操作

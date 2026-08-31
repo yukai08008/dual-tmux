@@ -13,6 +13,8 @@
 | 构建 | PASS | wheel + sdist 0.4.42 |
 | 隔离安装 | PASS | wheel 安装后 `dt 0.4.42` |
 | 运行时数据 | PASS | `git ls-files data/` 为空 |
+| GitHub Release | PASS | PR #6；tag/release `v0.4.42`，wheel + sdist |
+| 真实升级 | PASS | 本机 `0.4.41 → 0.4.42`；config/tunnels/entries 哈希不变 |
 
 ## Probe / 状态机 / 恢复
 
