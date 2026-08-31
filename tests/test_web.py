@@ -24,6 +24,7 @@ from dual_tmux.web import (
     dashboard_page,
     doctor_page,
     events_page,
+    feishu_page,
     guide_page,
     memory_page,
     skills_page,
@@ -176,6 +177,74 @@ def test_web_rejects_cross_origin_writes():
         thread.join(timeout=3)
     assert caught.value.code == 403
     assert payload["error"]["code"] == "origin_rejected"
+
+
+def test_feishu_page_and_local_pair_api(tmp_path, monkeypatch):
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
+    write_config(AppConfig(client="tm_box", workspace="/tmp"))
+    page = feishu_page()
+    assert "扫码绑定" in page
+    assert "/api/feishu/configure" in page
+    assert "/api/feishu/pair" in page
+    assert "Secret 不会进入页面" in page
+    server = WebHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    root = f"http://127.0.0.1:{server.server_port}"
+
+    def post(path, payload):
+        request = Request(
+            root + path,
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        return json.load(urlopen(request, timeout=3))
+
+    try:
+        configured = post(
+            "/api/feishu/configure",
+            {
+                "app_id": "cli_app",
+                "redirect_uri": root + "/feishu/callback",
+                "allowlist": ["ou_a"],
+            },
+        )
+        paired = post("/api/feishu/pair", {})
+        status = json.load(urlopen(root + "/api/feishu/status", timeout=3))
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+    assert configured["ok"] is True
+    assert paired["qr"].startswith("data:image/svg+xml")
+    assert "accounts.feishu.cn" in paired["authorization_url"]
+    assert status["configured"] is True
+    assert status["allowlist"] == ["ou_a"]
+
+
+def test_feishu_web_config_rejects_secret_body(tmp_path, monkeypatch):
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
+    write_config(AppConfig(client="tm_box", workspace="/tmp"))
+    server = WebHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    request = Request(
+        f"http://127.0.0.1:{server.server_port}/api/feishu/configure",
+        data=json.dumps(
+            {"app_id": "cli_app", "redirect_uri": "https://hub/callback", "app_secret": "must-not-pass"}
+        ).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with pytest.raises(HTTPError) as caught:
+            urlopen(request, timeout=3)
+        payload = json.loads(caught.value.read())
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+    assert caught.value.code == 400
+    assert payload["error"]["code"] == "invalid_request"
 
 
 def test_health_endpoint_reads_cache_without_probing(tmp_path, monkeypatch):

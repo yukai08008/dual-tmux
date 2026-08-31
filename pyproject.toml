@@ -1,11 +1,12 @@
 [project]
 name = "dual-tmux"
-version = "0.4.47"
+version = "0.4.48"
 description = "Dual tmux tunnels: op_* line head + run_* workspace jump, 1:1 dt-* binding"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "rich>=13.0",
+    "segno>=1.6",
 ]
 
 [project.scripts]
