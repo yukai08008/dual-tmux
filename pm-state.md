@@ -4,9 +4,9 @@
 
 ## 状态树
 
-### v0.4.44 (ACTIVE) — hotfix: persisted entry authority
+### v0.4.44 (RELEASED) — hotfix: persisted entry authority
 
-- **hotfix/v0.4.44-entry-authority** (CODE_COMPLETE): 以原 tmux entry 与已登记 runtime 为远端 workpoint 权威来源，修复 SSH remote command 覆盖 host 和本机 cwd 污染展示/再次 freeze；110 tests 与真实容器 freeze 通过。
+- **hotfix/v0.4.44-entry-authority** (MERGED): PR #8 已合并并发布；以原 tmux entry 与已登记 runtime 为远端 workpoint 权威来源，修复 SSH remote command 覆盖 host 和本机 cwd 污染展示/再次 freeze；110 tests 与真实容器 freeze 通过。
 
 ### v0.4.43 (RELEASED) — hotfix: remote freeze binding correctness
 
@@ -48,13 +48,16 @@
 
 ## 当前焦点
 
-- `v0.4.44` hotfix 待发布；`dt-company_intro_v2` 已按原始入口恢复至 `106.75.97.247:24500 / me_andy_browser / /root/intro_v2 / nimble-cactus`，本地与 Hub 一致且健康状态全绿。
+- `v0.4.44` hotfix 已发布并在本机升级完成；`dt-company_intro_v2` 已按最初 freeze 留下的入口恢复至 `106.75.97.247:24500 / me_andy_browser / /root/intro_v2 / nimble-cactus (ses_fb37c74b8ffe9VH0RIKOSZfQJW)`。重复 freeze 后入口、runtime、run_point、本地与 Hub 记录仍一致，分层健康状态全绿；tom7r 仅为 Hub，不是 bullet runtime。
 
 ## 待办
 
 - [x] 完成 v0.4.42 三件套、health probe 与状态机
 - [x] 完成远端 session import、CLI/tick/Web 接入
 - [x] 完成故障注入、浏览器 E2E、PR #6、v0.4.42 发布与真实升级
+- [x] 合并 PR #8、发布 v0.4.44 并完成本机真实升级
+- [x] 以最初 freeze 入口恢复 dt-company_intro_v2 远端容器 session
+- [x] 验证重复 freeze 后本地/Hub 权威入口不漂移且 health 全绿
 
 - [x] 完成 v0.4.40 三件套与 Agent Adapter
 - [x] 完成 ControlService 并迁移 CLI/Web 操作
