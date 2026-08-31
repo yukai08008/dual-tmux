@@ -4,8 +4,8 @@ import re
 import shlex
 import shutil
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from .workpoint import now_iso
 
