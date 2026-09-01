@@ -54,7 +54,7 @@ def _is_chrome(s: str) -> bool:
     t = s.strip()
     if not t:
         return True
-    if set(t) <= set("▀━╹─│┌┐└┘┃ "):
+    if set(t) <= set("▀━╹─│┌┐└┘┃▣ "):
         return True
     if t.startswith("┃"):
         return True
@@ -99,7 +99,7 @@ def parse_opencode_1_18(text: str) -> ParsedTurn:
             status_at = match.start()
     if running_at > status_at:
         phase = "running"
-    elif status_at >= 0 and status_at > running_at or matches:
+    elif (status_at >= 0 and status_at > running_at) or matches:
         phase = "idle"
     else:
         phase = "unknown"

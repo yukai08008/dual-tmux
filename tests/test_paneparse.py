@@ -32,6 +32,7 @@ def test_portal_fixture_is_reply_not_footer():
     assert "你好" in got.body
     assert "有任务直接说" in got.body
     assert "ctrl+p" not in got.body.lower()
+    assert "▣" not in got.body
     assert "OpenCode 1.18" not in got.body
     assert "/Users/" not in got.body
     assert "34.3K" not in got.body
@@ -52,13 +53,30 @@ def test_rabbitmq_sample_keeps_answer_and_timing():
     assert got.completion_id
 
 
-def test_running_opencode_is_not_mistaken_for_a_completed_turn():
+def test_running_opencode_has_no_completion():
     got = parse_opencode(
-        "┃ Build auto · Grok 4.6\nThought: 106ms\n▣ Build · grok-4.6\n■■■ esc interrupt"
+        "┃ Build auto · Grok 4.6\nThought: 106ms\n"
+        "▣ Build · Grok 4.6\n■■■ esc interrupt"
     )
     assert got.phase == "running"
     assert got.elapsed == ""
     assert got.completion_id == ""
+def test_completed_turn_has_stable_completion_id_across_tui_redraws():
+    answer = (
+        "完成。chank.orbitx.cn → 本机 24630，门户已加卡。\n"
+        "- 入口：https://chank.orbitx.cn/\n"
+        "▣ Build · Grok 4.6 · 3m 0s\n"
+    )
+    first = parse_opencode(answer + "┃ Build auto · Grok 4.6\n")
+    redraw = parse_opencode(
+        answer
+        + "┃\n┃ Build auto · Grok 4.6 XS CP Gateway\n"
+        + "/Users/andy/.dual-tmux/ops/op_portal 50.2K ctrl+p commands\n"
+    )
+    assert first.phase == redraw.phase == "idle"
+    assert first.body == redraw.body
+    assert first.completion_id == redraw.completion_id
+    assert first.completion_id
 
 
 def test_parse_pane_unknown_tool_is_plain():
