@@ -12,6 +12,7 @@
   - **issue-feishu-hub-credential-owner** (RESOLVED): 首次真实扫码发现 `rsync -a` 保留 Client UID，Hub daemon 安全校验拒绝读取；发布后归一化为 Hub SSH 用户 ownership + 0600，tom7r WS 已 `connected`。
   - **issue-feishu-single-bot-fencing** (RESOLVED): 一个 deployment 只有一个总 PersonalAgent；本地/Hub/双 Client 接管均使用唯一实例 owner、原子 lease 与 generation fencing。重复扫码 fail-closed，Hub 状态统一展示；tom7r 双容器接管与旧 owner 恢复实测无双 active。
   - **issue-feishu-route-permission-denied** (FIXING): 已确认 `bridge/routes` 保留 Client UID 501 导致 tom7r PermissionError；当前 Hub 已安全归一化并通过容器读写探针。持久修复增加 rsync no-owner/no-group、Hub bridge 白名单 ownership/0700/0600 归一化和结构化错误；待真实 `/dt ls` 回包后 RESOLVED。
+  - **issue-feishu-replayed-event-duplicate-ack** (FIXING): 权限修复后真实消息成功入队，但飞书重投同一 event 时重复发送即时回执；增加 deployment 内持久 receipt，使入口回执与命令执行均按 event_id 幂等。
 - **hotfix/v0.4.48-web-durable-turn-tracking** (MERGED): pending turn 写前日志、completion 基线、页面恢复和幂等消费已合并至 main；161 tests、真实 `dt-portal` 恢复与刷新 E2E 通过。
   - **issue-web-trigger-result-not-collected** (CLOSED): 缺失的 `Grok 4.6 · 3m 0s` 结果已归集到问答区；刷新后未重复，pending 正确关闭。
 

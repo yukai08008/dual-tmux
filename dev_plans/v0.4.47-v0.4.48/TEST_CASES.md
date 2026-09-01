@@ -34,6 +34,7 @@
 | D-30 | storage probe 覆盖 credentials 解密、route 读取与 command/response 原子写 | W-9 | pytest + container integration |
 | D-31 | 权限错误返回结构化 bridge 错误并记录 errno 类别，不泄露服务端路径 | W-9 | pytest fake callback |
 | D-32 | `user_a` 与 `user_b` 使用独立目录、daemon、lease、route 和 mailbox | W-10 | 双 deployment integration |
+| D-33 | 同一 event 入队前/command 消费后重投均不覆盖 payload、不重复回执 | W-4/W-6 | pytest persistent receipt |
 
 ## 3. Web
 

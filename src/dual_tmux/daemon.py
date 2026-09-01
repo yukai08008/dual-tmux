@@ -242,7 +242,7 @@ def run_feishu_connector() -> None:
 
                 store = BridgeStore()
                 client_name = store.client_for(identity)
-                store.enqueue(
+                _path, accepted = store.enqueue_once(
                     client_name,
                     "commands",
                     event_id,
@@ -254,7 +254,9 @@ def run_feishu_connector() -> None:
                         "text": text.strip(),
                     },
                 )
-                reply = "指令已送达，等待对应 Client 执行。"
+                reply = "指令已送达，等待对应 Client 执行。" if accepted else ""
+                if not accepted:
+                    log.emit("feishu.ws.message.replay", event=event_id[:16])
             else:
                 result = dispatcher.dispatch(event_id, identity, text.strip())
                 reply = _result_text(result)
@@ -264,7 +266,8 @@ def run_feishu_connector() -> None:
         except Exception as exc:  # noqa: BLE001 - SDK callback must not crash silently.
             log.emit("feishu.ws.message.error", reason=type(exc).__name__)
             reply = "请求处理失败，请稍后重试。"
-        _reply_text(api_client, str(message.chat_id), reply)
+        if reply:
+            _reply_text(api_client, str(message.chat_id), reply)
         state = read_daemon_status()
         state["last_message_at"] = int(time.time())
         _atomic_json(daemon_status_path(), state)
