@@ -136,6 +136,29 @@ def test_daemon_once_writes_stopped_status(monkeypatch, tmp_path):
     assert status["connector"] == "stopped"
 
 
+def test_daemon_once_runs_client_mailbox_sync(monkeypatch, tmp_path):
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
+    calls = []
+    DualTmuxDaemon(
+        manager=ConnectorManager(
+            process_factory=FakeProcess,
+            lease_acquire=lambda: (True, "tm_test"),
+            lease_release=lambda: None,
+        ),
+        mailbox_sync=lambda: calls.append("sync"),
+    ).run(once=True)
+    assert calls == ["sync"]
+
+
+def test_hub_daemon_does_not_poll_client_mailbox(monkeypatch, tmp_path):
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
+    monkeypatch.setenv("DT_FEISHU_ROLE", "hub")
+    write_config(AppConfig(client="tm_laptop", server="tom7r", user="andy"))
+    daemon = DualTmuxDaemon()
+    daemon._sync_mailbox_once()
+    assert not (tmp_path / "feishu" / "sync.lock").exists()
+
+
 def test_manager_stays_standby_when_another_owner_holds_lease(monkeypatch, tmp_path):
     monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
     CredentialVault().save("cli_auto", "secret")

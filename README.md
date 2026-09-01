@@ -207,6 +207,8 @@ There is one shared PersonalAgent per dual-tmux deployment, not one per Client. 
 
 Feishu command results are rendered for people, not returned as API JSON. Read operations such as `/dt ls` and `/dt show` use a Markdown message card with tunnel, Client, Trigger and Bullet summaries; write operations return a concise status card. If a tenant rejects interactive cards, dual-tmux automatically falls back to readable plain text. The structured result remains only in the durable mailbox envelope and audit layer.
 
+Feishu command routing is deterministic and does not invoke a model. The Hub daemon keeps the official WS in memory and durably queues each event; the target Client daemon probes its own mailbox every five seconds, executes the allowlisted ControlService operation, and publishes a response for the Hub daemon to send. `dt tick` repeats the same sync every minute as a recovery fallback. A process lock prevents daemon, cron and manual sync from executing the same event concurrently. Sleep/offline periods keep commands queued and wake resumes consumption.
+
 ## Default agent: OpenCode
 
 The intended occupants of `op_*` (trigger) and `run_*` (bullet) are **[OpenCode](https://opencode.ai)** sessions.

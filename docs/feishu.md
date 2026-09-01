@@ -35,6 +35,8 @@ dt daemon             # foreground diagnostics
 
 The daemon restores active installations after restart, supervises the blocking official `lark-oapi` WebSocket client in a child process, and restarts failures with bounded 5/15/30/60/120-second backoff. Unbinding removes the encrypted installation and terminates its connector.
 
+In Hub mode, the tom7r daemon owns the in-memory WebSocket and durable inbox/outbox. A lightweight Client daemon probes only its own mailbox every five seconds and opens rsync transfers only when work exists. The existing one-minute `dt tick` is a fallback, not the primary response path. A filesystem lock serializes daemon, tick and manual `dt feishu sync`. Command parsing and ControlService execution are deterministic; no model is used unless `/dt send` deliberately forwards text into a trigger or bullet Agent.
+
 The WS topology is separate from the tunnel data mode:
 
 - local standalone: a local-only Client daemon holds the WS; sleep pauses connectivity and wake reconnects it.

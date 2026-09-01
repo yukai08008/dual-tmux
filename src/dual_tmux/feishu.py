@@ -271,10 +271,12 @@ class AppRegistrationService:
         transport: RegistrationTransport | None = None,
         vault: CredentialVault | None = None,
         clock=time.time,
+        daemon_installer=None,
     ):
         self.transport = transport or FeishuRegistrationTransport()
         self.vault = vault or CredentialVault()
         self.clock = clock
+        self.daemon_installer = daemon_installer
         self.path = feishu_dir() / "registration.json"
 
     def begin(self) -> dict:
@@ -368,6 +370,15 @@ class AppRegistrationService:
                 publish_installation_to_hub(cfg, identity)
         except (FeishuError, SystemExit, OSError) as exc:
             log.emit("feishu.installation.hub_pending", reason=type(exc).__name__)
+        try:
+            if self.daemon_installer:
+                self.daemon_installer()
+            else:
+                from . import daemon_service
+
+                daemon_service.install()
+        except (SystemExit, OSError) as exc:
+            log.emit("feishu.daemon.install_pending", reason=type(exc).__name__)
         self.path.unlink(missing_ok=True)
         log.emit("feishu.registration.ok", app_id=_digest(app_id)[:12])
         return {"status": "installed", "installation": public}

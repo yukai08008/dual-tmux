@@ -477,10 +477,38 @@ class ConnectorManager:
 
 
 class DualTmuxDaemon:
-    def __init__(self, *, manager: ConnectorManager | None = None, interval: float = 2.0):
+    def __init__(
+        self,
+        *,
+        manager: ConnectorManager | None = None,
+        interval: float = 2.0,
+        mailbox_interval: float = 5.0,
+        mailbox_sync=None,
+    ):
         self.manager = manager or ConnectorManager()
         self.interval = interval
+        self.mailbox_interval = mailbox_interval
+        self.mailbox_sync = mailbox_sync
         self.stop_event = threading.Event()
+
+    def _sync_mailbox_once(self) -> None:
+        if os.environ.get("DT_FEISHU_ROLE", "client").strip().lower() == "hub":
+            return
+        cfg = load_config()
+        if not cfg.hub_enabled:
+            return
+        from .feishu_bridge import sync_client_if_pending
+
+        sync_client_if_pending(cfg)
+
+    def _mailbox_worker(self) -> None:
+        sync = self.mailbox_sync or self._sync_mailbox_once
+        while not self.stop_event.is_set():
+            try:
+                sync()
+            except (FeishuError, SystemExit, OSError) as exc:
+                log.emit("feishu.bridge.worker.reject", reason=type(exc).__name__)
+            self.stop_event.wait(self.mailbox_interval)
 
     def _write_status(self, connector: dict) -> None:
         previous = read_daemon_status()
@@ -505,6 +533,19 @@ class DualTmuxDaemon:
             signal.signal(signal.SIGTERM, stop)
             signal.signal(signal.SIGINT, stop)
         log.emit("dt.daemon.start", pid=os.getpid())
+        mailbox_thread = None
+        if not once:
+            mailbox_thread = threading.Thread(
+                target=self._mailbox_worker,
+                daemon=True,
+                name="dt-feishu-mailbox",
+            )
+            mailbox_thread.start()
+        else:
+            try:
+                (self.mailbox_sync or self._sync_mailbox_once)()
+            except (FeishuError, SystemExit, OSError) as exc:
+                log.emit("feishu.bridge.worker.reject", reason=type(exc).__name__)
         try:
             while not self.stop_event.is_set():
                 self._write_status(self.manager.step())
@@ -512,6 +553,9 @@ class DualTmuxDaemon:
                     return
                 self.stop_event.wait(self.interval)
         finally:
+            self.stop_event.set()
+            if mailbox_thread:
+                mailbox_thread.join(timeout=min(self.mailbox_interval + 1, 6))
             global_state = read_daemon_status()
             was_owner = self.manager.has_lease or int(global_state.get("pid") or 0) == os.getpid()
             instance_path = _instance_status_path(self.manager.lease_owner)

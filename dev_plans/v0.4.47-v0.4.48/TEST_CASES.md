@@ -36,6 +36,7 @@
 | D-32 | `user_a` 与 `user_b` 使用独立目录、daemon、lease、route 和 mailbox | W-10 | 双 deployment integration |
 | D-33 | 同一 event 入队前/command 消费后重投均不覆盖 payload、不重复回执 | W-4/W-6 | pytest persistent receipt |
 | D-34 | 飞书结果使用 Markdown 卡片而非原始 JSON；卡片拒绝时回退可读纯文本 | W-4/W-6 | pytest fake Feishu API + 真实消息 |
+| D-35 | Client daemon 5 秒消费 mailbox，tick 分钟级兜底；daemon/cron/manual 由进程锁串行化 | W-4/W-6 | pytest + 真实离线积压/唤醒 E2E |
 
 ## 3. Web
 

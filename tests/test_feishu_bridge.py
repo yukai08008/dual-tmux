@@ -25,6 +25,7 @@ from dual_tmux.feishu_bridge import (
     hub_feishu_status,
     publish_installation_to_hub,
     sync_client,
+    sync_client_if_pending,
     sync_installation_from_hub,
 )
 
@@ -278,6 +279,37 @@ def test_sync_client_processes_command_once_and_writes_response(dt_home, monkeyp
     assert envelope["reply"]["msg_type"] == "interactive"
     assert "**隧道列表（1）**" in envelope["reply"]["content"]["elements"][0]["text"]["content"]
     assert '"operation"' not in envelope["reply"]["fallback"]
+
+
+def test_pending_probe_avoids_rsync_until_command_exists(dt_home, monkeypatch):
+    from dual_tmux import hub
+
+    cfg = AppConfig(client="tm_laptop", server="tom7r", user="andy")
+    calls = []
+
+    class Result:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    monkeypatch.setattr(hub, "_run", lambda *args, **kwargs: Result())
+    monkeypatch.setattr(
+        hub,
+        "_rsync",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+    assert sync_client_if_pending(cfg)["commands"] == 0
+    assert calls == []
+
+
+def test_sync_lock_skips_overlapping_consumer(dt_home, monkeypatch):
+    from dual_tmux.feishu_bridge import _sync_lock
+
+    cfg = AppConfig(client="tm_laptop", server="tom7r", user="andy")
+    with _sync_lock() as acquired:
+        assert acquired is True
+        result = sync_client(cfg)
+    assert result["skipped"] == "busy"
 
 
 def test_feishu_list_reply_is_human_markdown_not_raw_json():

@@ -15,6 +15,7 @@ import tempfile
 import time
 import urllib.parse
 import urllib.request
+from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -508,11 +509,36 @@ def format_feishu_reply(payload: dict) -> dict:
     return {"msg_type": "interactive", "content": card, "fallback": markdown}
 
 
-def sync_client(cfg: AppConfig | None = None, dispatcher: FeishuDispatcher | None = None) -> dict:
+@contextmanager
+def _sync_lock():
+    """Prevent daemon, cron and manual sync from executing one event twice."""
+    import fcntl
+
+    path = home_dir() / "feishu" / "sync.lock"
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.parent.chmod(0o700)
+    handle = path.open("a+", encoding="utf-8")
+    path.chmod(0o600)
+    acquired = False
+    try:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            acquired = True
+        except BlockingIOError:
+            pass
+        yield acquired
+    finally:
+        if acquired:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        handle.close()
+
+
+def _sync_client_unlocked(
+    cfg: AppConfig, dispatcher: FeishuDispatcher | None = None
+) -> dict:
     """Pull this Client's inbox, execute it once, and publish response envelopes."""
     from . import hub
 
-    cfg = cfg or load_config()
     if not cfg.hub_enabled:
         return {"ok": True, "mode": "local", "callbacks": 0, "commands": 0}
     client = _safe_client(cfg.client)
@@ -580,6 +606,66 @@ def sync_client(cfg: AppConfig | None = None, dispatcher: FeishuDispatcher | Non
                     counts["errors"] += 1
     log.emit("feishu.bridge.sync", client=client, **counts)
     return {"ok": counts["errors"] == 0, "mode": "hub", **counts}
+
+
+def sync_client(
+    cfg: AppConfig | None = None, dispatcher: FeishuDispatcher | None = None
+) -> dict:
+    cfg = cfg or load_config()
+    with _sync_lock() as acquired:
+        if not acquired:
+            return {
+                "ok": True,
+                "mode": cfg.mode,
+                "callbacks": 0,
+                "commands": 0,
+                "errors": 0,
+                "skipped": "busy",
+            }
+        return _sync_client_unlocked(cfg, dispatcher)
+
+
+def sync_client_if_pending(
+    cfg: AppConfig | None = None, dispatcher: FeishuDispatcher | None = None
+) -> dict:
+    """Use one cheap SSH probe; open rsync transfers only when work exists."""
+    from . import hub
+
+    cfg = cfg or load_config()
+    if not cfg.hub_enabled:
+        return {"ok": True, "mode": "local", "callbacks": 0, "commands": 0}
+    client = _safe_client(cfg.client)
+    remote = f"{hub.remote_root(cfg)}/feishu/bridge"
+    with _sync_lock() as acquired:
+        if not acquired:
+            return {
+                "ok": True,
+                "mode": "hub",
+                "callbacks": 0,
+                "commands": 0,
+                "errors": 0,
+                "skipped": "busy",
+            }
+        probe = hub._run(
+            hub.ssh_argv(cfg)
+            + [
+                (
+                    f"find {remote}/callbacks/{client} {remote}/commands/{client} "
+                    "-maxdepth 1 -type f -name '*.json' -print -quit 2>/dev/null"
+                )
+            ]
+        )
+        if probe.returncode != 0:
+            raise FeishuError("bridge_unavailable", "cannot probe Hub Feishu mailbox")
+        if not (probe.stdout or "").strip():
+            return {
+                "ok": True,
+                "mode": "hub",
+                "callbacks": 0,
+                "commands": 0,
+                "errors": 0,
+            }
+        return _sync_client_unlocked(cfg, dispatcher)
 
 
 class FeishuReplyTransport:

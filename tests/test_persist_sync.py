@@ -92,8 +92,8 @@ def test_ensure_local_missing_json(tmp_path: Path, monkeypatch):
 
 
 def test_hotfix_identity_and_trees(tmp_path: Path, monkeypatch):
-    from dual_tmux.config import AppConfig, write_config
     from dual_tmux import hotfix
+    from dual_tmux.config import AppConfig, write_config
 
     home = tmp_path / "dt"
     persist = tmp_path / "persist"
@@ -105,6 +105,7 @@ def test_hotfix_identity_and_trees(tmp_path: Path, monkeypatch):
     persist.mkdir()
     (persist / "name").write_text("MacBookPro\n")
     monkeypatch.setattr(hotfix, "install_tick", lambda: hotfix.Step("tick-cron", True, "skip", False))
+    monkeypatch.setattr(hotfix, "install_feishu_daemon", lambda: hotfix.Step("feishu-daemon", True, "skip", False))
     monkeypatch.setattr(hotfix, "install_persist_sync", lambda cfg: hotfix.Step("persist-cron", True, "skip", False))
     steps = hotfix.apply(ssh=False)
     ids = {s.id: s for s in steps}
