@@ -366,7 +366,7 @@ wheels = [
 
 [[package]]
 name = "dual-tmux"
-version = "0.4.48"
+version = "0.4.48.post1"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },

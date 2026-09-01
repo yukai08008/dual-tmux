@@ -316,7 +316,7 @@ freeze 还会记下 **工作点**（`op_point` / `run_point`：kind、cwd、ssh�
 | `dt config --init [--local]` | 初始化纯本地或 Hub 模式 |
 | `dt config --server H --user U` | 无损接入或更换 Hub |
 | `dt config --local` | 最后合并后安全退出 Hub |
-| `dt upgrade` | `uv tool upgrade dual-tmux`，然后打 persist 租户 hotfix |
+| `dt upgrade` | 查询最新稳定 GitHub Release wheel，强制安装后应用服务与数据 hotfix |
 
 ## 卸载
 

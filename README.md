@@ -320,7 +320,7 @@ Freeze also records **work points** (`op_point` / `run_point`: kind, cwd, ssh, d
 | `dt config --init [--local]` | initialize local-only or Hub mode |
 | `dt config --server H --user U` | safely attach or replace the Hub |
 | `dt config --local` | safely detach the Hub after a final merge |
-| `dt upgrade` | `uv tool upgrade dual-tmux`, then persist tenant hotfix |
+| `dt upgrade` | discover the latest stable GitHub Release wheel, force-install it, then apply service/data hotfixes |
 | `dt mem [name] [set k v]` | shared or per-agent MEMORY.json facts |
 | `dt note <name> '…'` | append sqlite note for that agent |
 | `dt notes <name> [--day] [--q]` | list / FTS-search agent notes |
