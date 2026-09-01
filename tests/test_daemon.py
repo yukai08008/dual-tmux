@@ -3,6 +3,7 @@ from dual_tmux.daemon import (
     ConnectorManager,
     DualTmuxDaemon,
     LocalConnectorLease,
+    connector_fence_valid,
     read_daemon_status,
 )
 from dual_tmux.feishu import CredentialVault
@@ -190,3 +191,28 @@ def test_standby_status_does_not_overwrite_active_global_status(
         "starting",
         "standby",
     }
+
+
+def test_failover_message_fence_requires_same_owner_and_generation(
+    monkeypatch, tmp_path
+):
+    from dual_tmux import hub
+
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
+    monkeypatch.setenv("DT_FEISHU_TOPOLOGY", "client-failover")
+    monkeypatch.setenv("DT_FEISHU_ROLE", "client")
+    monkeypatch.setenv("DT_FEISHU_LEASE_OWNER", "tm_a:instance")
+    monkeypatch.setenv("DT_FEISHU_GENERATION", "7")
+    write_config(AppConfig(client="tm_a", server="tom7r", user="andy"))
+    monkeypatch.setattr(
+        hub,
+        "claim_feishu_lease",
+        lambda cfg, owner="": (True, owner, 7),
+    )
+    assert connector_fence_valid() is True
+    monkeypatch.setattr(
+        hub,
+        "claim_feishu_lease",
+        lambda cfg, owner="": (False, "tm_b:instance", 8),
+    )
+    assert connector_fence_valid() is False

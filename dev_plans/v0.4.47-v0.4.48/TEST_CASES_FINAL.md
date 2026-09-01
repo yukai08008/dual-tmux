@@ -4,7 +4,7 @@
 
 | 维度 | 数量 | 通过 | 待外部条件 | 失败 |
 |---|---:|---:|---:|---:|
-| 自动化/安全/构建 | 180 | 180 | 0 | 0 |
+| 自动化/安全/构建 | 181 | 181 | 0 | 0 |
 | 应用内 Browser E2E 场景 | 1 | 1 | 0 | 0 |
 | 企业飞书真实 E2E | 1 | 0 | 1 | 0 |
 
@@ -12,12 +12,12 @@
 
 | ID | 用例 | 结果 | 备注 |
 |---|---|---|---|
-| B-00 | 全量 pytest | PASS | 180 tests |
+| B-00 | 全量 pytest | PASS | 181 tests |
 | B-01 | compileall/focused Ruff/build | PASS | sdist + wheel 0.4.48 |
 | B-02 | runtime data 未追踪 | PASS | `git ls-files data/` 为空 |
 | B-10~S-13 | Device Registration、空响应、加密凭据与 secret 边界 | PASS | pytest；TTL 尊重飞书返回值 |
 | D-20~D-25 | daemon、WS 退避、local/Hub 单活与 mailbox 回包 | PASS | pytest；含 Hub 删除失败保留本地安装、`chat_id` 回传 |
-| D-26~D-27 | 原子 owner、generation fencing、双容器接管和旧 owner 恢复 | PASS | pytest + tom7r fault injection；generation 1 → 2，无双 active |
+| D-26~D-28 | 原子 owner、generation fencing、双容器接管、旧 owner 恢复与逐消息 fence | PASS | pytest + tom7r fault injection；generation 1 → 2，无双 active |
 | W-30~S-32 | Web 页面/API/QR/same-origin | PASS | pytest + Browser |
 | W-34 | deployment 已安装时禁止另一 Web 重复扫码，统一展示 Hub 状态 | PASS | pytest；`already_installed` fail-closed |
 | E-40 | Browser → 官方 QR → pending status | PASS | 无 console error；官方 launcher URL；TTL 3600s；未扫码创建 App |
