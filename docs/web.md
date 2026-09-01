@@ -60,8 +60,10 @@ Do **not** defer the pane UI. Do **not** start with a card board that only lists
 - The **指南** tab groups common workflows and provides a command reference. All pages share an
   inline SVG favicon, so the local console is identifiable in browser tabs without static assets.
 - Trigger Q&A follows new messages only while its scrollbar is already near the bottom, preserving
-  the reader's position while reviewing older turns. A non-`auto` OpenCode pane stops the web poll
-  with a manual-action message, and every submitted turn has a 90-second polling ceiling.
+  the reader's position while reviewing older turns. Each submitted turn persists its pre-send
+  completion baseline before `send-keys`; page reloads restore the pending turn, and only a new
+  completion ID can close it. A non-`auto` OpenCode pane stops the web poll with a manual-action
+  message. Ninety seconds is only a long-running notice, not a failure or polling ceiling.
 - When an online trigger is not in auto mode, the tunnel page offers **trigger 转为 auto**. It exits
   that pane's current OpenCode process and resumes the frozen trigger session with `--auto -s`; it
   never creates a replacement session ID.
