@@ -5,14 +5,14 @@
 | 维度 | 数量 | 通过 | 待外部条件 | 失败 |
 |---|---:|---:|---:|---:|
 | 应用内 Browser E2E 场景 | 3 | 3 | 0 | 0 |
-| 自动化/安全/构建 | 199 | 199 | 0 | 0 |
+| 自动化/安全/构建 | 200 | 200 | 0 | 0 |
 | 企业飞书真实 E2E | 2 | 2 | 0 | 0 |
 
 ## 逐条结果
 
 | ID | 用例 | 结果 | 备注 |
 |---|---|---|---|
-| B-00 | 全量 pytest | PASS | 199 tests（含 v0.4.48.post1 upgrade hotfix） |
+| B-00 | 全量 pytest | PASS | 200 tests（含 post2 版本源一致性回归） |
 | B-01 | compileall/focused Ruff/build | PASS | sdist + wheel 0.4.48 |
 | B-02 | runtime data 未追踪 | PASS | `git ls-files data/` 为空 |
 | B-10~B-15 | bridge 摘要/路由/可靠性/验证/模式 | PASS | pytest + 隔离 mailbox |
@@ -34,6 +34,7 @@
 | E-43 | 无预置 App 的企业飞书真实扫码、私聊命令与回包 | PASS | `/dt ls` 于 13:29 入队，Client `commands=1 errors=0`，response 被 WS 回传；用户确认收到完整结果 |
 | E-46 | `/dt ls` 人类可读 Markdown 卡片 | PASS | tom7r `f2ea308` 真实回包；用户收到并进一步确认长卡片折叠策略 |
 | E-47 | GitHub Release wheel 可发现后续稳定版本且不降级 | PASS | 官方 host/path/tag/version 校验；本机 v0.4.48 wheel 安装后 config/tunnel 哈希不变 |
+| E-48 | post1 → post2 真实自升级与版本一致性 | PASS | `dt upgrade` 自动选择 post2；CLI/metadata 均为 0.4.48.post2；config/tunnel 哈希不变；mailbox worker running |
 
 ## 遗留问题
 
