@@ -54,6 +54,21 @@ def bridge_root() -> Path:
     return home_dir() / "feishu" / "bridge"
 
 
+def _ensure_private_subdir(root: Path, path: Path) -> None:
+    """Create every mailbox directory with mode 0700, independent of umask."""
+    try:
+        relative = path.relative_to(root)
+    except ValueError as exc:
+        raise FeishuError("invalid_envelope", "bridge path escapes mailbox root") from exc
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    root.chmod(0o700)
+    current = root
+    for part in relative.parts:
+        current /= part
+        current.mkdir(exist_ok=True, mode=0o700)
+        current.chmod(0o700)
+
+
 def _write_envelope(path: Path, payload: dict) -> Path:
     raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
     if len(raw) > MAX_ENVELOPE:
@@ -136,6 +151,7 @@ class BridgeStore:
 
     def register_pairing(self, state: str, client: str, expires_at: float) -> Path:
         client = _safe_client(client)
+        _ensure_private_subdir(self.root, self.root / "pairing")
         return _write_envelope(
             self.root / "pairing" / f"{_digest(state)}.json",
             {"client": client, "expires_at": expires_at},
@@ -144,7 +160,7 @@ class BridgeStore:
     def consume_pairing(self, state: str) -> str:
         source = self.root / "pairing" / f"{_digest(state)}.json"
         claimed = self.root / "consumed" / f"{_digest(state)}.json"
-        claimed.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        _ensure_private_subdir(self.root, claimed.parent)
         try:
             os.replace(source, claimed)
         except OSError as exc:
@@ -156,6 +172,7 @@ class BridgeStore:
 
     def register_routes(self, identity: OperatorIdentity, client: str) -> None:
         client = _safe_client(client)
+        _ensure_private_subdir(self.root, self.root / "routes")
         for identity_id in identity.ids():
             _write_envelope(
                 self.root / "routes" / f"{_digest(identity_id)}.json",
@@ -184,6 +201,7 @@ class BridgeStore:
         if kind not in {"callbacks", "commands", "responses"}:
             raise FeishuError("invalid_envelope", "unsupported bridge envelope kind")
         filename = f"{_digest(envelope_id)}.json"
+        _ensure_private_subdir(self.root, self.root / kind / client)
         return _write_envelope(self.root / kind / client / filename, payload)
 
     def enqueue_once(
@@ -193,6 +211,8 @@ class BridgeStore:
         if kind not in {"callbacks", "commands", "responses"}:
             raise FeishuError("invalid_envelope", "unsupported bridge envelope kind")
         filename = f"{_digest(envelope_id)}.json"
+        _ensure_private_subdir(self.root, self.root / kind / client)
+        _ensure_private_subdir(self.root, self.root / "receipts" / kind / client)
         return _write_envelope_once(
             self.root / kind / client / filename,
             self.root / "receipts" / kind / client / filename,
@@ -419,7 +439,12 @@ def sync_client(cfg: AppConfig | None = None, dispatcher: FeishuDispatcher | Non
             local_dir.mkdir(parents=True)
             result = hub._run(
                 hub.ssh_argv(cfg)
-                + [f"mkdir -p {remote}/{kind}/{client} {remote}/responses/{client}"]
+                + [
+                    (
+                        f"mkdir -p {remote}/{kind}/{client} {remote}/responses/{client} && "
+                        f"chmod 700 {remote}/{kind}/{client} {remote}/responses/{client}"
+                    )
+                ]
             )
             if result.returncode != 0:
                 raise FeishuError("bridge_unavailable", "cannot open Hub Feishu mailbox")
