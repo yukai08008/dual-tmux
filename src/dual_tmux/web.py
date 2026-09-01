@@ -19,9 +19,9 @@ from urllib.parse import parse_qs, urlparse
 from . import oc as oc_ops
 from . import skillmgr
 from . import tmux as tmux_ops
-from .paneparse import parse_pane, parser_id_for_side
 from .config import load_config
 from .control import ControlError, get_control_service
+from .paneparse import parse_pane, parser_id_for_side
 from .paths import home_dir
 from .recovery import read_state as read_health_state
 from .store import find_dt, iter_dt_files, load, normalize_dt
@@ -56,6 +56,8 @@ def _opencode_auto(text: str) -> bool | None:
     running_at = (text or "").lower().rfind("esc interrupt")
     if running_at >= 0:
         before = [match for match in matches if match.start() < running_at]
+        # The status immediately before `esc interrupt` describes the running
+        # request and omits `auto`; the preceding prompt describes input mode.
         matches = before[:-1] if before else []
     return bool(matches[-1].group("auto")) if matches else None
 
@@ -504,27 +506,19 @@ def _nav(page: str) -> str:
 
 def feishu_page() -> str:
     body = """
-    <div class="top"><h1>飞书</h1><p>扫码绑定与 tom7r 中心事件桥；Secret 不会进入页面或 Hub</p></div>
+    <div class="top"><h1>飞书</h1><p>扫码即用：自动创建机器人并由 dt daemon 保持长连接</p></div>
     <div class="content">
       <div class="grid">
-        <div class="stat"><b id="fs-configured">—</b><span>配置状态</span></div>
+        <div class="stat"><b id="fs-configured">—</b><span>安装状态</span></div>
         <div class="stat"><b id="fs-bound">0</b><span>已绑定 operator</span></div>
-        <div class="stat"><b id="fs-bridge">—</b><span>事件桥</span></div>
-      </div>
-      <div class="card">
-        <h2>App 配置（不接收 Secret 本体）</h2>
-        <form id="fs-config" class="models">
-          <div class="field"><label>App ID</label><input id="fs-app-id" required placeholder="cli_xxx"></div>
-          <div class="field"><label>OAuth callback</label><input id="fs-redirect" required placeholder="https://tom7r.example/feishu/callback"></div>
-          <div class="field"><label>Secret 文件</label><input id="fs-secret-file" placeholder="~/.dual-tmux/feishu-app-secret (0600)"></div>
-          <div class="field"><label>Operator allowlist（一行一个 ID）</label><textarea id="fs-allow" style="height:7em;min-height:7em"></textarea></div>
-          <button type="submit">保存配置</button>
-        </form>
-        <p class="meta">也可在启动 dt 时设置 <code>DT_FEISHU_APP_SECRET</code>。页面永远不会回显 Secret。</p>
+        <div class="stat"><b id="fs-ws">—</b><span>WebSocket</span></div>
+        <div class="stat"><b id="fs-owner">—</b><span>WS owner</span></div>
+        <div class="stat"><b id="fs-generation">—</b><span>Generation</span></div>
       </div>
       <div class="card">
         <h2>扫码绑定</h2>
-        <div class="models"><button id="fs-pair">生成 10 分钟二维码</button><button class="ghost" id="fs-sync">立即同步事件桥</button><button class="ghost" id="fs-unbind">解绑全部</button></div>
+        <p>不需要 App ID、App Secret 或公网 callback。飞书确认后会自动创建 PersonalAgent，凭据只以加密形式保存在服务端。</p>
+        <div class="models"><button id="fs-pair">生成一次性二维码</button><button class="ghost" id="fs-unbind">解绑机器人</button></div>
         <div id="fs-pair-box" style="display:none;margin-top:12px"><img id="fs-qr" alt="飞书绑定二维码" width="260" height="260"><p><a id="fs-url" target="_blank" rel="noopener">在飞书授权页打开</a></p><p class="meta" id="fs-expiry"></p></div>
         <pre class="out" id="fs-result" style="height:180px">等待操作</pre>
       </div>
@@ -533,12 +527,10 @@ def feishu_page() -> str:
     <script>
     const out=document.getElementById('fs-result');
     async function api(url,body){const r=await fetch(url,{method:body?'POST':'GET',headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined});const j=await r.json();if(!r.ok)throw new Error((j.error&&j.error.message)||JSON.stringify(j));return j}
-    async function refresh(){try{const s=await api('/api/feishu/status');document.getElementById('fs-configured').textContent=s.configured?'ready':'missing';document.getElementById('fs-bound').textContent=(s.bindings||[]).length;document.getElementById('fs-bridge').textContent=s.bridge||'local';document.getElementById('fs-app-id').value=s.app_id||'';document.getElementById('fs-redirect').value=s.redirect_uri||'';document.getElementById('fs-secret-file').value=s.secret_file||'';document.getElementById('fs-allow').value=(s.allowlist||[]).join('\\n');document.getElementById('fs-bindings').innerHTML=(s.bindings||[]).map(x=>'<div class="row"><span class="tag done">bound</span><span class="msg">'+Object.entries(x).filter(([k,v])=>v).map(([k,v])=>k+'='+v).join(' · ')+'</span></div>').join('')||'尚未绑定';}catch(e){out.textContent=e.message}}
-    document.getElementById('fs-config').onsubmit=async e=>{e.preventDefault();try{const j=await api('/api/feishu/configure',{app_id:document.getElementById('fs-app-id').value,redirect_uri:document.getElementById('fs-redirect').value,secret_file:document.getElementById('fs-secret-file').value,allowlist:document.getElementById('fs-allow').value.split(/\\n+/).map(x=>x.trim()).filter(Boolean)});out.textContent=JSON.stringify(j,null,2);await refresh()}catch(e){out.textContent=e.message}};
-    document.getElementById('fs-pair').onclick=async()=>{try{const j=await api('/api/feishu/pair',{});document.getElementById('fs-pair-box').style.display='block';document.getElementById('fs-qr').src=j.qr;document.getElementById('fs-url').href=j.authorization_url;document.getElementById('fs-expiry').textContent='有效期 '+j.expires_in+' 秒 · route '+(j.via||'local callback');out.textContent='二维码已生成；扫码授权后状态会自动刷新。'}catch(e){out.textContent=e.message}};
-    document.getElementById('fs-sync').onclick=async()=>{try{out.textContent=JSON.stringify(await api('/api/feishu/sync',{}),null,2);await refresh()}catch(e){out.textContent=e.message}};
-    document.getElementById('fs-unbind').onclick=async()=>{if(!confirm('解绑本机全部飞书 operator？'))return;try{out.textContent=JSON.stringify(await api('/api/feishu/unbind',{}),null,2);await refresh()}catch(e){out.textContent=e.message}};
-    refresh();setInterval(refresh,5000);
+    async function refresh(){try{const s=await api('/api/feishu/status');const d=s.daemon||{};document.getElementById('fs-configured').textContent=s.installed?'ready':(s.registration_status||'idle');document.getElementById('fs-bound').textContent=(s.bindings||[]).length;document.getElementById('fs-ws').textContent=d.connector||'stopped';document.getElementById('fs-owner').textContent=d.owner||'none';document.getElementById('fs-generation').textContent=d.generation||'—';document.getElementById('fs-pair').disabled=!!s.installed;document.getElementById('fs-bindings').innerHTML=(s.bindings||[]).map(x=>'<div class="row"><span class="tag done">bound</span><span class="msg">'+Object.entries(x).filter(([k,v])=>v).map(([k,v])=>k+'='+v).join(' · ')+'</span></div>').join('')||'尚未绑定';if((d.candidates||[]).length)out.dataset.candidates=JSON.stringify(d.candidates);if(s.registration_status==='pending'){const p=await api('/api/feishu/poll',{});if(p.status==='installed'){out.textContent='绑定成功；dt daemon 将自动启动 WebSocket。';document.getElementById('fs-pair-box').style.display='none';}}}catch(e){out.textContent=e.message}}
+    document.getElementById('fs-pair').onclick=async()=>{try{const j=await api('/api/feishu/pair',{});document.getElementById('fs-pair-box').style.display='block';document.getElementById('fs-qr').src=j.qr;document.getElementById('fs-url').href=j.authorization_url;document.getElementById('fs-expiry').textContent='有效期 '+j.expires_in+' 秒';out.textContent='二维码已生成；请用飞书扫码确认，页面会自动完成安装。'}catch(e){out.textContent=e.message}};
+    document.getElementById('fs-unbind').onclick=async()=>{if(!confirm('解绑飞书机器人并停止对应 WebSocket？'))return;try{out.textContent=JSON.stringify(await api('/api/feishu/unbind',{}),null,2);await refresh()}catch(e){out.textContent=e.message}};
+    refresh();setInterval(refresh,3000);
     </script>"""
     return _shell(_nav("feishu"), body, "dt web · 飞书")
 
@@ -1075,7 +1067,9 @@ const threadEl = document.getElementById('thread');
 let chosen = {json.dumps(selected)};
 const LOG_MAX = 200;
 const THREAD_MAX = 60;
-const WAIT_WARN_MS = 90000;
+const LONG_RUNNING_MS = 600000;
+const STALLED_MS = 600000;
+const ATTENTION_MS = 1800000;
 const TABS_KEY = 'dual-tmux:web-state:v1';
 let tabSeq = 1;
 const tabs = [];
@@ -1101,8 +1095,10 @@ function emptyState(name) {{
     id: tabSeq++,
     name: name || '',
     lastOp: '', lastRun: '', lastSent: 0, waiting: false, pollQuiet: 0,
-    opAtSend: '', lastAsk: '', lastPollKey: '', waitStartedAt: 0, waitWarned: false,
-    completionAtSend: '', lastCompletion: '', pending: null,
+    opAtSend: '', lastAsk: '', lastPollKey: '', lastMeaningfulKey: '', waitStartedAt: 0,
+    lastCompletion: '', completionAtSend: '', lastProgressAt: 0,
+    longWarned: false, stallWarned: false, attentionWarned: false,
+    pending: null,
     finalOp: 'gray', finalRun: 'gray',
     resumeTriedAt: 0,
     thread: [], log: [],
@@ -1120,6 +1116,9 @@ function stateFromHistory(name) {{
   st.waiting=!!st.pending;
   st.waitStartedAt=st.pending?Date.parse(st.pending.startedAt||'')||Date.now():0;
   st.completionAtSend=st.pending?st.pending.baselineCompletion||'':'';
+  st.lastProgressAt=st.waiting?Date.now():0;
+  st.lastMeaningfulKey='';
+  st.longWarned=st.stallWarned=st.attentionWarned=false;
   st.thread=Array.isArray(item.thread)?item.thread.slice(-THREAD_MAX):[];
   st.log=Array.isArray(item.log)?item.log.slice(-LOG_MAX):[];
   return st;
@@ -1429,13 +1428,15 @@ function pick(name) {{
   st.opAtSend = '';
   st.lastAsk = '';
   st.lastPollKey = '';
+  st.lastMeaningfulKey = '';
   st.waitStartedAt = 0;
-  st.waitWarned = false;
   st.lastCompletion=prior.lastCompletion||'';
   st.pending=prior.pending&&prior.pending.id?{{...prior.pending}}:null;
   st.waiting=!!st.pending;
   st.waitStartedAt=st.pending?Date.parse(st.pending.startedAt||'')||Date.now():0;
   st.completionAtSend=st.pending?st.pending.baselineCompletion||'':'';
+  st.lastProgressAt=st.waiting?Date.now():0;
+  st.longWarned=st.stallWarned=st.attentionWarned=false;
   st.finalOp = prior.finalOp||'gray';
   st.finalRun = prior.finalRun||'gray';
   st.thread=Array.isArray(prior.thread)?prior.thread.slice(-THREAD_MAX):[];
@@ -1554,7 +1555,13 @@ async function tick() {{
     setLamp(lampOp, 'yellow');
     setLamp(lampRun, j.run_live ? 'yellow' : 'red');
     setPollBusy(true);
-    const waitLong = st.waitStartedAt && Date.now()-st.waitStartedAt >= WAIT_WARN_MS;
+    const now = Date.now();
+    const age = st.waitStartedAt ? now-st.waitStartedAt : 0;
+    const meaningfulKey = [parsed.body||'',parsed.completion_id||''].join('|');
+    if (meaningfulKey && meaningfulKey !== st.lastMeaningfulKey) {{
+      st.lastProgressAt = now;
+      st.lastMeaningfulKey = meaningfulKey;
+    }}
     if (!j.op_live) {{
       const reply='失败 · trigger '+opState;
       addBubble('fail',reply,parsed);
@@ -1571,7 +1578,7 @@ async function tick() {{
       st.finalOp='green'; st.finalRun=j.run_live?'green':'red';
       logLine('done','本轮结束 · '+(parsed.model||'')+(parsed.elapsed?' · '+parsed.elapsed:''));
       st.waiting=false; st.pending=null; st.pollQuiet=0; st.waitStartedAt=0;
-      st.waitWarned=false; st.lastPollKey=''; st.completionAtSend='';
+      st.lastPollKey=''; st.completionAtSend='';
       setLamp(lampOp,st.finalOp); setLamp(lampRun,st.finalRun); setPollBusy(false);
       renderTabs();
       await persistTabsNow();
@@ -1584,13 +1591,22 @@ async function tick() {{
       setLamp(lampOp,st.finalOp); setLamp(lampRun,st.finalRun); setPollBusy(false);
       renderTabs();
       await persistTabsNow();
-    }} else if (waitLong && !st.waitWarned) {{
-      logLine('poll','长任务 · 已等待 90 秒，trigger 仍在线，继续轮询');
-      st.waitWarned=true;
-      if (st.pending) st.pending.status='attention';
     }} else if (parsed.phase === 'running') {{
       st.pollQuiet=0;
       if (st.pending) st.pending.status='running';
+      if (age >= LONG_RUNNING_MS && !st.longWarned) {{
+        logLine('poll','长任务 · 已运行 '+Math.floor(age/60000)+' 分钟，OpenCode 仍明确处于 running，继续等待');
+        st.longWarned=true;
+      }}
+      if (st.lastProgressAt && now-st.lastProgressAt >= STALLED_MS && !st.stallWarned) {{
+        logLine('err','可能停滞 · 10 分钟没有新的语义输出，但进程/TUI 仍存活；建议检查 provider');
+        st.stallWarned=true;
+      }}
+      if (age >= ATTENTION_MS && !st.attentionWarned) {{
+        logLine('err','需要关注 · 已运行 30 分钟；继续监测，不自动判失败');
+        st.attentionWarned=true;
+        if (st.pending) st.pending.status='attention';
+      }}
     }} else if (opChanged) {{
       const sum = parsed.body ? parsed.body.replace(/\\s+/g, ' ').slice(0, 140) : summarize(paneDelta(st.opAtSend, j.op_text) || j.op_text);
       const key = (parsed.model || '') + '|' + sum;
@@ -1622,7 +1638,6 @@ async function tick() {{
         st.pending = null;
         st.pollQuiet = 0;
         st.waitStartedAt = 0;
-        st.waitWarned = false;
         st.lastPollKey = '';
         renderTabs();
         await persistTabsNow();
@@ -1632,10 +1647,8 @@ async function tick() {{
     setPollBusy(false);
     setLamp(lampOp, st.finalOp);
     setLamp(lampRun, st.finalRun);
-    if (opChanged || runChanged) {{
-      logLine('poll', (opChanged ? 'trigger 更新' : 'bullet 更新') + ' · op=' + opState + ' run=' + runState);
-    }}
   }}
+  st.lastCompletion = (j.op_parsed||{{}}).completion_id || st.lastCompletion;
   renderTabs();
 }}
 setInterval(tick, 1500);
@@ -1676,7 +1689,9 @@ sendf.addEventListener('submit', async (e) => {{
   st.waiting = true;
   st.pollQuiet = 0;
   st.waitStartedAt = Date.now();
-  st.waitWarned = false;
+  st.lastProgressAt = st.waitStartedAt;
+  st.lastMeaningfulKey = '';
+  st.longWarned = st.stallWarned = st.attentionWarned = false;
   st.pending={{
     id:'turn-'+st.waitStartedAt.toString(36)+'-'+Math.random().toString(36).slice(2,10),
     status:'pending',
@@ -1706,7 +1721,6 @@ sendf.addEventListener('submit', async (e) => {{
     st.waiting = false;
     st.pending = null;
     st.waitStartedAt = 0;
-    st.waitWarned = false;
     setLamp(lampOp, 'red');
     setLamp(lampRun, st.finalRun);
     setPollBusy(false);
@@ -1988,6 +2002,17 @@ class Handler(BaseHTTPRequestHandler):
             payload = status()
             cfg = load_config()
             payload["bridge"] = cfg.server if cfg.hub_enabled else "local-only"
+            if cfg.hub_enabled:
+                from .feishu_bridge import hub_feishu_status
+
+                remote = hub_feishu_status(cfg)
+                if remote:
+                    payload["installed"] = bool(remote.get("installed"))
+                    payload["configured"] = payload["installed"]
+                    payload["daemon"] = remote.get("daemon") or payload["daemon"]
+                    payload["ws_topology"] = "hub-persistent"
+            else:
+                payload["ws_topology"] = "local-standalone"
             self._send(200, json.dumps(payload), "application/json; charset=utf-8")
             return
         if parsed.path == "/api/events":
@@ -2067,24 +2092,6 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/feishu":
             self._send(200, feishu_page())
-            return
-        if parsed.path == "/feishu/callback":
-            from .feishu import FeishuError, PairingService
-
-            try:
-                identity = PairingService().callback(
-                    (qs.get("state") or [""])[0], (qs.get("code") or [""])[0]
-                )
-                self._send(
-                    200,
-                    _shell(
-                        _nav("feishu"),
-                        '<div class="content"><div class="card"><h1>飞书绑定成功</h1><p>可以关闭此页面并回到 dt Web。</p></div></div>',
-                        "dt web · 飞书绑定成功",
-                    ),
-                )
-            except FeishuError as exc:
-                self._send(400, json.dumps(exc.as_dict()), "application/json; charset=utf-8")
             return
         if parsed.path in {"/guide", "/help"}:
             self._send(200, guide_page())
@@ -2221,30 +2228,24 @@ class Handler(BaseHTTPRequestHandler):
             return
         raw_bytes = self.rfile.read(length)
         if parsed.path.startswith("/api/feishu/"):
-            from .feishu import FeishuConfig, FeishuError, PairingService, save_config, unbind_operator
-            from .feishu_bridge import begin_hub_pairing, sync_client
+            from .feishu import AppRegistrationService, FeishuError, uninstall
 
             try:
                 payload = json.loads(raw_bytes.decode("utf-8") or "{}")
                 if not isinstance(payload, dict):
                     raise FeishuError("invalid_request", "JSON object required")
-                if parsed.path == "/api/feishu/configure":
-                    allowed = {"app_id", "redirect_uri", "secret_file", "allowlist"}
-                    if set(payload) - allowed:
-                        raise FeishuError("invalid_request", "unknown or secret fields are not accepted")
-                    config = FeishuConfig.from_dict(payload)
-                    result = {"ok": True, "path": str(save_config(config))}
-                elif parsed.path == "/api/feishu/pair":
-                    cfg = load_config()
-                    result = begin_hub_pairing(cfg=cfg) if cfg.hub_enabled else PairingService().begin()
+                if parsed.path == "/api/feishu/pair":
+                    if payload:
+                        raise FeishuError("invalid_request", "scan-to-create takes no App credentials")
+                    result = AppRegistrationService().begin()
                     import segno
 
                     result["qr"] = segno.make(result["authorization_url"]).svg_data_uri(scale=5)
                     result["ok"] = True
-                elif parsed.path == "/api/feishu/sync":
-                    result = sync_client()
+                elif parsed.path == "/api/feishu/poll":
+                    result = {"ok": True, **AppRegistrationService().poll()}
                 elif parsed.path == "/api/feishu/unbind":
-                    result = {"ok": True, "removed": unbind_operator(str(payload.get("identity") or ""))}
+                    result = {"ok": True, **uninstall()}
                 else:
                     self._send(404, "not found")
                     return

@@ -61,8 +61,6 @@ def test_running_opencode_has_no_completion():
     assert got.phase == "running"
     assert got.elapsed == ""
     assert got.completion_id == ""
-
-
 def test_completed_turn_has_stable_completion_id_across_tui_redraws():
     answer = (
         "完成。chank.orbitx.cn → 本机 24630，门户已加卡。\n"

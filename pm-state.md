@@ -1,12 +1,20 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-01 00:32 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-01 15:25 +08:00 | 更新者: Codex PM
 
 ## 状态树
 
 ### v0.4.48 (ACTIVE) — 飞书扫码 Web 与 tom7r 事件桥
 
 - **feature/v0.4.48-feishu-web-bridge** (MERGED): PR #12 已合并，远端 main=`e1e2494`。Web QR/绑定管理、tom7r mailbox bridge、飞书 callback/event、Client 离线可靠消费、outbox 回包合同与 Docker 部署模板已完成；159 tests、Browser E2E、编译/lint/build、tom7r 容器 build/health 全绿。企业飞书真实 E2E 因缺 App 凭据/HTTPS callback 仍为 P1 发布门禁；v0.4.48 保持 ACTIVE，不创建 Release。
+- **feature/v0.4.48-feishu-scan-ws** (MERGE_PENDING): 飞书 Device Registration、自动加密凭据、独立 `dt daemon`、local/Hub 单活 WS、mailbox 路由、Markdown 卡片与常驻 Client worker 均已实现；193 tests、构建、真实扫码、WS、命令回包和无手工 sync 消费验证通过，PR #14 待自动合并发布。
+  - **issue-feishu-scan-to-create** (RESOLVED): 已移除正式路径中的 App ID/Secret/callback 配置，改为扫码自动创建 PersonalAgent；Hub 删除失败时保留本地安装。
+  - **issue-feishu-hub-credential-owner** (RESOLVED): 首次真实扫码发现 `rsync -a` 保留 Client UID，Hub daemon 安全校验拒绝读取；发布后归一化为 Hub SSH 用户 ownership + 0600，tom7r WS 已 `connected`。
+  - **issue-feishu-single-bot-fencing** (RESOLVED): 一个 deployment 只有一个总 PersonalAgent；本地/Hub/双 Client 接管均使用唯一实例 owner、原子 lease 与 generation fencing。重复扫码 fail-closed，Hub 状态统一展示；tom7r 双容器接管与旧 owner 恢复实测无双 active。
+  - **issue-feishu-route-permission-denied** (CLOSED): Hub ownership/0700/0600 归一化、结构化错误和容器读写探针通过；2026-09-01 真实 `/dt ls` 完整回包，用户确认收到。
+  - **issue-feishu-replayed-event-duplicate-ack** (CLOSED): deployment 内持久 receipt、逐级 0700 和重投拒绝探针通过；真实 `/dt ls` 只回执一次、执行一次。
+  - **issue-feishu-raw-json-reply** (CLOSED): 飞书 interactive Markdown 卡片与可读纯文本 fallback 已部署，用户真实收到并确认。
+  - **issue-feishu-client-mailbox-not-consumed** (CLOSED): 本机 Client daemon 已提升为 5 秒确定性 worker，tick 保留一分钟兜底，三入口使用跨进程锁串行化；真实 tom7r 合成命令在约 8 秒内由 launchd 自动消费，`commands=1 errors=0`，全程未手工 sync。
 - **hotfix/v0.4.48-web-durable-turn-tracking** (MERGED): pending turn 写前日志、completion 基线、页面恢复和幂等消费已合并至 main；161 tests、真实 `dt-portal` 恢复与刷新 E2E 通过。
   - **issue-web-trigger-result-not-collected** (CLOSED): 缺失的 `Grok 4.6 · 3m 0s` 结果已归集到问答区；刷新后未重复，pending 正确关闭。
 
@@ -105,7 +113,9 @@
 - [x] 完成 v0.4.47 飞书绑定/鉴权 API 与安全测试
 - [x] 合并 v0.4.47（不单独发布），进入 v0.4.48 Web/中心事件桥
 - [x] 合并 PR #12，完成 v0.4.48 Web/中心事件桥代码与无凭据 E2E
-- [ ] 提供企业飞书 App 凭据与 HTTPS callback，完成真实扫码/消息 E2E 后发布 v0.4.48
+- [x] 完成 scan-to-create、自动凭据加密、dt daemon 与 WS Connector Manager
+- [ ] 完成企业飞书真实扫码、tom7r WS connected 与消息回包 E2E
+- [ ] 将 v0.4.46.post1 Web progress hotfix 正向合入 main 后发布 v0.4.48
 
 - [x] 完成 v0.4.42 三件套、health probe 与状态机
 - [x] 完成远端 session import、CLI/tick/Web 接入

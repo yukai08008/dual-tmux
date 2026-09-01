@@ -186,9 +186,27 @@ def test_feishu_page_and_local_pair_api(tmp_path, monkeypatch):
     write_config(AppConfig(client="tm_box", workspace="/tmp"))
     page = feishu_page()
     assert "扫码绑定" in page
-    assert "/api/feishu/configure" in page
     assert "/api/feishu/pair" in page
-    assert "Secret 不会进入页面" in page
+    assert "/api/feishu/poll" in page
+    assert "不需要 App ID、App Secret 或公网 callback" in page
+    assert "/api/feishu/configure" not in page
+    assert "fs-pair').disabled=!!s.installed" in page
+    assert "WS owner" in page
+    assert "Generation" in page
+    from dual_tmux.feishu import AppRegistrationService
+
+    monkeypatch.setattr(
+        AppRegistrationService,
+        "begin",
+        lambda self: {
+            "authorization_url": "https://accounts.feishu.cn/device?code=abc",
+            "expires_in": 600,
+            "status": "pending",
+        },
+    )
+    monkeypatch.setattr(
+        AppRegistrationService, "poll", lambda self: {"status": "pending"}
+    )
     server = WebHTTPServer(("127.0.0.1", 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -203,35 +221,27 @@ def test_feishu_page_and_local_pair_api(tmp_path, monkeypatch):
         return json.load(urlopen(request, timeout=3))
 
     try:
-        configured = post(
-            "/api/feishu/configure",
-            {
-                "app_id": "cli_app",
-                "redirect_uri": root + "/feishu/callback",
-                "allowlist": ["ou_a"],
-            },
-        )
         paired = post("/api/feishu/pair", {})
+        polled = post("/api/feishu/poll", {})
         status = json.load(urlopen(root + "/api/feishu/status", timeout=3))
     finally:
         server.shutdown()
         server.server_close()
         thread.join(timeout=3)
-    assert configured["ok"] is True
     assert paired["qr"].startswith("data:image/svg+xml")
     assert "accounts.feishu.cn" in paired["authorization_url"]
-    assert status["configured"] is True
-    assert status["allowlist"] == ["ou_a"]
+    assert polled["status"] == "pending"
+    assert status["configured"] is False
 
 
-def test_feishu_web_config_rejects_secret_body(tmp_path, monkeypatch):
+def test_feishu_pair_rejects_any_manual_app_credentials(tmp_path, monkeypatch):
     monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
     write_config(AppConfig(client="tm_box", workspace="/tmp"))
     server = WebHTTPServer(("127.0.0.1", 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     request = Request(
-        f"http://127.0.0.1:{server.server_port}/api/feishu/configure",
+        f"http://127.0.0.1:{server.server_port}/api/feishu/pair",
         data=json.dumps(
             {"app_id": "cli_app", "redirect_uri": "https://hub/callback", "app_secret": "must-not-pass"}
         ).encode(),
@@ -365,8 +375,13 @@ def test_admin_tabs_and_search(tmp_path, monkeypatch):
     assert "visitHistory" in page
     assert "threadEl.scrollHeight-threadEl.scrollTop" in page
     assert "preserveThreadScroll" in page
-    assert "WAIT_WARN_MS" in page
-    assert "长任务 · 已等待 90 秒，trigger 仍在线，继续轮询" in page
+    assert "LONG_RUNNING_MS = 600000" in page
+    assert "STALLED_MS = 600000" in page
+    assert "ATTENTION_MS = 1800000" in page
+    assert "继续监测，不自动判失败" in page
+    assert "trigger 更新 · op=" not in page
+    assert "baseline.op_parsed" in page
+    assert "lastMeaningfulKey" in page
     assert "logLine('err','停止轮询 · 已等待 90 秒" not in page
     assert "reconcileLegacyTimeout(st,j)" in page
     assert "已纠正旧版 90 秒误判" in page

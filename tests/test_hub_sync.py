@@ -2,7 +2,27 @@ import json
 import os
 from pathlib import Path
 
+from dual_tmux import hub
+from dual_tmux.config import AppConfig
 from dual_tmux.hub import merge_snapshot
+
+
+def test_rsync_can_disable_cross_host_uid_gid_preservation(monkeypatch):
+    seen = []
+
+    class Result:
+        returncode = 0
+        stderr = stdout = ""
+
+    monkeypatch.setattr(hub, "_run", lambda argv: seen.append(argv) or Result())
+    hub._rsync(
+        "/local/route.json",
+        "tom7r:/remote/route.json",
+        AppConfig(client="tm_a", server="tom7r", user="a"),
+        preserve_ownership=False,
+    )
+    assert "--no-owner" in seen[0]
+    assert "--no-group" in seen[0]
 
 
 def _tunnel(root: Path, name: str, updated_at: str, run: str, marker: str) -> Path:

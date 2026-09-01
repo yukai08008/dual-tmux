@@ -16,9 +16,13 @@ import tempfile
 import time
 import urllib.parse
 import urllib.request
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Protocol
+from urllib.error import HTTPError
+
+from cryptography.fernet import Fernet, InvalidToken
 
 from . import log
 from .control import ControlError, ControlService, get_control_service
@@ -29,6 +33,8 @@ CONFIRM_TTL_SECONDS = 5 * 60
 REPLAY_TTL_SECONDS = 24 * 60 * 60
 _IDENTITY_KEYS = ("open_id", "union_id", "user_id")
 _FORBIDDEN = {"upgrade", "hotfix", "cron", "shell", "ssh", "config", "push", "pull"}
+REGISTRATION_ENDPOINT = "/oauth/v1/app/registration"
+REGISTRATION_DOMAIN = "https://accounts.feishu.cn"
 
 
 class FeishuError(RuntimeError):
@@ -112,6 +118,273 @@ def _read_json(path: Path, default: Any) -> Any:
         return json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         raise FeishuError("invalid_state", f"invalid Feishu state file: {path}")
+
+
+def _strict_regular_file(path: Path, label: str) -> None:
+    try:
+        link_info = path.lstat()
+        info = path.stat()
+    except OSError as exc:
+        raise FeishuError("credential_unreadable", f"cannot read {label}: {path}") from exc
+    if (
+        stat.S_ISLNK(link_info.st_mode)
+        or not stat.S_ISREG(info.st_mode)
+        or stat.S_IMODE(info.st_mode) != 0o600
+        or info.st_uid != os.getuid()
+    ):
+        raise FeishuError(
+            "credential_permissions",
+            f"{label} must be owned by the current user, mode 0600, and not a symlink",
+        )
+
+
+class CredentialVault:
+    """Encrypt automatically-created PersonalAgent credentials at rest."""
+
+    def __init__(self, root: Path | None = None):
+        self.root = root or feishu_dir()
+        self.key_path = self.root / "credential.key"
+        self.installation_path = self.root / "installation.json"
+        self.lock_path = self.root / ".credential.lock"
+
+    @contextmanager
+    def locked(self, *, exclusive: bool):
+        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        handle = self.lock_path.open("a+", encoding="utf-8")
+        os.chmod(self.lock_path, 0o600)
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+        try:
+            yield
+        finally:
+            handle.close()
+
+    def _key(self) -> bytes:
+        if not self.key_path.exists():
+            self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+            fd = os.open(self.key_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            try:
+                os.write(fd, Fernet.generate_key())
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+        _strict_regular_file(self.key_path, "Feishu credential key")
+        return self.key_path.read_bytes().strip()
+
+    def save(self, app_id: str, app_secret: str, user_info: dict | None = None) -> dict:
+        if not app_id or not app_secret:
+            raise FeishuError("invalid_registration", "registration returned incomplete credentials")
+        with self.locked(exclusive=True):
+            token = Fernet(self._key()).encrypt(app_secret.encode("utf-8")).decode("ascii")
+            record = {
+                "version": 1,
+                "app_id": app_id,
+                "app_secret_encrypted": token,
+                "user_info": dict(user_info or {}),
+                "active": True,
+                "created_at": int(time.time()),
+            }
+            _atomic_json(self.installation_path, record)
+        return self.public(record)
+
+    def load(self) -> dict | None:
+        with self.locked(exclusive=False):
+            if not self.installation_path.is_file():
+                return None
+            _strict_regular_file(self.installation_path, "Feishu installation")
+            record = _read_json(self.installation_path, {})
+            token = str(record.get("app_secret_encrypted") or "")
+            try:
+                secret = Fernet(self._key()).decrypt(token.encode("ascii")).decode("utf-8")
+            except (InvalidToken, ValueError, UnicodeError) as exc:
+                raise FeishuError(
+                    "credential_decrypt", "Feishu installation cannot be decrypted"
+                ) from exc
+            return {**record, "app_secret": secret}
+
+    @staticmethod
+    def public(record: dict | None) -> dict | None:
+        if not record:
+            return None
+        return {
+            "app_id": str(record.get("app_id") or ""),
+            "user_info": dict(record.get("user_info") or {}),
+            "active": bool(record.get("active", True)),
+            "created_at": int(record.get("created_at") or 0),
+        }
+
+    def remove(self) -> bool:
+        with self.locked(exclusive=True):
+            existed = self.installation_path.exists() or self.key_path.exists()
+            self.installation_path.unlink(missing_ok=True)
+            self.key_path.unlink(missing_ok=True)
+        return existed
+
+
+class RegistrationTransport(Protocol):
+    def begin(self) -> dict: ...
+    def poll(self, device_code: str) -> dict: ...
+
+
+class FeishuRegistrationTransport:
+    def __init__(self, domain: str = REGISTRATION_DOMAIN):
+        self.endpoint = domain.rstrip("/") + REGISTRATION_ENDPOINT
+
+    def _request(self, payload: dict[str, str]) -> dict:
+        request = urllib.request.Request(
+            self.endpoint,
+            data=urllib.parse.urlencode(payload).encode("utf-8"),
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=20) as response:
+                body = response.read()
+        except HTTPError as exc:
+            body = exc.read()
+        except OSError as exc:
+            raise FeishuError("registration_transport", "Feishu registration request failed") from exc
+        try:
+            return json.loads(body.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeError) as exc:
+            raise FeishuError("registration_response", "Feishu registration returned invalid JSON") from exc
+
+    def begin(self) -> dict:
+        return self._request(
+            {
+                "action": "begin",
+                "archetype": "PersonalAgent",
+                "auth_method": "client_secret",
+                "request_user_info": "open_id",
+            }
+        )
+
+    def poll(self, device_code: str) -> dict:
+        return self._request({"action": "poll", "device_code": device_code})
+
+
+class AppRegistrationService:
+    """Server-side RFC 8628 state machine; secrets never enter Web responses."""
+
+    def __init__(
+        self,
+        *,
+        transport: RegistrationTransport | None = None,
+        vault: CredentialVault | None = None,
+        clock=time.time,
+        daemon_installer=None,
+    ):
+        self.transport = transport or FeishuRegistrationTransport()
+        self.vault = vault or CredentialVault()
+        self.clock = clock
+        self.daemon_installer = daemon_installer
+        self.path = feishu_dir() / "registration.json"
+
+    def begin(self) -> dict:
+        if self.vault.installation_path.is_file():
+            raise FeishuError(
+                "already_installed",
+                "A deployment PersonalAgent is already installed; unlink it before replacement",
+            )
+        try:
+            from .config import load_config
+
+            cfg = load_config()
+            if cfg.hub_enabled:
+                from .feishu_bridge import hub_feishu_status
+
+                if hub_feishu_status(cfg).get("installed"):
+                    raise FeishuError(
+                        "already_installed",
+                        "The Hub already owns the deployment PersonalAgent; replacement must be explicit",
+                    )
+        except FileNotFoundError:
+            pass
+        result = self.transport.begin()
+        if result.get("error"):
+            raise FeishuError(str(result["error"]), str(result.get("error_description") or "registration rejected"))
+        device_code = str(result.get("device_code") or "")
+        url = str(result.get("verification_uri_complete") or "")
+        if not device_code or not url:
+            raise FeishuError("registration_response", "Feishu registration response is incomplete")
+        expires = max(30, int(result.get("expires_in") or PAIR_TTL_SECONDS))
+        interval = max(1, int(result.get("interval") or 5))
+        now = self.clock()
+        _atomic_json(
+            self.path,
+            {
+                "device_code": device_code,
+                "authorization_url": url,
+                "expires_at": now + expires,
+                "interval": interval,
+                "next_poll_at": now,
+                "status": "pending",
+            },
+        )
+        log.emit("feishu.registration.begin", expires_in=expires)
+        return {"authorization_url": url, "expires_in": expires, "status": "pending"}
+
+    def poll(self) -> dict:
+        session = _read_json(self.path, {})
+        if not session:
+            return {"status": "idle", "installation": CredentialVault.public(self.vault.load())}
+        now = self.clock()
+        if float(session.get("expires_at") or 0) <= now:
+            self.path.unlink(missing_ok=True)
+            return {"status": "expired"}
+        if now < float(session.get("next_poll_at") or 0):
+            return {"status": str(session.get("status") or "pending")}
+        result = self.transport.poll(str(session.get("device_code") or ""))
+        error = str(result.get("error") or "")
+        interval = int(session.get("interval") or 5)
+        if error in {"authorization_pending", "slow_down"}:
+            if error == "slow_down":
+                interval += 5
+            session.update(status="pending", interval=interval, next_poll_at=now + interval)
+            _atomic_json(self.path, session)
+            return {"status": "pending"}
+        if error:
+            self.path.unlink(missing_ok=True)
+            log.emit("feishu.registration.reject", reason=error)
+            return {"status": "rejected", "reason": error}
+        app_id = str(result.get("client_id") or "")
+        app_secret = str(result.get("client_secret") or "")
+        if not app_id and not app_secret:
+            session.update(status="pending", next_poll_at=now + interval)
+            _atomic_json(self.path, session)
+            return {"status": "pending"}
+        if not app_id or not app_secret:
+            self.path.unlink(missing_ok=True)
+            log.emit("feishu.registration.reject", reason="incomplete_credentials")
+            return {"status": "rejected", "reason": "incomplete_credentials"}
+        public = self.vault.save(app_id, app_secret, result.get("user_info") or {})
+        identity = OperatorIdentity.from_dict(result.get("user_info") or {})
+        if identity.ids():
+            bind_operator(identity)
+        try:
+            from .config import load_config
+
+            cfg = load_config()
+            if cfg.hub_enabled:
+                from .feishu_bridge import publish_installation_to_hub
+
+                publish_installation_to_hub(cfg, identity)
+        except (FeishuError, SystemExit, OSError) as exc:
+            log.emit("feishu.installation.hub_pending", reason=type(exc).__name__)
+        try:
+            if self.daemon_installer:
+                self.daemon_installer()
+            else:
+                from . import daemon_service
+
+                daemon_service.install()
+        except (SystemExit, OSError) as exc:
+            log.emit("feishu.daemon.install_pending", reason=type(exc).__name__)
+        self.path.unlink(missing_ok=True)
+        log.emit("feishu.registration.ok", app_id=_digest(app_id)[:12])
+        return {"status": "installed", "installation": public}
+
+    def cancel(self) -> None:
+        self.path.unlink(missing_ok=True)
 
 
 def save_config(config: FeishuConfig) -> Path:
@@ -323,6 +596,24 @@ def unbind_operator(identity_id: str = "") -> int:
     return removed
 
 
+def uninstall() -> dict:
+    try:
+        from .config import load_config
+
+        cfg = load_config()
+        if cfg.hub_enabled:
+            from .feishu_bridge import remove_installation_from_hub
+
+            remove_installation_from_hub(cfg)
+    except FileNotFoundError:
+        pass
+    removed = CredentialVault().remove()
+    AppRegistrationService().cancel()
+    operators = unbind_operator("")
+    log.emit("feishu.installation.remove", removed=removed, operators=operators)
+    return {"removed": removed, "operators": operators}
+
+
 def _operator_hash(identity: OperatorIdentity) -> str:
     return _digest("\0".join(sorted(identity.ids())))[:16]
 
@@ -479,11 +770,25 @@ class FeishuDispatcher:
 
 
 def status() -> dict:
+    from .daemon import read_daemon_status
+
     path = feishu_dir() / "config.json"
     config = FeishuConfig.from_dict(_read_json(path, {})) if path.is_file() else None
     bindings = list_bindings()
+    vault = CredentialVault()
+    installation = None
+    try:
+        installation = CredentialVault.public(vault.load())
+    except FeishuError:
+        installation = {"active": False, "error": "credential_decrypt"}
+    registration = _read_json(feishu_dir() / "registration.json", {})
     return {
-        "configured": bool(config and config.app_id and config.redirect_uri),
+        "configured": bool(installation),
+        "installed": bool(installation and installation.get("active", True)),
+        "installation": installation,
+        "registration_status": str(registration.get("status") or "idle"),
+        "daemon": read_daemon_status(),
+        # Legacy read-only fields remain for migration; the new Web does not display them.
         "app_id": config.app_id if config else "",
         "redirect_uri": config.redirect_uri if config else "",
         "secret_file": config.secret_file if config else "",

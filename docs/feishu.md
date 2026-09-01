@@ -1,70 +1,51 @@
-# Feishu control (v0.4.47 API)
+# Feishu scan-to-create and WebSocket service
 
-v0.4.47 provides the local security and command API used by the v0.4.48 Web UI and tom7r event bridge. It does not yet make a phone reach a Client bound to `127.0.0.1`; that routing belongs to v0.4.48.
+dual-tmux uses Feishu's official PersonalAgent Device Registration flow. A user does not create an App or provide an App ID, App Secret, verification token, or public callback URL.
 
-## Security model
+## User flow
 
-- App Secret is accepted only through `DT_FEISHU_APP_SECRET` or a current-user-owned, non-symlink file with exact mode `0600`.
-- OAuth access tokens are never persisted. Only stable `open_id`, `union_id`, and `user_id` bindings are saved locally under `~/.dual-tmux/feishu/`.
-- Pairing state, `event_id`, and destructive confirmation tokens are stored as hashes, expire, and can be consumed only once.
-- Feishu commands use the same `ControlService` as CLI and Web.
-- `upgrade`, `hotfix`, cron installation, shell/SSH/config mutation, and arbitrary commands are not exposed.
+1. Install and start the persistent service once: `dt daemon --install`.
+2. Start `dt web`, open **Feishu**, and click **Generate QR code**.
+3. Scan with the Feishu mobile app and approve creation of the PersonalAgent.
+4. The server polls Feishu, receives the generated credentials, encrypts the secret immediately, and the daemon starts the outbound WebSocket connection.
+5. Send `/dt ls` to the new Bot.
 
-The Feishu directory is Client-local. It is not inside `tunnels/` or `entries/`, so Hub synchronization does not copy secrets or operator bindings.
+Closing `dt web` does not stop the Bot. `dt web` owns only the UI; `dt daemon` owns the connector lifecycle.
 
-## Local API setup
+One dual-tmux deployment has one PersonalAgent. Every Client and every `dt web` connected to the same Hub manages that shared Bot; opening another Web page does not start another WebSocket. When an installation already exists, scan-to-create is disabled until the operator explicitly unlinks the existing Bot.
 
-```bash
-install -m 600 /dev/null ~/.dual-tmux/feishu-app-secret
-# Edit the file without placing the secret in shell history.
+## Security boundary
 
-dt feishu configure \
-  --app-id cli_xxx \
-  --redirect-uri https://your-hub.example/feishu/callback \
-  --secret-file ~/.dual-tmux/feishu-app-secret \
-  --allow-id ou_xxx
+- Device Registration uses `POST https://accounts.feishu.cn/oauth/v1/app/registration` with the RFC 8628 begin/poll contract.
+- The Device Code remains server-side and expires after ten minutes.
+- The generated App Secret is encrypted with an automatically generated Fernet/AEAD key.
+- `credential.key` and `installation.json` are current-user-owned, non-symlink files with mode `0600` under `~/.dual-tmux/feishu/`.
+- App Secret never enters Web responses, QR data, tunnel JSON, Hub tunnel sync, or audit logs.
+- Operator bindings, event IDs, and destructive confirmation tokens remain fail-closed and one-time.
+- Feishu cannot invoke `upgrade`, `hotfix`, cron installation, arbitrary shell, SSH, or config mutation.
 
-dt feishu pair
-dt feishu status
-```
-
-`dt feishu callback` and `dt feishu dispatch` are low-level bridge/testing commands. v0.4.48 will call the same Python API from the Web and tom7r bridge, so users will not need to copy callback codes manually.
-
-## v0.4.48 Web and tom7r bridge
-
-Open `dt web` and choose **飞书**. The page can save non-secret App settings, generate a 10-minute QR code, show bound identities, sync the Hub mailbox, and unbind identities. The Web request schema rejects an `app_secret` field; place the secret in the environment or a strict local file before starting the process.
-
-The public bridge is a separate process on tom7r:
+## Persistent service
 
 ```bash
-export DUAL_TMUX_HOME=/home/<login>/<user>/dual-tmux
-export DT_FEISHU_APP_SECRET=...          # preferably injected by service manager
-export DT_FEISHU_VERIFICATION_TOKEN=...
-dt feishu bridge --host 127.0.0.1 --port 8790
+dt daemon --install   # macOS launchd / Linux systemd --user
+dt daemon --status
+dt daemon --remove
+dt daemon             # foreground diagnostics
 ```
 
-tom7r currently has Docker but only host Python 3.6, so the repository also includes a Python 3.12 container deployment under `deploy/feishu-bridge/`. Create `/root/andy/dual-tmux/feishu/config.json` using `dt feishu configure` semantics, copy `bridge.env.example` to `/root/andy/dual-tmux/feishu/bridge.env`, set mode `0600`, then run:
+The daemon restores active installations after restart, supervises the blocking official `lark-oapi` WebSocket client in a child process, and restarts failures with bounded 5/15/30/60/120-second backoff. Unbinding removes the encrypted installation and terminates its connector.
 
-```bash
-docker compose -f deploy/feishu-bridge/compose.yaml up -d --build
-curl http://127.0.0.1:8790/health
-```
+In Hub mode, the tom7r daemon owns the in-memory WebSocket and durable inbox/outbox. A lightweight Client daemon probes only its own mailbox every five seconds and opens rsync transfers only when work exists. The existing one-minute `dt tick` is a fallback, not the primary response path. A filesystem lock serializes daemon, tick and manual `dt feishu sync`. Command parsing and ControlService execution are deterministic; no model is used unless `/dt send` deliberately forwards text into a trigger or bullet Agent.
 
-The compose file publishes only on tom7r loopback, drops Linux capabilities, and mounts the existing `/root/andy/dual-tmux` tenant root as `/data`. It does not touch `tunnels/`, `entries/`, session data, or Client configuration.
+The WS topology is separate from the tunnel data mode:
 
-Put Caddy or another TLS reverse proxy in front of these exact routes:
+- local standalone: a local-only Client daemon holds the WS; sleep pauses connectivity and wake reconnects it.
+- Hub persistent (default for Hub mode): tom7r owns the WS; Client sleep does not affect message reception, and commands wait in the mailbox.
+- Client failover (advanced): multiple Client daemons may be candidates, but a tom7r atomic lease and monotonically increasing generation allow only one active WS.
 
-```text
-GET  /health
-GET  /feishu/callback
-POST /feishu/events
-```
+The same lock file coordinates Hub containers and failover Clients. Every daemon instance has a unique owner identity, renews its heartbeat, and stops its connector when it loses ownership. A recovered stale generation stays standby; `event_id` replay protection remains the final duplicate-execution barrier.
 
-Configure the Feishu App OAuth redirect as the public `/feishu/callback` URL and its event subscription as `/feishu/events`. Use unencrypted event delivery with a verification token for this release. Do not expose the local `dt web` port.
-
-In Hub mode, QR creation registers only a hash of the one-time state on tom7r. The bridge exchanges the OAuth code, stores only hashed identity routes, and places an identity envelope in the target Client mailbox. Each `dt tick` (or the Web **立即同步事件桥** button) pulls pending callbacks/commands over SSH, validates them locally, calls `ControlService`, and writes response envelopes. Offline Clients therefore retain their inbox. Switching to local-only mode leaves local bindings intact and disables network polling; attaching a Hub again lets the Client register new pairing routes without modifying tunnels.
-
-## Supported commands
+## Commands
 
 ```text
 /dt ls
@@ -78,4 +59,4 @@ In Hub mode, QR creation registers only a hash of the one-time state on tom7r. T
 /dt rm <name> [confirm-token]
 ```
 
-The first `drop` or `rm` request returns a short-lived confirmation token. The token is bound to that operator, action, and tunnel.
+The first `drop` or `rm` request returns a short-lived confirmation token bound to the operator, action, and tunnel.

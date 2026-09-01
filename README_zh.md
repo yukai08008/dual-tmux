@@ -201,9 +201,9 @@ Agent 能力注册表 + tunnel/tmux 操作
 
 v0.4.46 Web 控制面覆盖日常 tunnel 全闭环：创建本地/Hub tunnel、两侧客户端选择、pane 输入输出、freeze/resume、权威入口重连、drop/删除、Hub push/pull、健康检查/恢复、自动恢复开关，以及无损的本地/Hub 模式切换。破坏性操作必须显式确认。主机维护命令（`upgrade`、`hotfix`、cron 安装）仍只允许从 CLI 执行，并在 Web 指南中给出入口。
 
-v0.4.47 增加飞书安全绑定 API，供 v0.4.48 的扫码页面和 tom7r 事件桥复用。OAuth access token 永不持久化；App Secret 只从环境变量或严格 `0600` 的本地文件读取；pairing state、事件 ID 和破坏性操作确认 token 均限时且单次使用。详见 [飞书控制 API](docs/feishu.md)。本 API 版尚不负责把飞书云事件路由到只监听 `127.0.0.1` 的 Client。
+v0.4.48 使用飞书官方的 scan-to-create Device Registration。用户不需要提供 App ID、App Secret、verification token 或公网 callback：Web 展示一次性二维码，飞书自动创建 PersonalAgent，dual-tmux 自动加密保存生成的凭据。`dt daemon` 独立于 `dt web` 持有出站 WebSocket，重启后自动恢复并监督重连。详见 [飞书扫码即用](docs/feishu.md)。
 
-v0.4.48 完成这条链路：Web 的“飞书”页可配置非秘密 App 合同、生成限时二维码、查看绑定、同步事件桥和解绑。tom7r mailbox bridge 接收 OAuth callback 与经过 verification token 校验的飞书消息，Client 离线时保留命令；`dt tick` 恢复后在本机通过 `ControlService` 执行并回传结果。本地 Web 仍只监听 `127.0.0.1`，不会暴露给飞书。正式推广前仍需企业飞书 App、HTTPS callback 路由和带真实凭据的 E2E。
+每个 dual-tmux 部署只共享一个总 PersonalAgent，而不是每台 Client 各有一个。Hub 模式默认由 tom7r 持有常驻 WS；纯本地模式可以使用本地独立 WS；高级双 Client 接管通过 Hub 原子租约和 generation fencing 保证最多一个 active daemon。
 
 ## 默认 agent：OpenCode
 

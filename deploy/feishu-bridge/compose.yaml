@@ -9,10 +9,9 @@ services:
       - /root/andy/dual-tmux/feishu/bridge.env
     environment:
       DUAL_TMUX_HOME: /data
+      DT_FEISHU_ROLE: hub
     volumes:
       - /root/andy/dual-tmux:/data
-    ports:
-      - 127.0.0.1:8790:8790
     security_opt:
       - no-new-privileges:true
     cap_drop:
