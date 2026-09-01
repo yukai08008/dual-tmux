@@ -5,10 +5,12 @@ type: web
 prd: dev_plans/v0.4.47-v0.4.48/PRD.md
 test_cases: dev_plans/v0.4.47-v0.4.48/TEST_CASES.md
 invariants:
+  - "一个 deployment 只有一个总 PersonalAgent，多 Client/Web 共享"
   - "用户无需提供 App ID/App Secret/callback"
   - "secret/token 仅以 AEAD 密文落盘，不进入 Web、Git、tunnel 或审计日志"
   - "dt web 不持有 WS 生命周期，daemon 独立常驻"
   - "local/Hub 连接租约单活，ControlService 执行"
+  - "active WS 必须持有原子 lease + generation，旧 generation fail-closed"
   - "运行时数据不在 git 追踪中"
   - "前端 e2e 覆盖新功能"
 deliverables:

@@ -6,8 +6,10 @@ import json
 import multiprocessing
 import os
 import signal
+import socket
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Protocol
 
@@ -21,12 +23,76 @@ from .feishu import (
     _atomic_json,
     feishu_dir,
 )
+from .paths import home_dir
 
 BACKOFF_SECONDS = (5, 15, 30, 60, 120)
 
 
+class LocalConnectorLease:
+    """Process-held flock with a monotonic generation for one shared dt home."""
+
+    def __init__(self, path: Path | None = None):
+        self.path = path or (home_dir() / "locks" / "__feishu_ws__")
+        self.handle = None
+        self.owner = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:12]}"
+        self.generation = 0
+
+    def claim(self) -> tuple[bool, str, int]:
+        import fcntl
+
+        if self.handle is not None:
+            self.handle.seek(0)
+            self.handle.truncate()
+            self.handle.write(f"{self.owner}@{int(time.time())}@{self.generation}\n")
+            self.handle.flush()
+            return True, self.owner, self.generation
+        self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        handle = self.path.open("a+", encoding="utf-8")
+        os.chmod(self.path, 0o600)
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            handle.seek(0)
+            text = handle.read()
+            parts = text.strip().split("@")
+            handle.close()
+            return (
+                False,
+                parts[0] if parts else "another-daemon",
+                int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0,
+            )
+        handle.seek(0)
+        parts = handle.read().strip().split("@")
+        previous = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+        self.generation = previous + 1
+        handle.seek(0)
+        handle.truncate()
+        handle.write(f"{self.owner}@{int(time.time())}@{self.generation}\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+        self.handle = handle
+        return True, self.owner, self.generation
+
+    def release(self) -> None:
+        if self.handle is None:
+            return
+        self.handle.close()
+        self.handle = None
+
+
 def daemon_status_path() -> Path:
     return feishu_dir() / "daemon-status.json"
+
+
+def daemon_instances_dir() -> Path:
+    return feishu_dir() / "daemon-instances"
+
+
+def _instance_status_path(owner: str) -> Path:
+    import hashlib
+
+    name = hashlib.sha256(owner.encode("utf-8")).hexdigest()[:24]
+    return daemon_instances_dir() / f"{name}.json"
 
 
 def read_daemon_status() -> dict:
@@ -43,6 +109,28 @@ def read_daemon_status() -> dict:
             os.kill(pid, 0)
     except OSError:
         data["running"] = False
+    candidates = []
+    now = time.time()
+    root = daemon_instances_dir()
+    for item in sorted(root.glob("*.json")) if root.is_dir() else []:
+        try:
+            candidate = json.loads(item.read_text(encoding="utf-8"))
+            if now - float(candidate.get("updated_at") or 0) <= 30:
+                candidates.append(
+                    {
+                        key: candidate.get(key)
+                        for key in (
+                            "instance",
+                            "owner",
+                            "connector",
+                            "generation",
+                            "updated_at",
+                        )
+                    }
+                )
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            continue
+    data["candidates"] = candidates
     return data
 
 
@@ -207,38 +295,58 @@ class ConnectorManager:
         self.failures = 0
         self.next_start_at = 0.0
         self.owner = "none"
+        self.generation = 0
+        self.has_lease = False
+        self.lease_owner = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:12]}"
+        self.local_lease = LocalConnectorLease()
+        self.local_lease.owner = self.lease_owner
         self.lease_acquire = lease_acquire or self._claim_default_lease
         self.lease_release = lease_release or self._release_default_lease
 
-    @staticmethod
-    def _claim_default_lease() -> tuple[bool, str]:
+    def _claim_default_lease(self) -> tuple[bool, str, int]:
         from .hub import claim_feishu_lease
 
-        return claim_feishu_lease(load_config())
+        role = os.environ.get("DT_FEISHU_ROLE", "client").strip().lower()
+        cfg = load_config()
+        topology = os.environ.get("DT_FEISHU_TOPOLOGY", "").strip().lower()
+        if role == "hub" or not cfg.hub_enabled:
+            return self.local_lease.claim()
+        if topology == "client-failover":
+            return claim_feishu_lease(cfg, owner=self.lease_owner)
+        return False, cfg.server or "hub", 0
 
-    @staticmethod
-    def _release_default_lease() -> None:
+    def _release_default_lease(self) -> None:
         from .hub import release_feishu_lease
 
-        release_feishu_lease(load_config())
+        role = os.environ.get("DT_FEISHU_ROLE", "client").strip().lower()
+        cfg = load_config()
+        topology = os.environ.get("DT_FEISHU_TOPOLOGY", "").strip().lower()
+        if role == "hub" or not cfg.hub_enabled:
+            self.local_lease.release()
+        elif topology == "client-failover":
+            release_feishu_lease(cfg, owner=self.lease_owner)
 
     def owns_lease(self) -> bool:
-        role = os.environ.get("DT_FEISHU_ROLE", "client").strip().lower()
-        if role == "hub":
-            self.owner = "hub"
-            return True
         try:
             cfg = load_config()
-            if cfg.hub_enabled:
+            topology = os.environ.get("DT_FEISHU_TOPOLOGY", "").strip().lower()
+            role = os.environ.get("DT_FEISHU_ROLE", "client").strip().lower()
+            if cfg.hub_enabled and role != "hub" and topology != "client-failover":
                 self.owner = cfg.server or "hub"
+                self.generation = 0
+                self.has_lease = False
                 return False
         except SystemExit:
             pass
         try:
-            owned, holder = self.lease_acquire()
+            lease = self.lease_acquire()
+            owned, holder = lease[:2]
+            generation = lease[2] if len(lease) > 2 else 0
         except (SystemExit, OSError):
-            owned, holder = False, "unavailable"
+            owned, holder, generation = False, "unavailable", 0
         self.owner = holder or "unknown"
+        self.generation = int(generation or 0)
+        self.has_lease = bool(owned)
         return owned
 
     @staticmethod
@@ -250,6 +358,19 @@ class ConnectorManager:
         )
 
     def installed(self) -> bool:
+        role = os.environ.get("DT_FEISHU_ROLE", "client").strip().lower()
+        topology = os.environ.get("DT_FEISHU_TOPOLOGY", "").strip().lower()
+        if role != "hub" and topology == "client-failover":
+            try:
+                cfg = load_config()
+                if not cfg.hub_enabled:
+                    return False
+                from .feishu_bridge import sync_installation_from_hub
+
+                if not sync_installation_from_hub(cfg):
+                    return False
+            except (FeishuError, SystemExit, OSError):
+                return False
         try:
             item = CredentialVault().load()
         except FeishuError:
@@ -261,12 +382,12 @@ class ConnectorManager:
         installed = self.installed()
         if not installed:
             self.stop()
-            return {"connector": "stopped", "owner": "none", "failures": 0, "next_retry_at": 0}
+            return {"connector": "stopped", "owner": "none", "generation": 0, "failures": 0, "next_retry_at": 0}
         if not self.owns_lease():
             self.stop(release_lease=False)
-            return {"connector": "standby", "owner": self.owner, "failures": 0, "next_retry_at": 0}
+            return {"connector": "standby", "owner": self.owner, "generation": self.generation, "failures": 0, "next_retry_at": 0}
         if self.process and self.process.is_alive():
-            return {"connector": "connected", "owner": self.owner, "failures": self.failures, "next_retry_at": 0}
+            return {"connector": "connected", "owner": self.owner, "generation": self.generation, "failures": self.failures, "next_retry_at": 0}
         if self.process is not None:
             self.process.join(timeout=0)
             self.process = None
@@ -277,12 +398,13 @@ class ConnectorManager:
             return {
                 "connector": "backoff",
                 "owner": self.owner,
+                "generation": self.generation,
                 "failures": self.failures,
                 "next_retry_at": int(self.next_start_at),
             }
         self.process = self.process_factory()
         self.process.start()
-        return {"connector": "starting", "owner": self.owner, "failures": self.failures, "next_retry_at": 0}
+        return {"connector": "starting", "owner": self.owner, "generation": self.generation, "failures": self.failures, "next_retry_at": 0}
 
     def stop(self, *, release_lease: bool = True) -> None:
         if self.process and self.process.is_alive():
@@ -306,16 +428,18 @@ class DualTmuxDaemon:
 
     def _write_status(self, connector: dict) -> None:
         previous = read_daemon_status()
-        _atomic_json(
-            daemon_status_path(),
-            {
-                **previous,
-                "pid": os.getpid(),
-                "running": True,
-                "updated_at": int(time.time()),
-                **connector,
-            },
-        )
+        candidates = previous.pop("candidates", [])
+        state = {
+            **previous,
+            "pid": os.getpid(),
+            "instance": self.manager.lease_owner,
+            "running": True,
+            "updated_at": int(time.time()),
+            **connector,
+        }
+        _atomic_json(_instance_status_path(self.manager.lease_owner), state)
+        if connector.get("connector") != "standby":
+            _atomic_json(daemon_status_path(), {**state, "candidates": candidates})
 
     def run(self, *, once: bool = False) -> None:
         def stop(_signum=None, _frame=None):
@@ -332,12 +456,23 @@ class DualTmuxDaemon:
                     return
                 self.stop_event.wait(self.interval)
         finally:
+            global_state = read_daemon_status()
+            was_owner = self.manager.has_lease or int(global_state.get("pid") or 0) == os.getpid()
+            instance_path = _instance_status_path(self.manager.lease_owner)
             self.manager.stop()
-            state = read_daemon_status()
-            _atomic_json(
-                daemon_status_path(),
-                {**state, "running": False, "connector": "stopped", "updated_at": int(time.time())},
-            )
+            instance_path.unlink(missing_ok=True)
+            if was_owner:
+                state = read_daemon_status()
+                state.pop("candidates", None)
+                _atomic_json(
+                    daemon_status_path(),
+                    {
+                        **state,
+                        "running": False,
+                        "connector": "stopped",
+                        "updated_at": int(time.time()),
+                    },
+                )
             log.emit("dt.daemon.stop", pid=os.getpid())
 
 

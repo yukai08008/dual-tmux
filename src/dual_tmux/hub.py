@@ -54,14 +54,16 @@ def _require_hub(cfg: AppConfig) -> None:
 
 
 def _run(argv: list[str], input: str | None = None) -> subprocess.CompletedProcess:
-    return subprocess.run(argv, capture_output=True, text=True, input=input)
+    return subprocess.run(argv, capture_output=True, text=True, input=input, check=False)
 
 
 def _ensure_remote(cfg: AppConfig) -> None:
     _require_hub(cfg)
     dest = ssh_argv(cfg) + [
-        f"mkdir -p {remote_root(cfg)}/tunnels {remote_root(cfg)}/entries "
-        f"{remote_root(cfg)}/locks {remote_root(cfg)}/activity"
+        (
+            f"mkdir -p {remote_root(cfg)}/tunnels {remote_root(cfg)}/entries "
+            f"{remote_root(cfg)}/locks {remote_root(cfg)}/activity"
+        )
     ]
     result = _run(dest)
     if result.returncode != 0:
@@ -250,7 +252,8 @@ def _lock_remote(
     force: bool = False,
     cfg: AppConfig | None = None,
     ttl: int = LOCK_TTL,
-) -> tuple[str, str, int]:
+    owner: str = "",
+) -> tuple[str, str, int, int]:
     cfg = cfg or load_config()
     script = r"""
 set -e
@@ -258,26 +261,36 @@ ROOT="$1"; NAME="$2"; ME="$3"; TTL="$4"; ACTION="$5"; FORCE="$6"
 mkdir -p "$ROOT/locks"
 f="$ROOT/locks/$NAME"
 now=$(date +%s)
-holder=""; age=99999
+holder=""; age=99999; generation=0
+exec 9>>"$f"
+if ! flock -n 9; then
+  value=$(cat "$f" 2>/dev/null || true)
+  holder=$(printf '%s' "$value" | cut -d@ -f1)
+  generation=$(printf '%s' "$value" | cut -d@ -f3)
+  echo "HELD ${holder:-active-daemon} 0 ${generation:-0}"
+  exit 2
+fi
 if [ -f "$f" ]; then
   holder=$(cut -d@ -f1 "$f")
   ts=$(cut -d@ -f2 "$f")
+  generation=$(cut -d@ -f3 "$f")
   age=$((now - ${ts:-0}))
 fi
 if [ "$ACTION" = "read" ]; then
-  if [ -n "$holder" ] && [ "$age" -le "$TTL" ]; then echo "HELD $holder $age"; else echo "FREE"; fi
+  if [ -n "$holder" ] && [ "$age" -le "$TTL" ]; then echo "HELD $holder $age ${generation:-0}"; else echo "FREE"; fi
   exit 0
 fi
 if [ "$ACTION" = "release" ]; then
-  if [ "$holder" = "$ME" ]; then rm -f "$f"; echo "FREE"; else echo "HELD ${holder:-—} $age"; fi
+  if [ "$holder" = "$ME" ]; then : > "$f"; echo "FREE"; else echo "HELD ${holder:-—} $age ${generation:-0}"; fi
   exit 0
 fi
 if [ -n "$holder" ] && [ "$holder" != "$ME" ] && [ "$age" -le "$TTL" ] && [ "$FORCE" != "1" ]; then
-  echo "HELD $holder $age"
+  echo "HELD $holder $age ${generation:-0}"
   exit 2
 fi
-echo "$ME@$now" > "$f"
-echo "OK $ME 0"
+if [ "$holder" != "$ME" ]; then generation=$((${generation:-0} + 1)); fi
+echo "$ME@$now@${generation:-1}" > "$f"
+echo "OK $ME 0 ${generation:-1}"
 """
     result = _run(
         ssh_argv(cfg)
@@ -287,7 +300,7 @@ echo "OK $ME 0"
             "--",
             remote_root(cfg),
             name,
-            cfg.client,
+            owner or cfg.client,
             str(ttl),
             action,
             "1" if force else "0",
@@ -300,16 +313,17 @@ echo "OK $ME 0"
     kind = parts[0] if parts else "ERR"
     holder = parts[1] if len(parts) > 1 else ""
     age = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+    generation = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0
     if result.returncode not in (0, 2) and kind not in {"OK", "HELD", "FREE"}:
         err = (result.stderr or text or "lock failed").strip().splitlines()
         raise SystemExit(f"[err] hub lock: {err[-1] if err else 'failed'}")
-    return kind, holder, age
+    return kind, holder, age, generation
 
 
 def read_lock(name: str) -> tuple[str, int]:
     if not enabled():
         return "", 0
-    kind, holder, age = _lock_remote("read", name)
+    kind, holder, age, _generation = _lock_remote("read", name)
     if kind == "HELD":
         return holder, age
     return "", 0
@@ -337,7 +351,7 @@ def idle_enough(name: str, holder: str) -> bool:
 def claim(name: str, force: bool = False) -> str:
     if not enabled():
         return load_config().client
-    kind, holder, age = _lock_remote("read", name)
+    kind, holder, age, _generation = _lock_remote("read", name)
     if kind == "HELD" and holder and holder != load_config().client:
         if not force and not idle_enough(name, holder):
             raise SystemExit(
@@ -347,9 +361,9 @@ def claim(name: str, force: bool = False) -> str:
             )
         if not force:
             ui.info(f"idle  {name} on {holder}: last {TICKS} ticks frozen, taking over")
-        kind, holder, age = _lock_remote("claim", name, force=True)
+        kind, holder, age, _generation = _lock_remote("claim", name, force=True)
     else:
-        kind, holder, age = _lock_remote("claim", name, force=force)
+        kind, holder, age, _generation = _lock_remote("claim", name, force=force)
     if kind == "HELD":
         raise SystemExit(
             f"[err] {name} active on {holder} ({age}s ago, TTL {LOCK_TTL}s). "
@@ -370,21 +384,25 @@ FEISHU_LEASE_NAME = "__feishu_ws__"
 FEISHU_LEASE_TTL = 15
 
 
-def claim_feishu_lease(cfg: AppConfig | None = None) -> tuple[bool, str]:
+def claim_feishu_lease(
+    cfg: AppConfig | None = None, *, owner: str = ""
+) -> tuple[bool, str, int]:
     """Renew the single-active Feishu connector lease without stealing it."""
     cfg = cfg or load_config()
     if not cfg.hub_enabled:
-        return True, cfg.client
-    kind, holder, _age = _lock_remote(
-        "claim", FEISHU_LEASE_NAME, cfg=cfg, ttl=FEISHU_LEASE_TTL
+        return True, owner or cfg.client, 1
+    kind, holder, _age, generation = _lock_remote(
+        "claim", FEISHU_LEASE_NAME, cfg=cfg, ttl=FEISHU_LEASE_TTL, owner=owner
     )
-    return kind == "OK", holder
+    return kind == "OK", holder, generation
 
 
-def release_feishu_lease(cfg: AppConfig | None = None) -> None:
+def release_feishu_lease(cfg: AppConfig | None = None, *, owner: str = "") -> None:
     cfg = cfg or load_config()
     if cfg.hub_enabled:
-        _lock_remote("release", FEISHU_LEASE_NAME, cfg=cfg, ttl=FEISHU_LEASE_TTL)
+        _lock_remote(
+            "release", FEISHU_LEASE_NAME, cfg=cfg, ttl=FEISHU_LEASE_TTL, owner=owner
+        )
 
 
 def drop_local(data: dict) -> list[str]:

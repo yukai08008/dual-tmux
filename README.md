@@ -203,6 +203,8 @@ The v0.4.46 Web control plane covers daily tunnel work end to end: local/Hub tun
 
 v0.4.48 uses Feishu's official scan-to-create Device Registration flow. The user does not provide an App ID, App Secret, verification token, or public callback: Web shows a one-time QR, Feishu creates a PersonalAgent, and dual-tmux encrypts the generated credentials automatically. `dt daemon` owns the outbound WebSocket connection independently from `dt web`, restores it after restart, and supervises reconnects. See [Feishu scan-to-create](docs/feishu.md).
 
+There is one shared PersonalAgent per dual-tmux deployment, not one per Client. Hub mode defaults to a tom7r-owned persistent WS; local-only can use a local standalone WS; advanced Client failover uses an atomic Hub lease plus generation fencing so only one daemon can be active.
+
 ## Default agent: OpenCode
 
 The intended occupants of `op_*` (trigger) and `run_*` (bullet) are **[OpenCode](https://opencode.ai)** sessions.

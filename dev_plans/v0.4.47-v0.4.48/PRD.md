@@ -29,6 +29,7 @@
 
 ### 1.3 不变量
 
+- 一个 dual-tmux deployment 只有一个总 PersonalAgent；多台 Client 和多个 Web 页面共享它。再次扫码只能走显式“更换机器人”事务，不能创建或覆盖第二套 active installation。
 - App Secret/OAuth token 不进入 QR、Web 响应、Hub 邮箱、tunnel JSON、Git 或审计日志。
 - 凭据只以 AEAD 密文落盘；主密钥必须为当前用户所有、非符号链接且 mode 0600。
 - Hub 只保存加密安装、租约、identity 摘要、事件信封和结果；实际控制只在已绑定 Client 经 ControlService 执行。
@@ -36,6 +37,7 @@
 - local-only 核心能力不依赖 bridge；Hub 切换不删除飞书本地绑定。
 - Web 写请求保持 same-origin；Device Code、轮询结果和凭据永不进入浏览器。
 - `dt web` 不是 WS 生命周期所有者；关闭 Web 不得让已绑定 Bot 下线。
+- 任一拓扑最多一个 active WS owner；owner 必须持有原子 lease 与 generation，旧 generation 恢复后保持 standby。
 - 新页面必须通过应用内 Browser E2E；运行时数据不在 Git 追踪。
 
 ## 2. 顶层蓝图
@@ -64,6 +66,8 @@ Feishu scan ── Device Registration ── encrypted installation
 ## 5. 常驻服务与 WS
 
 `dt daemon` 是独立于 Web 的常驻进程。它加载 active installation，取得本地或 Hub 租约后启动官方 `lark-oapi` WS Client。崩溃和网络错误按 5/15/30/60/120 秒退避；解绑、凭据轮换或租约丢失会终止旧 connector。状态写入本地 0600 runtime 文件供 CLI/Web/Doctor 只读展示。
+
+连接拓扑与 tunnel 数据模式是两个维度：local-only 默认使用本地独立 WS；Hub 模式默认由 tom7r 常驻 WS；双 Client 接管是显式高级拓扑，候选 Client 通过 tom7r 的原子 lease/generation 选出唯一 active，其余保持 standby。仅启动 `dt web` 永远不参与 WS 竞选。
 
 ## 5. 可靠性与切换影响
 

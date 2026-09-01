@@ -190,6 +190,9 @@ def test_feishu_page_and_local_pair_api(tmp_path, monkeypatch):
     assert "/api/feishu/poll" in page
     assert "不需要 App ID、App Secret 或公网 callback" in page
     assert "/api/feishu/configure" not in page
+    assert "fs-pair').disabled=!!s.installed" in page
+    assert "WS owner" in page
+    assert "Generation" in page
     from dual_tmux.feishu import AppRegistrationService
 
     monkeypatch.setattr(

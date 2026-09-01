@@ -1,5 +1,10 @@
 from dual_tmux.config import AppConfig, write_config
-from dual_tmux.daemon import ConnectorManager, DualTmuxDaemon, read_daemon_status
+from dual_tmux.daemon import (
+    ConnectorManager,
+    DualTmuxDaemon,
+    LocalConnectorLease,
+    read_daemon_status,
+)
 from dual_tmux.feishu import CredentialVault
 
 
@@ -116,13 +121,14 @@ def test_hub_mode_client_never_starts_local_ws(monkeypatch, tmp_path):
     assert state == {
         "connector": "standby",
         "owner": "tom7r",
+        "generation": 0,
         "failures": 0,
         "next_retry_at": 0,
     }
     assert manager.process is None
 
 
-def test_explicit_hub_role_starts_ws_without_client_lease(monkeypatch, tmp_path):
+def test_explicit_hub_role_respects_single_owner_lease(monkeypatch, tmp_path):
     monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
     monkeypatch.setenv("DT_FEISHU_ROLE", "hub")
     CredentialVault().save("cli_auto", "secret")
@@ -132,9 +138,55 @@ def test_explicit_hub_role_starts_ws_without_client_lease(monkeypatch, tmp_path)
         lease_release=lambda: None,
     )
     assert manager.step() == {
-        "connector": "starting",
-        "owner": "hub",
+        "connector": "standby",
+        "owner": "another-client",
+        "generation": 0,
         "failures": 0,
         "next_retry_at": 0,
     }
-    assert manager.process is not None
+    assert manager.process is None
+
+
+def test_local_lease_allows_one_owner_and_increments_generation(tmp_path):
+    path = tmp_path / "locks" / "__feishu_ws__"
+    first = LocalConnectorLease(path)
+    second = LocalConnectorLease(path)
+    owned, owner, generation = first.claim()
+    assert owned is True
+    assert generation == 1
+    assert second.claim() == (False, owner, 1)
+    first.release()
+    owned, replacement, generation = second.claim()
+    assert owned is True
+    assert replacement != owner
+    assert generation == 2
+    second.release()
+
+
+def test_standby_status_does_not_overwrite_active_global_status(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
+    CredentialVault().save("cli_auto", "secret")
+    active_manager = ConnectorManager(
+        process_factory=FakeProcess,
+        lease_acquire=lambda: (True, "active-instance", 3),
+        lease_release=lambda: None,
+    )
+    standby_manager = ConnectorManager(
+        process_factory=FakeProcess,
+        lease_acquire=lambda: (False, "active-instance", 3),
+        lease_release=lambda: None,
+    )
+    active = DualTmuxDaemon(manager=active_manager)
+    standby = DualTmuxDaemon(manager=standby_manager)
+    active._write_status(active_manager.step())
+    standby._write_status(standby_manager.step())
+    status = read_daemon_status()
+    assert status["connector"] == "starting"
+    assert status["owner"] == "active-instance"
+    assert status["generation"] == 3
+    assert {item["connector"] for item in status["candidates"]} == {
+        "starting",
+        "standby",
+    }

@@ -12,6 +12,8 @@ dual-tmux uses Feishu's official PersonalAgent Device Registration flow. A user 
 
 Closing `dt web` does not stop the Bot. `dt web` owns only the UI; `dt daemon` owns the connector lifecycle.
 
+One dual-tmux deployment has one PersonalAgent. Every Client and every `dt web` connected to the same Hub manages that shared Bot; opening another Web page does not start another WebSocket. When an installation already exists, scan-to-create is disabled until the operator explicitly unlinks the existing Bot.
+
 ## Security boundary
 
 - Device Registration uses `POST https://accounts.feishu.cn/oauth/v1/app/registration` with the RFC 8628 begin/poll contract.
@@ -33,7 +35,13 @@ dt daemon             # foreground diagnostics
 
 The daemon restores active installations after restart, supervises the blocking official `lark-oapi` WebSocket client in a child process, and restarts failures with bounded 5/15/30/60/120-second backoff. Unbinding removes the encrypted installation and terminates its connector.
 
-In Hub mode, a short central lease prevents two Clients from consuming the same Bot concurrently. The existing mailbox remains the transport for work that must wait for an offline Client. Full tom7r-owned WS deployment is a release gate: Device Registration and the daemon must run on tom7r so generated credentials never need to be copied from a Client.
+The WS topology is separate from the tunnel data mode:
+
+- local standalone: a local-only Client daemon holds the WS; sleep pauses connectivity and wake reconnects it.
+- Hub persistent (default for Hub mode): tom7r owns the WS; Client sleep does not affect message reception, and commands wait in the mailbox.
+- Client failover (advanced): multiple Client daemons may be candidates, but a tom7r atomic lease and monotonically increasing generation allow only one active WS.
+
+The same lock file coordinates Hub containers and failover Clients. Every daemon instance has a unique owner identity, renews its heartbeat, and stops its connector when it loses ownership. A recovered stale generation stays standby; `event_id` replay protection remains the final duplicate-execution barrier.
 
 ## Commands
 

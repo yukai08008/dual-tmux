@@ -236,6 +236,68 @@ def remove_installation_from_hub(cfg: AppConfig | None = None) -> None:
     log.emit("feishu.installation.hub_remove", host=cfg.server)
 
 
+def hub_feishu_status(cfg: AppConfig | None = None) -> dict:
+    """Read only public installation/daemon state from the configured Hub."""
+    from . import hub
+
+    cfg = cfg or load_config()
+    if not cfg.hub_enabled:
+        return {}
+    remote = f"{hub.remote_root(cfg)}/feishu"
+    installed = hub._run(
+        hub.ssh_argv(cfg) + ["test", "-f", f"{remote}/installation.json"]
+    ).returncode == 0
+    result = hub._run(
+        hub.ssh_argv(cfg) + ["cat", f"{remote}/daemon-status.json"]
+    )
+    daemon = {}
+    if result.returncode == 0:
+        try:
+            daemon = json.loads(result.stdout or "{}")
+            if time.time() - float(daemon.get("updated_at") or 0) > 10:
+                daemon["running"] = False
+                daemon["connector"] = "stale"
+        except json.JSONDecodeError:
+            daemon = {"running": False, "connector": "unknown", "owner": "hub"}
+    return {"installed": installed, "daemon": daemon, "bridge": cfg.server}
+
+
+def sync_installation_from_hub(cfg: AppConfig | None = None) -> bool:
+    """Atomically refresh the encrypted deployment Bot for Client failover."""
+    from . import hub
+    from .feishu import CredentialVault
+
+    cfg = cfg or load_config()
+    if not cfg.hub_enabled:
+        return False
+    remote = f"{hub.remote_root(cfg)}/feishu"
+    host = hub.SshTarget(cfg.server, cfg.ssh_port).dest
+    with tempfile.TemporaryDirectory(prefix="dt-feishu-installation-") as raw:
+        candidate = CredentialVault(Path(raw))
+        try:
+            hub._rsync(
+                f"{host}:{remote}/credential.key", str(candidate.key_path), cfg
+            )
+            hub._rsync(
+                f"{host}:{remote}/installation.json",
+                str(candidate.installation_path),
+                cfg,
+            )
+        except SystemExit as exc:
+            raise FeishuError("hub_installation_unavailable", str(exc)) from exc
+        candidate.key_path.chmod(0o600)
+        candidate.installation_path.chmod(0o600)
+        candidate.load()  # Validate the pair before replacing either active file.
+        local = CredentialVault()
+        local.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        with local.locked(exclusive=True):
+            os.replace(candidate.key_path, local.key_path)
+            os.replace(candidate.installation_path, local.installation_path)
+            local.key_path.chmod(0o600)
+            local.installation_path.chmod(0o600)
+    return True
+
+
 def _format_result(payload: dict) -> str:
     if payload.get("confirmation_required"):
         return (
