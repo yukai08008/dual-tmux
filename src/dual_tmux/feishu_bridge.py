@@ -15,6 +15,7 @@ import tempfile
 import time
 import urllib.parse
 import urllib.request
+from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -35,6 +36,15 @@ from .paths import home_dir
 
 MAX_ENVELOPE = 256 * 1024
 PAIR_TTL_SECONDS = 10 * 60
+BRIDGE_DIRS = (
+    "routes",
+    "commands",
+    "responses",
+    "callbacks",
+    "pairing",
+    "consumed",
+    "receipts",
+)
 
 
 def _digest(value: str) -> str:
@@ -43,6 +53,21 @@ def _digest(value: str) -> str:
 
 def bridge_root() -> Path:
     return home_dir() / "feishu" / "bridge"
+
+
+def _ensure_private_subdir(root: Path, path: Path) -> None:
+    """Create every mailbox directory with mode 0700, independent of umask."""
+    try:
+        relative = path.relative_to(root)
+    except ValueError as exc:
+        raise FeishuError("invalid_envelope", "bridge path escapes mailbox root") from exc
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    root.chmod(0o700)
+    current = root
+    for part in relative.parts:
+        current /= part
+        current.mkdir(exist_ok=True, mode=0o700)
+        current.chmod(0o700)
 
 
 def _write_envelope(path: Path, payload: dict) -> Path:
@@ -62,6 +87,42 @@ def _write_envelope(path: Path, payload: dict) -> Path:
     finally:
         tmp.unlink(missing_ok=True)
     return path
+
+
+def _write_envelope_once(
+    path: Path, receipt: Path, payload: dict
+) -> tuple[Path, bool]:
+    """Publish once and retain a hard-linked receipt after mailbox consumption."""
+    raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
+    if len(raw) > MAX_ENVELOPE:
+        raise FeishuError("envelope_too_large", "bridge envelope exceeds 256 KiB")
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    receipt.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if receipt.is_file():
+        return path, False
+    tmp = path.parent / f".{path.name}.{secrets.token_hex(6)}.tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(raw)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.link(tmp, path)
+        except FileExistsError:
+            pass
+        source = path if path.is_file() else tmp
+        try:
+            os.link(source, receipt)
+            accepted = True
+        except FileExistsError:
+            accepted = False
+        if path.is_file():
+            path.chmod(0o600)
+        receipt.chmod(0o600)
+        return path, accepted
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def _read_envelope(path: Path) -> dict:
@@ -91,6 +152,7 @@ class BridgeStore:
 
     def register_pairing(self, state: str, client: str, expires_at: float) -> Path:
         client = _safe_client(client)
+        _ensure_private_subdir(self.root, self.root / "pairing")
         return _write_envelope(
             self.root / "pairing" / f"{_digest(state)}.json",
             {"client": client, "expires_at": expires_at},
@@ -99,7 +161,7 @@ class BridgeStore:
     def consume_pairing(self, state: str) -> str:
         source = self.root / "pairing" / f"{_digest(state)}.json"
         claimed = self.root / "consumed" / f"{_digest(state)}.json"
-        claimed.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        _ensure_private_subdir(self.root, claimed.parent)
         try:
             os.replace(source, claimed)
         except OSError as exc:
@@ -111,6 +173,7 @@ class BridgeStore:
 
     def register_routes(self, identity: OperatorIdentity, client: str) -> None:
         client = _safe_client(client)
+        _ensure_private_subdir(self.root, self.root / "routes")
         for identity_id in identity.ids():
             _write_envelope(
                 self.root / "routes" / f"{_digest(identity_id)}.json",
@@ -119,10 +182,17 @@ class BridgeStore:
 
     def client_for(self, identity: OperatorIdentity) -> str:
         clients = set()
-        for identity_id in identity.ids():
-            path = self.root / "routes" / f"{_digest(identity_id)}.json"
-            if path.is_file():
-                clients.add(_safe_client(str(_read_envelope(path).get("client") or "")))
+        try:
+            for identity_id in identity.ids():
+                path = self.root / "routes" / f"{_digest(identity_id)}.json"
+                if path.is_file():
+                    clients.add(
+                        _safe_client(str(_read_envelope(path).get("client") or ""))
+                    )
+        except OSError as exc:
+            raise FeishuError(
+                "bridge_unavailable", "Hub operator route is not readable"
+            ) from exc
         if len(clients) != 1:
             raise FeishuError("route_missing", "operator is not paired to exactly one Client")
         return clients.pop()
@@ -132,7 +202,23 @@ class BridgeStore:
         if kind not in {"callbacks", "commands", "responses"}:
             raise FeishuError("invalid_envelope", "unsupported bridge envelope kind")
         filename = f"{_digest(envelope_id)}.json"
+        _ensure_private_subdir(self.root, self.root / kind / client)
         return _write_envelope(self.root / kind / client / filename, payload)
+
+    def enqueue_once(
+        self, client: str, kind: str, envelope_id: str, payload: dict
+    ) -> tuple[Path, bool]:
+        client = _safe_client(client)
+        if kind not in {"callbacks", "commands", "responses"}:
+            raise FeishuError("invalid_envelope", "unsupported bridge envelope kind")
+        filename = f"{_digest(envelope_id)}.json"
+        _ensure_private_subdir(self.root, self.root / kind / client)
+        _ensure_private_subdir(self.root, self.root / "receipts" / kind / client)
+        return _write_envelope_once(
+            self.root / kind / client / filename,
+            self.root / "receipts" / kind / client / filename,
+            payload,
+        )
 
 
 def begin_hub_pairing(config: FeishuConfig | None = None, cfg: AppConfig | None = None) -> dict:
@@ -155,27 +241,304 @@ def begin_hub_pairing(config: FeishuConfig | None = None, cfg: AppConfig | None 
             raise FeishuError("bridge_unavailable", "cannot initialize Hub pairing mailbox")
         host = hub.SshTarget(cfg.server, cfg.ssh_port).dest
         try:
-            hub._rsync(str(local), f"{host}:{remote_dir}/{local.name}", cfg)
+            hub._rsync(
+                str(local),
+                f"{host}:{remote_dir}/{local.name}",
+                cfg,
+                preserve_ownership=False,
+            )
         except SystemExit as exc:
             raise FeishuError("bridge_unavailable", str(exc)) from exc
     log.emit("feishu.bridge.pair", client=cfg.client, state=_digest(state)[:12])
     return {**started, "via": cfg.server}
 
 
-def _format_result(payload: dict) -> str:
-    if payload.get("confirmation_required"):
-        return (
-            f"需要二次确认：/dt {payload.get('action')} {payload.get('name')} "
-            f"{payload.get('token')}（{payload.get('expires_in')} 秒内有效）"
+def publish_installation_to_hub(
+    cfg: AppConfig | None = None, identity: OperatorIdentity | None = None
+) -> str:
+    """Copy only encrypted credentials and hashed routes to the Hub."""
+    from . import hub
+    from .feishu import CredentialVault
+
+    cfg = cfg or load_config()
+    if not cfg.hub_enabled:
+        raise FeishuError("hub_required", "installation publishing requires Hub mode")
+    vault = CredentialVault()
+    if not vault.installation_path.is_file() or not vault.key_path.is_file():
+        raise FeishuError("not_installed", "no encrypted Feishu installation to publish")
+    remote = f"{hub.remote_root(cfg)}/feishu"
+    host = hub.SshTarget(cfg.server, cfg.ssh_port).dest
+    bridge_dirs = " ".join(f"{remote}/bridge/{name}" for name in BRIDGE_DIRS)
+    result = hub._run(
+        hub.ssh_argv(cfg)
+        + [
+            (
+                f"mkdir -p {bridge_dirs} && "
+                f"chmod 700 {remote} {remote}/bridge {bridge_dirs}"
+            )
+        ]
+    )
+    if result.returncode != 0:
+        raise SystemExit("[err] cannot prepare Hub Feishu directory")
+    hub._rsync(
+        str(vault.key_path),
+        f"{host}:{remote}/credential.key",
+        cfg,
+        preserve_ownership=False,
+    )
+    hub._rsync(
+        str(vault.installation_path),
+        f"{host}:{remote}/installation.json",
+        cfg,
+        preserve_ownership=False,
+    )
+    if identity and identity.ids():
+        with tempfile.TemporaryDirectory(prefix="dt-feishu-routes-") as raw:
+            store = BridgeStore(Path(raw) / "bridge")
+            store.register_routes(identity, cfg.client)
+            hub._rsync(
+                f"{store.root / 'routes'}/",
+                f"{host}:{remote}/bridge/routes/",
+                cfg,
+                preserve_ownership=False,
+            )
+    result = hub._run(
+        hub.ssh_argv(cfg)
+        + [
+            (
+                f"owner=$(id -u):$(id -g) && "
+                f"chown $owner {remote} {remote}/bridge {bridge_dirs} && "
+                f"chmod 700 {remote} {remote}/bridge {bridge_dirs} && "
+                f"chown $owner {remote}/credential.key {remote}/installation.json && "
+                f"chmod 600 {remote}/credential.key {remote}/installation.json && "
+                f"find {remote}/bridge -type f -exec chown $owner {{}} + && "
+                f"find {remote}/bridge -type f -exec chmod 600 {{}} +"
+            )
+        ]
+    )
+    if result.returncode != 0:
+        raise FeishuError(
+            "hub_installation_permissions",
+            "Hub did not confirm secure Feishu storage ownership",
         )
-    return json.dumps(payload, ensure_ascii=False, indent=2)[:12000]
+    log.emit("feishu.installation.hub", host=host, client=cfg.client)
+    return f"{host}:{remote}"
 
 
-def sync_client(cfg: AppConfig | None = None, dispatcher: FeishuDispatcher | None = None) -> dict:
-    """Pull this Client's inbox, execute it once, and publish response envelopes."""
+def remove_installation_from_hub(cfg: AppConfig | None = None) -> None:
+    """Stop the Hub connector by atomically removing its active installation."""
     from . import hub
 
     cfg = cfg or load_config()
+    if not cfg.hub_enabled:
+        return
+    remote = f"{hub.remote_root(cfg)}/feishu"
+    result = hub._run(
+        hub.ssh_argv(cfg)
+        + [
+            "rm",
+            "-f",
+            f"{remote}/installation.json",
+            f"{remote}/credential.key",
+        ]
+    )
+    if result.returncode != 0:
+        raise FeishuError(
+            "hub_unbind_failed",
+            "Hub did not confirm credential removal; installation remains bound",
+        )
+    log.emit("feishu.installation.hub_remove", host=cfg.server)
+
+
+def hub_feishu_status(cfg: AppConfig | None = None) -> dict:
+    """Read only public installation/daemon state from the configured Hub."""
+    from . import hub
+
+    cfg = cfg or load_config()
+    if not cfg.hub_enabled:
+        return {}
+    remote = f"{hub.remote_root(cfg)}/feishu"
+    installed = hub._run(
+        hub.ssh_argv(cfg) + ["test", "-f", f"{remote}/installation.json"]
+    ).returncode == 0
+    result = hub._run(
+        hub.ssh_argv(cfg) + ["cat", f"{remote}/daemon-status.json"]
+    )
+    daemon = {}
+    if result.returncode == 0:
+        try:
+            daemon = json.loads(result.stdout or "{}")
+            if time.time() - float(daemon.get("updated_at") or 0) > 10:
+                daemon["running"] = False
+                daemon["connector"] = "stale"
+        except json.JSONDecodeError:
+            daemon = {"running": False, "connector": "unknown", "owner": "hub"}
+    return {"installed": installed, "daemon": daemon, "bridge": cfg.server}
+
+
+def sync_installation_from_hub(cfg: AppConfig | None = None) -> bool:
+    """Atomically refresh the encrypted deployment Bot for Client failover."""
+    from . import hub
+    from .feishu import CredentialVault
+
+    cfg = cfg or load_config()
+    if not cfg.hub_enabled:
+        return False
+    remote = f"{hub.remote_root(cfg)}/feishu"
+    host = hub.SshTarget(cfg.server, cfg.ssh_port).dest
+    with tempfile.TemporaryDirectory(prefix="dt-feishu-installation-") as raw:
+        candidate = CredentialVault(Path(raw))
+        try:
+            hub._rsync(
+                f"{host}:{remote}/credential.key", str(candidate.key_path), cfg
+            )
+            hub._rsync(
+                f"{host}:{remote}/installation.json",
+                str(candidate.installation_path),
+                cfg,
+            )
+        except SystemExit as exc:
+            raise FeishuError("hub_installation_unavailable", str(exc)) from exc
+        candidate.key_path.chmod(0o600)
+        candidate.installation_path.chmod(0o600)
+        candidate.load()  # Validate the pair before replacing either active file.
+        local = CredentialVault()
+        local.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        with local.locked(exclusive=True):
+            os.replace(candidate.key_path, local.key_path)
+            os.replace(candidate.installation_path, local.installation_path)
+            local.key_path.chmod(0o600)
+            local.installation_path.chmod(0o600)
+    return True
+
+
+def _tunnel_markdown(item: dict) -> str:
+    name = str(item.get("name") or "未命名")
+    client = str(item.get("client") or "—")
+    trigger = item.get("trigger") or {}
+    bullet = item.get("bullet") or {}
+    trigger_text = " · ".join(
+        part for part in (str(trigger.get("tool") or "—"), str(trigger.get("model") or "")) if part
+    )
+    bullet_text = " · ".join(
+        part for part in (str(bullet.get("tool") or "—"), str(bullet.get("model") or "")) if part
+    )
+    return (
+        f"**{name}**  \n"
+        f"Client：{client}  \n"
+        f"Trigger：{trigger_text}  \n"
+        f"Bullet：{bullet_text}"
+    )
+
+
+def _format_result(payload: dict) -> str:
+    """Render a ControlResult as concise Feishu Markdown, never raw JSON."""
+    if payload.get("confirmation_required"):
+        return (
+            "⚠️ **需要二次确认**\n\n"
+            f"请发送：`/dt {payload.get('action')} {payload.get('name')} "
+            f"{payload.get('token')}`\n\n"
+            f"有效期：{payload.get('expires_in')} 秒"
+        )
+    if not payload.get("ok"):
+        error = payload.get("error") or {}
+        return (
+            "❌ **操作失败**\n\n"
+            f"{error.get('message') or payload.get('message') or '未知错误'}\n\n"
+            f"错误码：`{error.get('code') or 'operation_failed'}`"
+        )
+    result = payload.get("result") or payload
+    operation = str(result.get("operation") or "operation")
+    data = result.get("data")
+    warnings = result.get("warnings") or []
+    if operation == "tunnel.list":
+        rows = data if isinstance(data, list) else []
+        blocks = [_tunnel_markdown(item) for item in rows[:30] if isinstance(item, dict)]
+        body = f"✅ **隧道列表（{len(rows)}）**"
+        if blocks:
+            body += "\n\n" + "\n\n---\n\n".join(blocks)
+        else:
+            body += "\n\n暂无隧道。"
+        if len(rows) > 30:
+            body += f"\n\n另有 {len(rows) - 30} 条，请在 Web 中查看。"
+    elif operation == "tunnel.get" and isinstance(data, dict):
+        runtime = data.get("runtime") or {}
+        body = "✅ **隧道详情**\n\n" + _tunnel_markdown(data)
+        location = " · ".join(
+            str(value)
+            for value in (runtime.get("server"), runtime.get("container"), runtime.get("directory"))
+            if value
+        )
+        if location:
+            body += f"\n\n运行位置：{location}"
+    else:
+        labels = {
+            "pane.send": "消息已发送",
+            "health.probe": "健康检查完成",
+            "session.freeze": "会话已冻结",
+            "session.resume": "会话已恢复",
+            "health.recover": "恢复操作完成",
+            "tunnel.drop": "隧道已停止",
+            "tunnel.remove": "隧道已删除",
+        }
+        body = f"✅ **{labels.get(operation, '操作完成')}**\n\n操作：`{operation}`"
+        if isinstance(data, dict):
+            visible = []
+            for key in ("name", "side", "pane", "status", "state", "healthy", "recovered"):
+                if key in data and data[key] not in (None, ""):
+                    visible.append(f"- {key}：{data[key]}")
+            if visible:
+                body += "\n\n" + "\n".join(visible)
+    if warnings:
+        body += "\n\n⚠️ " + "；".join(str(item) for item in warnings)
+    return body[:12000]
+
+
+def format_feishu_reply(payload: dict) -> dict:
+    markdown = _format_result(payload)
+    card = {
+        "config": {"wide_screen_mode": True},
+        "header": {
+            "template": "blue" if payload.get("ok") else "red",
+            "title": {"tag": "plain_text", "content": "dual-tmux"},
+        },
+        "elements": [
+            {"tag": "div", "text": {"tag": "lark_md", "content": markdown}}
+        ],
+    }
+    return {"msg_type": "interactive", "content": card, "fallback": markdown}
+
+
+@contextmanager
+def _sync_lock():
+    """Prevent daemon, cron and manual sync from executing one event twice."""
+    import fcntl
+
+    path = home_dir() / "feishu" / "sync.lock"
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.parent.chmod(0o700)
+    handle = path.open("a+", encoding="utf-8")
+    path.chmod(0o600)
+    acquired = False
+    try:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            acquired = True
+        except BlockingIOError:
+            pass
+        yield acquired
+    finally:
+        if acquired:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        handle.close()
+
+
+def _sync_client_unlocked(
+    cfg: AppConfig, dispatcher: FeishuDispatcher | None = None
+) -> dict:
+    """Pull this Client's inbox, execute it once, and publish response envelopes."""
+    from . import hub
+
     if not cfg.hub_enabled:
         return {"ok": True, "mode": "local", "callbacks": 0, "commands": 0}
     client = _safe_client(cfg.client)
@@ -190,7 +553,12 @@ def sync_client(cfg: AppConfig | None = None, dispatcher: FeishuDispatcher | Non
             local_dir.mkdir(parents=True)
             result = hub._run(
                 hub.ssh_argv(cfg)
-                + [f"mkdir -p {remote}/{kind}/{client} {remote}/responses/{client}"]
+                + [
+                    (
+                        f"mkdir -p {remote}/{kind}/{client} {remote}/responses/{client} && "
+                        f"chmod 700 {remote}/{kind}/{client} {remote}/responses/{client}"
+                    )
+                ]
             )
             if result.returncode != 0:
                 raise FeishuError("bridge_unavailable", "cannot open Hub Feishu mailbox")
@@ -220,17 +588,84 @@ def sync_client(cfg: AppConfig | None = None, dispatcher: FeishuDispatcher | Non
                 response = {
                     "event_id": str(item.get("event_id") or path.stem),
                     "message_id": str(item.get("message_id") or ""),
+                    "chat_id": str(item.get("chat_id") or ""),
                     "text": _format_result(result_payload),
+                    "reply": format_feishu_reply(result_payload),
                     "payload": result_payload,
                 }
                 response_path = snapshot / f"response-{path.name}"
                 _write_envelope(response_path, response)
-                hub._rsync(response_path.as_posix(), f"{host}:{remote}/responses/{client}/{path.name}", cfg)
+                hub._rsync(
+                    response_path.as_posix(),
+                    f"{host}:{remote}/responses/{client}/{path.name}",
+                    cfg,
+                    preserve_ownership=False,
+                )
                 removal = hub._run(hub.ssh_argv(cfg) + ["rm", "-f", f"{remote}/{kind}/{client}/{path.name}"])
                 if removal.returncode != 0:
                     counts["errors"] += 1
     log.emit("feishu.bridge.sync", client=client, **counts)
     return {"ok": counts["errors"] == 0, "mode": "hub", **counts}
+
+
+def sync_client(
+    cfg: AppConfig | None = None, dispatcher: FeishuDispatcher | None = None
+) -> dict:
+    cfg = cfg or load_config()
+    with _sync_lock() as acquired:
+        if not acquired:
+            return {
+                "ok": True,
+                "mode": cfg.mode,
+                "callbacks": 0,
+                "commands": 0,
+                "errors": 0,
+                "skipped": "busy",
+            }
+        return _sync_client_unlocked(cfg, dispatcher)
+
+
+def sync_client_if_pending(
+    cfg: AppConfig | None = None, dispatcher: FeishuDispatcher | None = None
+) -> dict:
+    """Use one cheap SSH probe; open rsync transfers only when work exists."""
+    from . import hub
+
+    cfg = cfg or load_config()
+    if not cfg.hub_enabled:
+        return {"ok": True, "mode": "local", "callbacks": 0, "commands": 0}
+    client = _safe_client(cfg.client)
+    remote = f"{hub.remote_root(cfg)}/feishu/bridge"
+    with _sync_lock() as acquired:
+        if not acquired:
+            return {
+                "ok": True,
+                "mode": "hub",
+                "callbacks": 0,
+                "commands": 0,
+                "errors": 0,
+                "skipped": "busy",
+            }
+        probe = hub._run(
+            hub.ssh_argv(cfg)
+            + [
+                (
+                    f"find {remote}/callbacks/{client} {remote}/commands/{client} "
+                    "-maxdepth 1 -type f -name '*.json' -print -quit 2>/dev/null"
+                )
+            ]
+        )
+        if probe.returncode != 0:
+            raise FeishuError("bridge_unavailable", "cannot probe Hub Feishu mailbox")
+        if not (probe.stdout or "").strip():
+            return {
+                "ok": True,
+                "mode": "hub",
+                "callbacks": 0,
+                "commands": 0,
+                "errors": 0,
+            }
+        return _sync_client_unlocked(cfg, dispatcher)
 
 
 class FeishuReplyTransport:

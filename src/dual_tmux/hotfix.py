@@ -52,7 +52,7 @@ def sessions_home() -> Path:
 def crontab_text() -> str:
     try:
         result = subprocess.run(
-            ["crontab", "-l"], capture_output=True, text=True, timeout=8
+            ["crontab", "-l"], capture_output=True, text=True, timeout=8, check=False
         )
     except subprocess.TimeoutExpired:
         return ""
@@ -120,7 +120,7 @@ def ensure_hub_trees(cfg: AppConfig) -> Step:
     cmd = f"mkdir -p ~/{rel_tmux} ~/{rel_oc}"
     try:
         result = subprocess.run(
-            _ssh_argv(cfg) + [cmd], capture_output=True, text=True, timeout=12
+            _ssh_argv(cfg) + [cmd], capture_output=True, text=True, timeout=12, check=False
         )
     except subprocess.TimeoutExpired:
         return Step("hub-trees", False, "ssh mkdir timed out", False)
@@ -141,7 +141,7 @@ def _install_cron_line(line: str, marker: str) -> bool:
     text = f"{body}\n{line}\n" if body else f"{line}\n"
     try:
         result = subprocess.run(
-            ["crontab", "-"], input=text, capture_output=True, text=True, timeout=8
+            ["crontab", "-"], input=text, capture_output=True, text=True, timeout=8, check=False
         )
     except subprocess.TimeoutExpired:
         raise SystemExit("[err] crontab timed out")
@@ -246,12 +246,32 @@ def install_tick() -> Step:
     return Step("tick-cron", True, cron_ops.line(), True)
 
 
+def install_feishu_daemon() -> Step:
+    from . import daemon_service
+    from .feishu import CredentialVault, FeishuError
+
+    try:
+        installation = CredentialVault().load()
+    except FeishuError:
+        installation = {}
+    if not installation or not installation.get("active", True):
+        return Step("feishu-daemon", True, "no active PersonalAgent", False)
+    path = daemon_service.launchd_path() if __import__("platform").system() == "Darwin" else daemon_service.systemd_path()
+    changed = not path.is_file()
+    try:
+        installed = daemon_service.install()
+    except SystemExit as exc:
+        return Step("feishu-daemon", False, str(exc), False)
+    return Step("feishu-daemon", True, str(installed), changed)
+
+
 def apply(cfg: AppConfig | None = None, *, ssh: bool = True) -> list[Step]:
     cfg = cfg or load_config()
     steps = [
         sync_persist_identity(cfg),
         ensure_local_trees(cfg),
         install_tick(),
+        install_feishu_daemon(),
         install_persist_sync(cfg) if cfg.hub_enabled else uninstall_persist_sync(),
     ]
     if ssh and cfg.hub_enabled:
