@@ -35,6 +35,7 @@
 | D-31 | 权限错误返回结构化 bridge 错误并记录 errno 类别，不泄露服务端路径 | W-9 | pytest fake callback |
 | D-32 | `user_a` 与 `user_b` 使用独立目录、daemon、lease、route 和 mailbox | W-10 | 双 deployment integration |
 | D-33 | 同一 event 入队前/command 消费后重投均不覆盖 payload、不重复回执 | W-4/W-6 | pytest persistent receipt |
+| D-34 | 飞书结果使用 Markdown 卡片而非原始 JSON；卡片拒绝时回退可读纯文本 | W-4/W-6 | pytest fake Feishu API + 真实消息 |
 
 ## 3. Web
 
@@ -56,3 +57,4 @@
 | E-43 | 无预置 App 的企业飞书真实扫码、私聊命令与回包 | 正式发布硬门禁 |
 | E-44 | 现有 PersonalAgent 不重扫，修复 ownership 后 `/dt ls` 完整回包 | W-9，正式发布硬门禁 |
 | E-45 | tom7r 两个测试 user 同时运行独立 daemon，消息和状态互不可见 | W-10，列装硬门禁 |
+| E-46 | `/dt ls` 返回可读 Markdown 卡片且不暴露 ControlResult JSON | W-4，正式发布硬门禁 |

@@ -205,6 +205,8 @@ v0.4.48 uses Feishu's official scan-to-create Device Registration flow. The user
 
 There is one shared PersonalAgent per dual-tmux deployment, not one per Client. Hub mode defaults to a tom7r-owned persistent WS; local-only can use a local standalone WS; advanced Client failover uses an atomic Hub lease plus generation fencing so only one daemon can be active.
 
+Feishu command results are rendered for people, not returned as API JSON. Read operations such as `/dt ls` and `/dt show` use a Markdown message card with tunnel, Client, Trigger and Bullet summaries; write operations return a concise status card. If a tenant rejects interactive cards, dual-tmux automatically falls back to readable plain text. The structured result remains only in the durable mailbox envelope and audit layer.
+
 ## Default agent: OpenCode
 
 The intended occupants of `op_*` (trigger) and `run_*` (bullet) are **[OpenCode](https://opencode.ai)** sessions.

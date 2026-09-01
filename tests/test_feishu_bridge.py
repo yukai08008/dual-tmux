@@ -21,6 +21,7 @@ from dual_tmux.feishu_bridge import (
     BridgeHTTPServer,
     BridgeStore,
     _read_envelope,
+    format_feishu_reply,
     hub_feishu_status,
     publish_installation_to_hub,
     sync_client,
@@ -274,6 +275,36 @@ def test_sync_client_processes_command_once_and_writes_response(dt_home, monkeyp
     envelope = _read_envelope(response)
     assert envelope["message_id"] == "om_1"
     assert envelope["chat_id"] == "oc_1"
+    assert envelope["reply"]["msg_type"] == "interactive"
+    assert "**隧道列表（1）**" in envelope["reply"]["content"]["elements"][0]["text"]["content"]
+    assert '"operation"' not in envelope["reply"]["fallback"]
+
+
+def test_feishu_list_reply_is_human_markdown_not_raw_json():
+    reply = format_feishu_reply(
+        {
+            "ok": True,
+            "result": {
+                "ok": True,
+                "operation": "tunnel.list",
+                "data": [
+                    {
+                        "name": "dt-demo",
+                        "client": "tm_laptop",
+                        "trigger": {"tool": "codex", "model": "gpt-5"},
+                        "bullet": {"tool": "claude", "model": "sonnet"},
+                    }
+                ],
+                "warnings": [],
+            },
+        }
+    )
+    assert reply["msg_type"] == "interactive"
+    markdown = reply["content"]["elements"][0]["text"]["content"]
+    assert "dt-demo" in markdown
+    assert "Trigger：codex · gpt-5" in markdown
+    assert "Bullet：claude · sonnet" in markdown
+    assert not markdown.lstrip().startswith("{")
 
 
 def test_publish_installation_sends_only_encrypted_bundle_and_hashed_route(
