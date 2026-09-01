@@ -14,6 +14,7 @@
   - **issue-feishu-route-permission-denied** (CLOSED): Hub ownership/0700/0600 归一化、结构化错误和容器读写探针通过；2026-09-01 真实 `/dt ls` 完整回包，用户确认收到。
   - **issue-feishu-replayed-event-duplicate-ack** (CLOSED): deployment 内持久 receipt、逐级 0700 和重投拒绝探针通过；真实 `/dt ls` 只回执一次、执行一次。
   - **issue-feishu-raw-json-reply** (FIXING): 真实闭环返回 ControlResult JSON，不适合作为用户界面；改为飞书 interactive Markdown 卡片并提供可读纯文本 fallback，待真实卡片确认。
+  - **issue-feishu-client-mailbox-not-consumed** (FIXING): tom7r WS 常驻但本机 0.4.46.post1 tick 不含 mailbox sync，命令永久积压；将候选版 Client daemon 提升为 5 秒确定性 worker，tick 保留一分钟兜底，三入口使用跨进程锁串行化。
 - **hotfix/v0.4.48-web-durable-turn-tracking** (MERGED): pending turn 写前日志、completion 基线、页面恢复和幂等消费已合并至 main；161 tests、真实 `dt-portal` 恢复与刷新 E2E 通过。
   - **issue-web-trigger-result-not-collected** (CLOSED): 缺失的 `Grok 4.6 · 3m 0s` 结果已归集到问答区；刷新后未重复，pending 正确关闭。
 

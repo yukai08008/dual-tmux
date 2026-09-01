@@ -253,8 +253,11 @@ class FakeRegistration:
 
 def test_scan_registration_encrypts_generated_credentials(dt_home):
     clock = [1000.0]
+    installed = []
     service = AppRegistrationService(
-        transport=FakeRegistration(), clock=lambda: clock[0]
+        transport=FakeRegistration(),
+        clock=lambda: clock[0],
+        daemon_installer=lambda: installed.append(True),
     )
     started = service.begin()
     assert started["status"] == "pending"
@@ -270,6 +273,7 @@ def test_scan_registration_encrypts_generated_credentials(dt_home):
     assert "APP-SECRET-NEVER-PLAIN" not in installation.read_text()
     assert CredentialVault().load()["app_secret"] == "APP-SECRET-NEVER-PLAIN"
     assert list_bindings()[0].open_id == "ou_installer"
+    assert installed == [True]
 
 
 def test_registration_refuses_to_replace_existing_deployment_bot(dt_home):
