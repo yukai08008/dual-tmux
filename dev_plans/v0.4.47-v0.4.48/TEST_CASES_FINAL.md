@@ -5,14 +5,14 @@
 | 维度 | 数量 | 通过 | 待外部条件 | 失败 |
 |---|---:|---:|---:|---:|
 | 应用内 Browser E2E 场景 | 3 | 3 | 0 | 0 |
-| 自动化/安全/构建 | 192 | 192 | 0 | 0 |
+| 自动化/安全/构建 | 193 | 193 | 0 | 0 |
 | 企业飞书真实 E2E | 2 | 1 | 1 | 0 |
 
 ## 逐条结果
 
 | ID | 用例 | 结果 | 备注 |
 |---|---|---|---|
-| B-00 | 全量 pytest | PASS | 192 tests |
+| B-00 | 全量 pytest | PASS | 193 tests |
 | B-01 | compileall/focused Ruff/build | PASS | sdist + wheel 0.4.48 |
 | B-02 | runtime data 未追踪 | PASS | `git ls-files data/` 为空 |
 | B-10~B-15 | bridge 摘要/路由/可靠性/验证/模式 | PASS | pytest + 隔离 mailbox |
