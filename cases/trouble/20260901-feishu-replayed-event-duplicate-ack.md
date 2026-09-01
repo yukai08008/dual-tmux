@@ -19,3 +19,7 @@ commands 信封名虽然由 `event_id` 哈希确定，但原实现使用 replace
 
 - 自动化覆盖入队前重投、command 消费后重投和首份 payload 不被覆盖。
 - 真实飞书同一事件只出现一次即时回执、只执行一次命令。
+
+## 部署补充发现
+
+首次部署 `c33038c` 后，真实容器探针发现 receipt 文件为 0600、最末级 Client 目录为 0700，但递归创建的 `receipts/` 与 `receipts/commands/` 中间目录受 umask 影响成为 0755。内容未泄露，但不符合 mailbox 全目录 0700 的安全不变量。后续修复改为从 bridge root 开始逐级创建并显式 chmod 0700，同时覆盖 commands/responses 的运行时 Client 子目录。

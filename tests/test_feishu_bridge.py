@@ -87,6 +87,15 @@ def test_bridge_store_keeps_event_receipt_after_command_consumption(dt_home, tmp
     assert consumed_replay is False
     assert not command.exists()
     assert _read_envelope(receipt)["text"] == "/dt ls"
+    for directory in (
+        store.root,
+        store.root / "commands",
+        store.root / "commands" / "tm_laptop",
+        store.root / "receipts",
+        store.root / "receipts" / "commands",
+        store.root / "receipts" / "commands" / "tm_laptop",
+    ):
+        assert directory.stat().st_mode & 0o777 == 0o700
 
 
 def test_bridge_store_reports_unreadable_route_without_leaking_path(
