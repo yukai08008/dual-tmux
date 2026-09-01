@@ -1,13 +1,13 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-01 16:00 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-01 18:12 +08:00 | 更新者: Codex PM
 
 ## 状态树
 
 ### v0.4.48 (RELEASED) — 飞书扫码 Web 与 tom7r 事件桥
 
 - **hotfix/v0.4.48-upgrade-github-release** (MERGED): v0.4.48 已于 `687a356` 发布；真实升级发现 uv receipt 固定旧 GitHub wheel URL，已在 v0.4.48.post1 改为官方 GitHub latest discovery + tag/asset 校验 + force install + 禁止降级。
-- **hotfix/v0.4.48.post2-version-consistency** (DEVELOPING): post1 真实安装可正确更新 uv receipt，但包元数据与 CLI 源码常量漂移，`dt --version` 仍显示 0.4.48；以 post2 同步两个版本源并执行真实 post1 → post2 自升级验证。
+- **hotfix/v0.4.48.post2-version-consistency** (MERGED): PR #16 已合并并发布 v0.4.48.post2；真实 `dt upgrade` 从 post1 自动选择 post2，CLI/metadata 均为 0.4.48.post2，config/tunnel 哈希不变，正式 launchd mailbox worker running。
 
 - **feature/v0.4.48-feishu-web-bridge** (MERGED): PR #12 已合并，远端 main=`e1e2494`。Web QR/绑定管理、tom7r mailbox bridge、飞书 callback/event、Client 离线可靠消费、outbox 回包合同与 Docker 部署模板已完成；159 tests、Browser E2E、编译/lint/build、tom7r 容器 build/health 全绿。企业飞书真实 E2E 因缺 App 凭据/HTTPS callback 仍为 P1 发布门禁；v0.4.48 保持 ACTIVE，不创建 Release。
 - **feature/v0.4.48-feishu-scan-ws** (MERGE_PENDING): 飞书 Device Registration、自动加密凭据、独立 `dt daemon`、local/Hub 单活 WS、mailbox 路由、Markdown 卡片与常驻 Client worker 均已实现；193 tests、构建、真实扫码、WS、命令回包和无手工 sync 消费验证通过，PR #14 待自动合并发布。
