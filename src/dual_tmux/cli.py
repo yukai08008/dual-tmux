@@ -1382,13 +1382,20 @@ def cmd_daemon(args: argparse.Namespace) -> None:
 
 def cmd_upgrade(_: argparse.Namespace) -> None:
     ui.info(f"Current version: {__version__}")
-    result = subprocess.run(
-        ["uv", "tool", "upgrade", "dual-tmux"],
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        raise SystemExit(result.returncode)
+    try:
+        from .upgrade import install_latest
+
+        asset = install_latest(__version__)
+        ui.ok(f"GitHub Release  {asset.tag} ({asset.version})")
+    except (OSError, RuntimeError, ValueError) as exc:
+        ui.warn(f"GitHub Release discovery failed; using uv fallback: {exc}")
+        result = subprocess.run(
+            ["uv", "tool", "upgrade", "dual-tmux"],
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise SystemExit(result.returncode)
     dt = shutil.which("dt") or str(Path.home() / ".local" / "bin" / "dt")
     os.execv(dt, [dt, "hotfix"])
 
