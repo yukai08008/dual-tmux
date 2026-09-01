@@ -1,16 +1,17 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-01 08:55 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-01 09:50 +08:00 | 更新者: Codex PM
 
 ## 状态树
 
 ### v0.4.48 (ACTIVE) — 飞书扫码 Web 与 tom7r 事件桥
 
 - **feature/v0.4.48-feishu-web-bridge** (MERGED): PR #12 已合并，远端 main=`e1e2494`。Web QR/绑定管理、tom7r mailbox bridge、飞书 callback/event、Client 离线可靠消费、outbox 回包合同与 Docker 部署模板已完成；159 tests、Browser E2E、编译/lint/build、tom7r 容器 build/health 全绿。企业飞书真实 E2E 因缺 App 凭据/HTTPS callback 仍为 P1 发布门禁；v0.4.48 保持 ACTIVE，不创建 Release。
-- **feature/v0.4.48-feishu-scan-ws** (CODE_COMPLETE): 飞书 Device Registration、自动加密凭据、独立 `dt daemon`、local/Hub 单活 WS、mailbox 路由与回包均已实现；已集成 main 的 Web durable turn tracking hotfix，182 tests、Browser 冒烟、编译、构建与数据门禁全绿。待 `/dt ls` 真实回包 E2E 后进入 MERGE_PENDING。
+- **feature/v0.4.48-feishu-scan-ws** (DEVELOPING): 飞书 Device Registration、自动加密凭据、独立 `dt daemon`、local/Hub 单活 WS、mailbox 路由与回包均已实现；已集成 main 的 Web durable turn tracking hotfix。真实消息发现 Hub route ownership 回归，修复并完成 `/dt ls` 闭环前不得进入 MERGE_PENDING。
   - **issue-feishu-scan-to-create** (RESOLVED): 已移除正式路径中的 App ID/Secret/callback 配置，改为扫码自动创建 PersonalAgent；Hub 删除失败时保留本地安装。
   - **issue-feishu-hub-credential-owner** (RESOLVED): 首次真实扫码发现 `rsync -a` 保留 Client UID，Hub daemon 安全校验拒绝读取；发布后归一化为 Hub SSH 用户 ownership + 0600，tom7r WS 已 `connected`。
   - **issue-feishu-single-bot-fencing** (RESOLVED): 一个 deployment 只有一个总 PersonalAgent；本地/Hub/双 Client 接管均使用唯一实例 owner、原子 lease 与 generation fencing。重复扫码 fail-closed，Hub 状态统一展示；tom7r 双容器接管与旧 owner 恢复实测无双 active。
+  - **issue-feishu-route-permission-denied** (FIXING): 已确认 `bridge/routes` 保留 Client UID 501 导致 tom7r PermissionError；当前 Hub 已安全归一化并通过容器读写探针。持久修复增加 rsync no-owner/no-group、Hub bridge 白名单 ownership/0700/0600 归一化和结构化错误；待真实 `/dt ls` 回包后 RESOLVED。
 - **hotfix/v0.4.48-web-durable-turn-tracking** (MERGED): pending turn 写前日志、completion 基线、页面恢复和幂等消费已合并至 main；161 tests、真实 `dt-portal` 恢复与刷新 E2E 通过。
   - **issue-web-trigger-result-not-collected** (CLOSED): 缺失的 `Grok 4.6 · 3m 0s` 结果已归集到问答区；刷新后未重复，pending 正确关闭。
 

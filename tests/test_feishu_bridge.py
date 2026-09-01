@@ -68,6 +68,36 @@ def test_bridge_store_registers_only_hashes_and_routes(dt_home, tmp_path):
     assert store.client_for(identity) == "tm_laptop"
 
 
+def test_bridge_store_reports_unreadable_route_without_leaking_path(
+    dt_home, monkeypatch, tmp_path
+):
+    store = BridgeStore(tmp_path / "spool")
+    identity = OperatorIdentity(open_id="ou_a")
+    route = store.root / "routes" / "ignored.json"
+
+    def denied(self):
+        if self.parent.name == "routes":
+            raise PermissionError("/private/hub/user/feishu/bridge/routes")
+        return False
+
+    monkeypatch.setattr(type(route), "is_file", denied)
+    with pytest.raises(FeishuError) as caught:
+        store.client_for(identity)
+    assert caught.value.code == "bridge_unavailable"
+    assert "/private/" not in str(caught.value)
+
+
+def test_distinct_user_namespaces_do_not_share_operator_routes(dt_home, tmp_path):
+    identity = OperatorIdentity(open_id="ou_same_enterprise_user")
+    user_a = BridgeStore(tmp_path / "user_a" / "dual-tmux" / "feishu" / "bridge")
+    user_b = BridgeStore(tmp_path / "user_b" / "dual-tmux" / "feishu" / "bridge")
+    user_a.register_routes(identity, "tm_a")
+    user_b.register_routes(identity, "tm_b")
+    assert user_a.client_for(identity) == "tm_a"
+    assert user_b.client_for(identity) == "tm_b"
+    assert set(user_a.root.rglob("*.json")).isdisjoint(user_b.root.rglob("*.json"))
+
+
 def test_bridge_callback_routes_identity_to_client(dt_home, monkeypatch, tmp_path):
     monkeypatch.setenv("DT_FEISHU_APP_SECRET", "secret")
     store = BridgeStore(tmp_path / "spool", clock=lambda: 100)
@@ -226,6 +256,7 @@ def test_publish_installation_sends_only_encrypted_bundle_and_hashed_route(
     vault.save("cli_auto", "TOP-SECRET", {"open_id": "ou_secret"})
     copied = []
     commands = []
+    timeline = []
 
     class Result:
         returncode = 0
@@ -233,6 +264,7 @@ def test_publish_installation_sends_only_encrypted_bundle_and_hashed_route(
 
     def run(argv, *args, **kwargs):
         commands.append(argv)
+        timeline.append(("run", argv[-1]))
         return Result()
 
     monkeypatch.setattr(hub, "_run", run)
@@ -245,6 +277,7 @@ def test_publish_installation_sends_only_encrypted_bundle_and_hashed_route(
         elif source.is_file():
             content = source.read_text(errors="replace")
         copied.append((str(src), str(dest), content))
+        timeline.append(("copy", str(dest)))
 
     monkeypatch.setattr(hub, "_rsync", capture)
     cfg = AppConfig(client="tm_laptop", server="tom7r", user="andy")
@@ -252,9 +285,22 @@ def test_publish_installation_sends_only_encrypted_bundle_and_hashed_route(
     assert any(dest.endswith("/credential.key") for _, dest, _ in copied)
     assert any(dest.endswith("/installation.json") for _, dest, _ in copied)
     permission_command = next(
-        argv[-1] for argv in commands if "chown $(id -u):$(id -g)" in argv[-1]
+        argv[-1] for argv in commands if "owner=$(id -u):$(id -g)" in argv[-1]
     )
     assert "chmod 600" in permission_command
+    assert "/remote/feishu/bridge/routes" in permission_command
+    assert "find /remote/feishu/bridge -type f -exec chown" in permission_command
+    route_copy = next(
+        i
+        for i, item in enumerate(timeline)
+        if item[0] == "copy" and item[1].endswith("/bridge/routes/")
+    )
+    permission_call = next(
+        i
+        for i, item in enumerate(timeline)
+        if item[0] == "run" and "owner=$(id -u):$(id -g)" in item[1]
+    )
+    assert permission_call > route_copy
     route_text = next(content for _, dest, content in copied if dest.endswith("/bridge/routes/"))
     assert "ou_secret" not in route_text
     assert "TOP-SECRET" not in vault.installation_path.read_text()

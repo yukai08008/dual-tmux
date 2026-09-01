@@ -259,6 +259,7 @@ def run_feishu_connector() -> None:
                 result = dispatcher.dispatch(event_id, identity, text.strip())
                 reply = _result_text(result)
         except FeishuError as exc:
+            log.emit("feishu.ws.message.reject", code=exc.code)
             reply = f"请求未执行：{exc}"
         except Exception as exc:  # noqa: BLE001 - SDK callback must not crash silently.
             log.emit("feishu.ws.message.error", reason=type(exc).__name__)

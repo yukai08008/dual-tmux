@@ -71,8 +71,17 @@ def _ensure_remote(cfg: AppConfig) -> None:
         raise SystemExit(f"[err] hub mkdir: {err[-1] if err else 'failed'}")
 
 
-def _rsync(src: str, dest: str, cfg: AppConfig, *, update: bool = False) -> None:
+def _rsync(
+    src: str,
+    dest: str,
+    cfg: AppConfig,
+    *,
+    update: bool = False,
+    preserve_ownership: bool = True,
+) -> None:
     argv = ["rsync", "-a"]
+    if not preserve_ownership:
+        argv.extend(["--no-owner", "--no-group"])
     if update:
         argv.append("--update")
     argv.extend(["-e", rsync_ssh(cfg), src, dest])

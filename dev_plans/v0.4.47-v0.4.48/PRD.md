@@ -38,6 +38,9 @@
 - Web 写请求保持 same-origin；Device Code、轮询结果和凭据永不进入浏览器。
 - `dt web` 不是 WS 生命周期所有者；关闭 Web 不得让已绑定 Bot 下线。
 - 任一拓扑最多一个 active WS owner；owner 必须持有原子 lease 与 generation，旧 generation 恢复后保持 standby。
+- Hub deployment ID 为配置中的 `user`；同一 `server + user` 的多 Client 共享一个 PersonalAgent，不同 `user` 的 credentials、routes、mailbox、lease 和 daemon 必须完全隔离。
+- Hub 同步完成后，所有 daemon 需要读取/写入的飞书目录和信封必须归一化为 Hub 服务身份：目录 0700、文件 0600；不得保留 Client UID/GID 导致服务不可读。
+- 一个 Hub daemon 只能挂载一个 deployment 根目录，不得通过挂载用户父目录获得跨租户读取能力。
 - 新页面必须通过应用内 Browser E2E；运行时数据不在 Git 追踪。
 
 ## 2. 顶层蓝图
@@ -73,7 +76,35 @@ Feishu scan ── Device Registration ── encrypted installation
 
 Client 不在线时 Hub inbox 保留；再次上线后消费。重复文件/事件不会重复执行。切到 local-only 时先释放 Hub 租约，再由本地 daemon 接管；连接切换不改写 tunnel/session 数据。租约异常时宁可 Bot 暂时离线，也不允许双活执行。
 
-## 6. 风险登记表
+## 6. Hub 用户名租户与 daemon 供给
+
+中心服务器继续使用既有目录，不引入新的租户数据库：
+
+```text
+~/<user>/dual-tmux/
+├── tunnels/ entries/ activity/ locks/
+└── feishu/
+    ├── credential.key + installation.json
+    ├── bridge/{routes,commands,responses,callbacks,pairing}/
+    └── daemon-status.json
+```
+
+隔离键为 `server + user`。同一用户的笔记本、台式机等 Client 属于同一 deployment；不同用户即使使用同一 tom7r、相同飞书企业或相同命令，也只访问各自目录。服务端为每个已安装飞书机器人的用户名幂等供给一个 daemon 实例，实例只挂载 `~/<user>/dual-tmux` 到 `/data`，容器名/服务实例名由经过合法性校验的 user 派生。解绑只停止该用户名的实例，不影响其他用户。
+
+本版先完成：单租户 ownership 修复、按用户名显式幂等供给、双用户名隔离验证和真实 `/dt ls` 闭环。未来若改为中心控制器自动发现/供给，仍必须保持相同目录与进程边界，不能把多个租户凭据加载进同一个 WS 进程。
+
+### 6.1 Hub 存储准备事务
+
+发布 installation 或 route 前后都执行同一幂等准备流程：创建固定白名单目录；将目录归一化为 Hub 服务 UID/GID 和 0700；将 credentials、route 与 mailbox 信封归一化为同一身份和 0600；最后用实际 daemon 身份执行 credentials 可解密、routes 可读、commands/responses 可原子创建的探针。任一步失败时不宣告安装成功，并返回不包含真实路径和身份数据的结构化错误码。
+
+### 6.2 兼容与无害切换
+
+- 修复不改变 JSON 格式、route hash、event ID 或 Client 名称，现有机器人无需重新扫码。
+- ownership 修复只作用于当前 `~/<user>/dual-tmux/feishu` 白名单，不递归修改 tunnels、sessions 或其他用户目录。
+- 升级时先修复存储，再重启当前租户 daemon；WS 短暂重连期间消息由飞书/邮箱重试，event ID 防止重复执行。
+- 同名 user 被视为同一 deployment，这是显式共享而非数据串租；公司账号侧必须保证用户名唯一且不可由普通用户冒用。
+
+## 7. 风险登记表
 
 | ID | 严重度 | 风险 | 缓解 | 责任人 |
 |---|---|---|---|---|
@@ -84,7 +115,10 @@ Client 不在线时 Hub inbox 保留；再次上线后消费。重复文件/事�
 | R5 | medium | 企业策略禁止 PersonalAgent 自动创建 | 自动协议测试 + Browser E2E；正式推广前用真实企业账号扫码验证 | Tester |
 | R6 | high | Web 退出导致 Bot 离线 | 独立 daemon + 服务管理器，不由 Web 持有 WS | Coder |
 | R7 | high | local/Hub 同时消费 | 单活租约、fencing token、event_id 去重 | Coder |
+| R8 | high | rsync 保留 Client UID 使 Hub daemon 无法读写 mailbox | Hub 服务身份归一化 + daemon 身份读写探针 + cap-drop 容器回归 | Coder |
+| R9 | high | 多用户共用中心服务器时跨租户读取或错误共用机器人 | `server + user` namespace、每用户独立 daemon/挂载、双用户隔离 E2E | Coder/Tester |
+| R10 | medium | 用户名重复导致非预期共享 deployment | 初始化/供给时合法性与唯一性检查，企业账号统一分配 | PM/Ops |
 
-## 7. 签名
+## 8. 签名
 
 Agent-PM-0.4.48

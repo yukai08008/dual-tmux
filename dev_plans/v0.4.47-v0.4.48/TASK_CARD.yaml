@@ -11,6 +11,9 @@ invariants:
   - "dt web 不持有 WS 生命周期，daemon 独立常驻"
   - "local/Hub 连接租约单活，ControlService 执行"
   - "active WS 必须持有原子 lease + generation，旧 generation fail-closed"
+  - "server + user 是 Hub deployment 隔离键，不同 user 的凭据、mailbox、lease、daemon 不共享"
+  - "Hub 飞书目录归一化为服务身份：目录 0700、文件 0600"
+  - "每个 Hub daemon 只挂载一个 user 的 dual-tmux 根目录"
   - "运行时数据不在 git 追踪中"
   - "前端 e2e 覆盖新功能"
 deliverables:
@@ -24,6 +27,8 @@ deliverables:
     change: 飞书配置、QR、状态、解绑和同步页面/API
   - module: src/dual_tmux/cli.py
     change: bridge serve/sync 与 tick 集成
+  - module: deploy/feishu-bridge
+    change: 按用户名幂等供给单租户 daemon，提供权限修复和服务身份探针
 feature_branches:
   - name: feature/v0.4.48-feishu-scan-ws
     title: 飞书扫码即用与常驻 WS
@@ -38,15 +43,19 @@ feature_branches:
       - "W-6 消息经官方 WS 接收并通过 ControlService 回包"
       - "W-7 local/Hub 切换不损伤本地绑定/tunnel"
       - "W-8 应用内 Browser E2E 通过"
-    estimated_loc: ~1600
-acceptance_count: 8
-total_estimated_loc: ~1600
+      - "W-9 Hub route/mailbox ownership 归一化，现有机器人无需重扫即可恢复"
+      - "W-10 两个不同 user 的机器人、路由、邮箱、lease 和 daemon 完全隔离"
+    estimated_loc: ~1850
+acceptance_count: 10
+total_estimated_loc: ~1850
 risk_register:
   - {id: R1, risk: 凭据泄露, mitigation: 自动主密钥、AEAD、0600、边界测试, severity: high}
   - {id: R2, risk: 重复执行, mitigation: 原子邮箱与 event replay guard, severity: high}
   - {id: R3, risk: Client 离线, mitigation: 持久 inbox 与重试, severity: high}
   - {id: R4, risk: Web 退出导致 WS 离线, mitigation: 独立 daemon 和服务管理器, severity: high}
   - {id: R5, risk: local/Hub 双活, mitigation: 租约 fencing 与 event 去重, severity: high}
+  - {id: R6, risk: rsync ownership 使 Hub daemon 无法读写, mitigation: 服务身份归一化和 cap-drop 探针, severity: high}
+  - {id: R7, risk: 中心服务器跨用户串租, mitigation: 每 user 独立目录、daemon 和单目录挂载, severity: high}
 git_workflow:
   branch_creation: from merged v0.4.47 main
   feature_order: registration, credentials, daemon, lease, web, e2e
@@ -62,5 +71,8 @@ deployment_checklist:
   - "Web QR、扫码状态、解绑手测"
   - "关闭 Web 后 WS 继续存活"
   - "真实 Client 配置/tunnel 哈希不变"
+  - "当前 user 的 Hub bridge 读写探针通过"
+  - "双用户名 daemon/volume 隔离验证通过"
+  - "真实飞书 /dt ls 完整回包"
   - "GitHub Release v0.4.48"
 signature: Agent-PM-0.4.48
