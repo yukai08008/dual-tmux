@@ -411,13 +411,101 @@ def sync_installation_from_hub(cfg: AppConfig | None = None) -> bool:
     return True
 
 
+def _tunnel_markdown(item: dict) -> str:
+    name = str(item.get("name") or "未命名")
+    client = str(item.get("client") or "—")
+    trigger = item.get("trigger") or {}
+    bullet = item.get("bullet") or {}
+    trigger_text = " · ".join(
+        part for part in (str(trigger.get("tool") or "—"), str(trigger.get("model") or "")) if part
+    )
+    bullet_text = " · ".join(
+        part for part in (str(bullet.get("tool") or "—"), str(bullet.get("model") or "")) if part
+    )
+    return (
+        f"**{name}**  \n"
+        f"Client：{client}  \n"
+        f"Trigger：{trigger_text}  \n"
+        f"Bullet：{bullet_text}"
+    )
+
+
 def _format_result(payload: dict) -> str:
+    """Render a ControlResult as concise Feishu Markdown, never raw JSON."""
     if payload.get("confirmation_required"):
         return (
-            f"需要二次确认：/dt {payload.get('action')} {payload.get('name')} "
-            f"{payload.get('token')}（{payload.get('expires_in')} 秒内有效）"
+            "⚠️ **需要二次确认**\n\n"
+            f"请发送：`/dt {payload.get('action')} {payload.get('name')} "
+            f"{payload.get('token')}`\n\n"
+            f"有效期：{payload.get('expires_in')} 秒"
         )
-    return json.dumps(payload, ensure_ascii=False, indent=2)[:12000]
+    if not payload.get("ok"):
+        error = payload.get("error") or {}
+        return (
+            "❌ **操作失败**\n\n"
+            f"{error.get('message') or payload.get('message') or '未知错误'}\n\n"
+            f"错误码：`{error.get('code') or 'operation_failed'}`"
+        )
+    result = payload.get("result") or payload
+    operation = str(result.get("operation") or "operation")
+    data = result.get("data")
+    warnings = result.get("warnings") or []
+    if operation == "tunnel.list":
+        rows = data if isinstance(data, list) else []
+        blocks = [_tunnel_markdown(item) for item in rows[:30] if isinstance(item, dict)]
+        body = f"✅ **隧道列表（{len(rows)}）**"
+        if blocks:
+            body += "\n\n" + "\n\n---\n\n".join(blocks)
+        else:
+            body += "\n\n暂无隧道。"
+        if len(rows) > 30:
+            body += f"\n\n另有 {len(rows) - 30} 条，请在 Web 中查看。"
+    elif operation == "tunnel.get" and isinstance(data, dict):
+        runtime = data.get("runtime") or {}
+        body = "✅ **隧道详情**\n\n" + _tunnel_markdown(data)
+        location = " · ".join(
+            str(value)
+            for value in (runtime.get("server"), runtime.get("container"), runtime.get("directory"))
+            if value
+        )
+        if location:
+            body += f"\n\n运行位置：{location}"
+    else:
+        labels = {
+            "pane.send": "消息已发送",
+            "health.probe": "健康检查完成",
+            "session.freeze": "会话已冻结",
+            "session.resume": "会话已恢复",
+            "health.recover": "恢复操作完成",
+            "tunnel.drop": "隧道已停止",
+            "tunnel.remove": "隧道已删除",
+        }
+        body = f"✅ **{labels.get(operation, '操作完成')}**\n\n操作：`{operation}`"
+        if isinstance(data, dict):
+            visible = []
+            for key in ("name", "side", "pane", "status", "state", "healthy", "recovered"):
+                if key in data and data[key] not in (None, ""):
+                    visible.append(f"- {key}：{data[key]}")
+            if visible:
+                body += "\n\n" + "\n".join(visible)
+    if warnings:
+        body += "\n\n⚠️ " + "；".join(str(item) for item in warnings)
+    return body[:12000]
+
+
+def format_feishu_reply(payload: dict) -> dict:
+    markdown = _format_result(payload)
+    card = {
+        "config": {"wide_screen_mode": True},
+        "header": {
+            "template": "blue" if payload.get("ok") else "red",
+            "title": {"tag": "plain_text", "content": "dual-tmux"},
+        },
+        "elements": [
+            {"tag": "div", "text": {"tag": "lark_md", "content": markdown}}
+        ],
+    }
+    return {"msg_type": "interactive", "content": card, "fallback": markdown}
 
 
 def sync_client(cfg: AppConfig | None = None, dispatcher: FeishuDispatcher | None = None) -> dict:
@@ -476,6 +564,7 @@ def sync_client(cfg: AppConfig | None = None, dispatcher: FeishuDispatcher | Non
                     "message_id": str(item.get("message_id") or ""),
                     "chat_id": str(item.get("chat_id") or ""),
                     "text": _format_result(result_payload),
+                    "reply": format_feishu_reply(result_payload),
                     "payload": result_payload,
                 }
                 response_path = snapshot / f"response-{path.name}"

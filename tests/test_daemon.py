@@ -3,6 +3,7 @@ from dual_tmux.daemon import (
     ConnectorManager,
     DualTmuxDaemon,
     LocalConnectorLease,
+    _reply_message,
     connector_fence_valid,
     read_daemon_status,
 )
@@ -28,6 +29,46 @@ class FakeProcess:
 
     def join(self, timeout=None):
         return None
+
+
+class FakeReplyResponse:
+    code = 0
+    msg = ""
+
+    def __init__(self, ok):
+        self.ok = ok
+
+    def success(self):
+        return self.ok
+
+
+class FakeMessageApi:
+    def __init__(self, responses):
+        self.im = self.v1 = self.message = self
+        self.responses = list(responses)
+        self.requests = []
+
+    def create(self, request):
+        self.requests.append(request)
+        return self.responses.pop(0)
+
+
+def test_interactive_reply_falls_back_to_plain_text_when_card_is_rejected():
+    api = FakeMessageApi([FakeReplyResponse(False), FakeReplyResponse(True)])
+    _reply_message(
+        api,
+        "oc_chat",
+        {
+            "msg_type": "interactive",
+            "content": {
+                "elements": [
+                    {"tag": "div", "text": {"tag": "lark_md", "content": "**ok**"}}
+                ]
+            },
+            "fallback": "操作完成",
+        },
+    )
+    assert len(api.requests) == 2
 
 
 def test_manager_starts_only_for_installation_and_stops_on_unbind(monkeypatch, tmp_path):

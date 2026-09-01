@@ -143,7 +143,7 @@ class ConnectorProcess(Protocol):
     def join(self, timeout: float | None = None) -> None: ...
 
 
-def _reply_text(api_client, chat_id: str, text: str) -> None:
+def _create_reply(api_client, chat_id: str, msg_type: str, content: dict):
     from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
 
     request = (
@@ -152,25 +152,35 @@ def _reply_text(api_client, chat_id: str, text: str) -> None:
         .request_body(
             CreateMessageRequestBody.builder()
             .receive_id(chat_id)
-            .msg_type("text")
-            .content(json.dumps({"text": text}, ensure_ascii=False))
+            .msg_type(msg_type)
+            .content(json.dumps(content, ensure_ascii=False))
             .build()
         )
         .build()
     )
-    response = api_client.im.v1.message.create(request)
+    return api_client.im.v1.message.create(request)
+
+
+def _reply_message(api_client, chat_id: str, reply: str | dict) -> None:
+    if isinstance(reply, str):
+        msg_type = "text"
+        content = {"text": reply}
+        fallback = reply
+    else:
+        msg_type = str(reply.get("msg_type") or "text")
+        content = reply.get("content") or {"text": str(reply.get("fallback") or "")}
+        fallback = str(reply.get("fallback") or "操作完成")
+    response = _create_reply(api_client, chat_id, msg_type, content)
+    if not response.success() and msg_type != "text":
+        response = _create_reply(api_client, chat_id, "text", {"text": fallback})
     if not response.success():
         raise FeishuError("reply_failed", f"Feishu reply failed: {response.code} {response.msg}")
 
 
-def _result_text(result: dict) -> str:
-    if result.get("confirmation_required"):
-        return (
-            f"需要确认：/dt {result.get('action')} {result.get('name')} "
-            f"{result.get('token')}（{result.get('expires_in')} 秒内有效）"
-        )
-    payload = result.get("result") if result.get("ok") else result
-    return json.dumps(payload, ensure_ascii=False, indent=2, default=str)[:12000]
+def _result_reply(result: dict) -> dict:
+    from .feishu_bridge import format_feishu_reply
+
+    return format_feishu_reply(result)
 
 
 def connector_fence_valid() -> bool:
@@ -259,7 +269,7 @@ def run_feishu_connector() -> None:
                     log.emit("feishu.ws.message.replay", event=event_id[:16])
             else:
                 result = dispatcher.dispatch(event_id, identity, text.strip())
-                reply = _result_text(result)
+                reply = _result_reply(result)
         except FeishuError as exc:
             log.emit("feishu.ws.message.reject", code=exc.code)
             reply = f"请求未执行：{exc}"
@@ -267,7 +277,7 @@ def run_feishu_connector() -> None:
             log.emit("feishu.ws.message.error", reason=type(exc).__name__)
             reply = "请求处理失败，请稍后重试。"
         if reply:
-            _reply_text(api_client, str(message.chat_id), reply)
+            _reply_message(api_client, str(message.chat_id), reply)
         state = read_daemon_status()
         state["last_message_at"] = int(time.time())
         _atomic_json(daemon_status_path(), state)
@@ -306,7 +316,11 @@ def run_feishu_connector() -> None:
                         item = _read_envelope(path)
                         chat_id = str(item.get("chat_id") or "")
                         if chat_id:
-                            _reply_text(api_client, chat_id, str(item.get("text") or ""))
+                            _reply_message(
+                                api_client,
+                                chat_id,
+                                item.get("reply") or str(item.get("text") or ""),
+                            )
                             path.unlink(missing_ok=True)
                     except Exception as exc:  # noqa: BLE001 - keep the outbox worker alive.
                         log.emit("feishu.ws.response.error", reason=type(exc).__name__)

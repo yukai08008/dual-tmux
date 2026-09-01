@@ -1,6 +1,6 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-01 12:48 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-01 13:38 +08:00 | 更新者: Codex PM
 
 ## 状态树
 
@@ -11,8 +11,9 @@
   - **issue-feishu-scan-to-create** (RESOLVED): 已移除正式路径中的 App ID/Secret/callback 配置，改为扫码自动创建 PersonalAgent；Hub 删除失败时保留本地安装。
   - **issue-feishu-hub-credential-owner** (RESOLVED): 首次真实扫码发现 `rsync -a` 保留 Client UID，Hub daemon 安全校验拒绝读取；发布后归一化为 Hub SSH 用户 ownership + 0600，tom7r WS 已 `connected`。
   - **issue-feishu-single-bot-fencing** (RESOLVED): 一个 deployment 只有一个总 PersonalAgent；本地/Hub/双 Client 接管均使用唯一实例 owner、原子 lease 与 generation fencing。重复扫码 fail-closed，Hub 状态统一展示；tom7r 双容器接管与旧 owner 恢复实测无双 active。
-  - **issue-feishu-route-permission-denied** (FIXING): 已确认 `bridge/routes` 保留 Client UID 501 导致 tom7r PermissionError；当前 Hub 已安全归一化并通过容器读写探针。持久修复增加 rsync no-owner/no-group、Hub bridge 白名单 ownership/0700/0600 归一化和结构化错误；待真实 `/dt ls` 回包后 RESOLVED。
-  - **issue-feishu-replayed-event-duplicate-ack** (FIXING): 权限修复后真实消息成功入队，但飞书重投同一 event 时重复发送即时回执；增加 deployment 内持久 receipt，使入口回执与命令执行均按 event_id 幂等。tom7r 部署探针进一步发现 receipt 中间目录受 umask 影响为 0755，已补逐级 0700 强制与回归测试；待重新部署和真实 `/dt ls` 验收。
+  - **issue-feishu-route-permission-denied** (CLOSED): Hub ownership/0700/0600 归一化、结构化错误和容器读写探针通过；2026-09-01 真实 `/dt ls` 完整回包，用户确认收到。
+  - **issue-feishu-replayed-event-duplicate-ack** (CLOSED): deployment 内持久 receipt、逐级 0700 和重投拒绝探针通过；真实 `/dt ls` 只回执一次、执行一次。
+  - **issue-feishu-raw-json-reply** (FIXING): 真实闭环返回 ControlResult JSON，不适合作为用户界面；改为飞书 interactive Markdown 卡片并提供可读纯文本 fallback，待真实卡片确认。
 - **hotfix/v0.4.48-web-durable-turn-tracking** (MERGED): pending turn 写前日志、completion 基线、页面恢复和幂等消费已合并至 main；161 tests、真实 `dt-portal` 恢复与刷新 E2E 通过。
   - **issue-web-trigger-result-not-collected** (CLOSED): 缺失的 `Grok 4.6 · 3m 0s` 结果已归集到问答区；刷新后未重复，pending 正确关闭。
 
