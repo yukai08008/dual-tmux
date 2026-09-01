@@ -97,12 +97,12 @@ def _instance_status_path(owner: str) -> Path:
 
 def read_daemon_status() -> dict:
     path = daemon_status_path()
-    if not path.is_file():
-        return {"running": False, "connector": "stopped", "owner": "none"}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {"running": False, "connector": "unknown", "owner": "none"}
+    data = {"running": False, "connector": "stopped", "owner": "none"}
+    if path.is_file():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            data = {"running": False, "connector": "unknown", "owner": "none"}
     pid = int(data.get("pid") or 0)
     try:
         if pid:
@@ -116,21 +116,22 @@ def read_daemon_status() -> dict:
         try:
             candidate = json.loads(item.read_text(encoding="utf-8"))
             if now - float(candidate.get("updated_at") or 0) <= 30:
-                candidates.append(
-                    {
-                        key: candidate.get(key)
-                        for key in (
-                            "instance",
-                            "owner",
-                            "connector",
-                            "generation",
-                            "updated_at",
-                        )
-                    }
-                )
+                candidates.append(candidate)
         except (OSError, json.JSONDecodeError, TypeError, ValueError):
             continue
     data["candidates"] = candidates
+    if not data.get("running") and candidates:
+        active = max(candidates, key=lambda item: float(item.get("updated_at") or 0))
+        candidate_pid = int(active.get("pid") or 0)
+        try:
+            if candidate_pid:
+                os.kill(candidate_pid, 0)
+        except OSError:
+            candidate_pid = 0
+        if candidate_pid:
+            data.update(active)
+            data["running"] = True
+            data["candidates"] = candidates
     return data
 
 
@@ -521,6 +522,14 @@ class DualTmuxDaemon:
             "updated_at": int(time.time()),
             **connector,
         }
+        role = os.environ.get("DT_FEISHU_ROLE", "client").strip().lower()
+        try:
+            cfg = load_config()
+            state["mailbox_worker"] = (
+                "running" if role != "hub" and cfg.hub_enabled else "disabled"
+            )
+        except (OSError, SystemExit):
+            state["mailbox_worker"] = "disabled"
         _atomic_json(_instance_status_path(self.manager.lease_owner), state)
         if connector.get("connector") != "standby":
             _atomic_json(daemon_status_path(), {**state, "candidates": candidates})
