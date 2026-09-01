@@ -11,6 +11,7 @@
 
 | 日期 | 案例 | 问题 | 解决方案 | 状态 |
 |---|---|---|---|---|
+| 2026-09-01 | GitHub Release wheel 无法升级 | [trouble](trouble/20260901-github-release-wheel-cannot-upgrade.md) | [solution](solution/20260901-github-release-upgrade-solution.md) | RESOLVED |
 | 2026-09-01 | 飞书 Client mailbox 未自动消费 | [trouble](trouble/20260901-feishu-client-mailbox-not-consumed.md) | [solution](solution/20260901-feishu-client-mailbox-worker-solution.md) | RESOLVED |
 | 2026-09-01 | 飞书事件重投产生重复回执 | [trouble](trouble/20260901-feishu-replayed-event-duplicate-ack.md) | [solution](solution/20260901-feishu-event-replay-dedup-solution.md) | RESOLVED |
 | 2026-09-01 | 飞书消息路由目录权限错误 | [trouble](trouble/20260901-feishu-route-permission-denied.md) | [solution](solution/20260901-feishu-route-permission-denied-solution.md) | RESOLVED |
