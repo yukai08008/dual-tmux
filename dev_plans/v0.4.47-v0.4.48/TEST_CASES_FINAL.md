@@ -6,7 +6,7 @@
 |---|---:|---:|---:|---:|
 | 应用内 Browser E2E 场景 | 3 | 3 | 0 | 0 |
 | 自动化/安全/构建 | 193 | 193 | 0 | 0 |
-| 企业飞书真实 E2E | 2 | 1 | 1 | 0 |
+| 企业飞书真实 E2E | 2 | 2 | 0 | 0 |
 
 ## 逐条结果
 
@@ -32,9 +32,9 @@
 | E-41a | tom7r Python 3.12 daemon 容器 build/health | PASS | 无凭据启动 `running=true`、connector=`stopped`；测试容器、镜像和临时目录已清理 |
 | E-42 | 真实 Client 数据无损 | PASS | 本版验证使用隔离 `DUAL_TMUX_HOME`，未写真实 `~/.dual-tmux` |
 | E-43 | 无预置 App 的企业飞书真实扫码、私聊命令与回包 | PASS | `/dt ls` 于 13:29 入队，Client `commands=1 errors=0`，response 被 WS 回传；用户确认收到完整结果 |
-| E-46 | `/dt ls` 人类可读 Markdown 卡片 | PENDING | 代码与 fallback 自动化通过；待 tom7r 部署后真实飞书确认 |
+| E-46 | `/dt ls` 人类可读 Markdown 卡片 | PASS | tom7r `f2ea308` 真实回包；用户收到并进一步确认长卡片折叠策略 |
 
 ## 遗留问题
 
-- P1 发布门禁：E-46 待真实卡片确认；通过前不得创建 v0.4.48 Release。
-- E-45 双 username daemon/volume 隔离仍是公司列装门禁，但不阻断 Andy 单 deployment 的 v0.4.48 发布。
+- v0.4.48 当前 deployment 发布门禁全部通过。
+- E-45 双 username daemon/volume 隔离仍是公司列装门禁，进入后续列装计划；不阻断 v0.4.48 发布。
