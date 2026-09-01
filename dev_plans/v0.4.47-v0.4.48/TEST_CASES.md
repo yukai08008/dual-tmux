@@ -30,6 +30,10 @@
 | D-26 | 同机双 daemon 只有一个 active；租约过期后 generation 单调递增 | W-5 | pytest fake clock |
 | D-27 | Hub 双实例/双 Client 竞选、断网与旧 owner 恢复不双活 | W-5 | pytest fault injection |
 | D-28 | failover 每条入站消息执行前校验 owner + generation；父 daemon 消失时 child 退出 | W-5 | pytest + process fault injection |
+| D-29 | routes/mailbox 经 rsync 后归一化为 Hub 服务身份，cap-drop daemon 可读写 | W-9 | pytest + container integration |
+| D-30 | storage probe 覆盖 credentials 解密、route 读取与 command/response 原子写 | W-9 | pytest + container integration |
+| D-31 | 权限错误返回结构化 bridge 错误并记录 errno 类别，不泄露服务端路径 | W-9 | pytest fake callback |
+| D-32 | `user_a` 与 `user_b` 使用独立目录、daemon、lease、route 和 mailbox | W-10 | 双 deployment integration |
 
 ## 3. Web
 
@@ -49,3 +53,5 @@
 | E-41 | Hub WS → inbox → Client dispatch → outbox 回包 | W-4/W-6 |
 | E-42 | 真实升级前后 config/tunnel 哈希一致 | W-7 |
 | E-43 | 无预置 App 的企业飞书真实扫码、私聊命令与回包 | 正式发布硬门禁 |
+| E-44 | 现有 PersonalAgent 不重扫，修复 ownership 后 `/dt ls` 完整回包 | W-9，正式发布硬门禁 |
+| E-45 | tom7r 两个测试 user 同时运行独立 daemon，消息和状态互不可见 | W-10，列装硬门禁 |

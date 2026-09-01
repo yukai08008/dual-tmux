@@ -11,6 +11,7 @@
 
 | 日期 | 案例 | 问题 | 解决方案 | 状态 |
 |---|---|---|---|---|
+| 2026-09-01 | 飞书消息路由目录权限错误 | [trouble](trouble/20260901-feishu-route-permission-denied.md) | 待修复 | FOUND |
 | 2026-09-01 | 飞书多 WS 所有权 | [trouble](trouble/20260901-feishu-multiple-ws-ownership.md) | [solution](solution/20260901-feishu-single-bot-fencing-solution.md) | RESOLVED |
 | 2026-08-31 | 飞书 Hub 凭据归属不一致 | [trouble](trouble/20260831-feishu-hub-credential-owner-mismatch.md) | [solution](solution/20260831-feishu-hub-credential-owner-mismatch-solution.md) | RESOLVED |
 | 2026-09-01 | Web trigger 完成结果未归集 | [trouble](trouble/20260901-web-trigger-result-not-collected.md) | [solution](solution/20260901-web-trigger-result-not-collected-solution.md) | RESOLVED |

@@ -35,6 +35,7 @@ from .paths import home_dir
 
 MAX_ENVELOPE = 256 * 1024
 PAIR_TTL_SECONDS = 10 * 60
+BRIDGE_DIRS = ("routes", "commands", "responses", "callbacks", "pairing", "consumed")
 
 
 def _digest(value: str) -> str:
@@ -119,10 +120,17 @@ class BridgeStore:
 
     def client_for(self, identity: OperatorIdentity) -> str:
         clients = set()
-        for identity_id in identity.ids():
-            path = self.root / "routes" / f"{_digest(identity_id)}.json"
-            if path.is_file():
-                clients.add(_safe_client(str(_read_envelope(path).get("client") or "")))
+        try:
+            for identity_id in identity.ids():
+                path = self.root / "routes" / f"{_digest(identity_id)}.json"
+                if path.is_file():
+                    clients.add(
+                        _safe_client(str(_read_envelope(path).get("client") or ""))
+                    )
+        except OSError as exc:
+            raise FeishuError(
+                "bridge_unavailable", "Hub operator route is not readable"
+            ) from exc
         if len(clients) != 1:
             raise FeishuError("route_missing", "operator is not paired to exactly one Client")
         return clients.pop()
@@ -155,7 +163,12 @@ def begin_hub_pairing(config: FeishuConfig | None = None, cfg: AppConfig | None 
             raise FeishuError("bridge_unavailable", "cannot initialize Hub pairing mailbox")
         host = hub.SshTarget(cfg.server, cfg.ssh_port).dest
         try:
-            hub._rsync(str(local), f"{host}:{remote_dir}/{local.name}", cfg)
+            hub._rsync(
+                str(local),
+                f"{host}:{remote_dir}/{local.name}",
+                cfg,
+                preserve_ownership=False,
+            )
         except SystemExit as exc:
             raise FeishuError("bridge_unavailable", str(exc)) from exc
     log.emit("feishu.bridge.pair", client=cfg.client, state=_digest(state)[:12])
@@ -177,36 +190,59 @@ def publish_installation_to_hub(
         raise FeishuError("not_installed", "no encrypted Feishu installation to publish")
     remote = f"{hub.remote_root(cfg)}/feishu"
     host = hub.SshTarget(cfg.server, cfg.ssh_port).dest
-    result = hub._run(
-        hub.ssh_argv(cfg)
-        + [f"mkdir -p {remote}/bridge/routes && chmod 700 {remote} {remote}/bridge"]
-    )
-    if result.returncode != 0:
-        raise SystemExit("[err] cannot prepare Hub Feishu directory")
-    hub._rsync(str(vault.key_path), f"{host}:{remote}/credential.key", cfg)
-    hub._rsync(str(vault.installation_path), f"{host}:{remote}/installation.json", cfg)
+    bridge_dirs = " ".join(f"{remote}/bridge/{name}" for name in BRIDGE_DIRS)
     result = hub._run(
         hub.ssh_argv(cfg)
         + [
             (
+                f"mkdir -p {bridge_dirs} && "
+                f"chmod 700 {remote} {remote}/bridge {bridge_dirs}"
+            )
+        ]
+    )
+    if result.returncode != 0:
+        raise SystemExit("[err] cannot prepare Hub Feishu directory")
+    hub._rsync(
+        str(vault.key_path),
+        f"{host}:{remote}/credential.key",
+        cfg,
+        preserve_ownership=False,
+    )
+    hub._rsync(
+        str(vault.installation_path),
+        f"{host}:{remote}/installation.json",
+        cfg,
+        preserve_ownership=False,
+    )
+    if identity and identity.ids():
+        with tempfile.TemporaryDirectory(prefix="dt-feishu-routes-") as raw:
+            store = BridgeStore(Path(raw) / "bridge")
+            store.register_routes(identity, cfg.client)
+            hub._rsync(
+                f"{store.root / 'routes'}/",
+                f"{host}:{remote}/bridge/routes/",
+                cfg,
+                preserve_ownership=False,
+            )
+    result = hub._run(
+        hub.ssh_argv(cfg)
+        + [
+            (
+                f"owner=$(id -u):$(id -g) && "
+                f"chown $owner {remote} {remote}/bridge {bridge_dirs} && "
+                f"chmod 700 {remote} {remote}/bridge {bridge_dirs} && "
+                f"chown $owner {remote}/credential.key {remote}/installation.json && "
                 f"chmod 600 {remote}/credential.key {remote}/installation.json && "
-                f"chown $(id -u):$(id -g) {remote}/credential.key "
-                f"{remote}/installation.json"
+                f"find {remote}/bridge -type f -exec chown $owner {{}} + && "
+                f"find {remote}/bridge -type f -exec chmod 600 {{}} +"
             )
         ]
     )
     if result.returncode != 0:
         raise FeishuError(
             "hub_installation_permissions",
-            "Hub did not confirm secure credential ownership",
+            "Hub did not confirm secure Feishu storage ownership",
         )
-    if identity and identity.ids():
-        with tempfile.TemporaryDirectory(prefix="dt-feishu-routes-") as raw:
-            store = BridgeStore(Path(raw) / "bridge")
-            store.register_routes(identity, cfg.client)
-            hub._rsync(
-                f"{store.root / 'routes'}/", f"{host}:{remote}/bridge/routes/", cfg
-            )
     log.emit("feishu.installation.hub", host=host, client=cfg.client)
     return f"{host}:{remote}"
 
@@ -362,7 +398,12 @@ def sync_client(cfg: AppConfig | None = None, dispatcher: FeishuDispatcher | Non
                 }
                 response_path = snapshot / f"response-{path.name}"
                 _write_envelope(response_path, response)
-                hub._rsync(response_path.as_posix(), f"{host}:{remote}/responses/{client}/{path.name}", cfg)
+                hub._rsync(
+                    response_path.as_posix(),
+                    f"{host}:{remote}/responses/{client}/{path.name}",
+                    cfg,
+                    preserve_ownership=False,
+                )
                 removal = hub._run(hub.ssh_argv(cfg) + ["rm", "-f", f"{remote}/{kind}/{client}/{path.name}"])
                 if removal.returncode != 0:
                     counts["errors"] += 1
