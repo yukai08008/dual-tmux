@@ -29,6 +29,7 @@
 | D-25 | event_id 重复不执行，消息通过 ControlService 回包 | W-4/W-6 | pytest fake connector |
 | D-26 | 同机双 daemon 只有一个 active；租约过期后 generation 单调递增 | W-5 | pytest fake clock |
 | D-27 | Hub 双实例/双 Client 竞选、断网与旧 owner 恢复不双活 | W-5 | pytest fault injection |
+| D-28 | failover 每条入站消息执行前校验 owner + generation；父 daemon 消失时 child 退出 | W-5 | pytest + process fault injection |
 
 ## 3. Web
 

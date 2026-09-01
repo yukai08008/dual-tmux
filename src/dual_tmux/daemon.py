@@ -173,6 +173,30 @@ def _result_text(result: dict) -> str:
     return json.dumps(payload, ensure_ascii=False, indent=2, default=str)[:12000]
 
 
+def connector_fence_valid() -> bool:
+    """Revalidate remote ownership at message time for Client failover."""
+    topology = os.environ.get("DT_FEISHU_TOPOLOGY", "").strip().lower()
+    role = os.environ.get("DT_FEISHU_ROLE", "client").strip().lower()
+    if topology != "client-failover" or role == "hub":
+        return True
+    expected_owner = os.environ.get("DT_FEISHU_LEASE_OWNER", "")
+    expected_generation = int(os.environ.get("DT_FEISHU_GENERATION", "0") or 0)
+    try:
+        from .hub import claim_feishu_lease
+
+        owned, owner, generation = claim_feishu_lease(
+            load_config(), owner=expected_owner
+        )
+    except (SystemExit, OSError):
+        return False
+    return bool(
+        owned
+        and owner == expected_owner
+        and generation == expected_generation
+        and expected_generation > 0
+    )
+
+
 def run_feishu_connector() -> None:
     """Child-process entrypoint; the parent daemon supervises this blocking SDK."""
     import lark_oapi as lark
@@ -194,6 +218,9 @@ def run_feishu_connector() -> None:
     )
 
     def on_message(data: P2ImMessageReceiveV1) -> None:
+        if not connector_fence_valid():
+            log.emit("feishu.ws.fence.reject")
+            os._exit(75)
         event = data.event
         message = event.message
         sender_id = event.sender.sender_id
@@ -253,6 +280,15 @@ def run_feishu_connector() -> None:
         log_level=lark.LogLevel.WARNING,
         auto_reconnect=False,
     )
+
+    parent_pid = os.getppid()
+
+    def watch_parent() -> None:
+        while os.getppid() == parent_pid:
+            time.sleep(2)
+        os._exit(76)
+
+    threading.Thread(target=watch_parent, daemon=True, name="dt-parent-watch").start()
     if role == "hub":
 
         def flush_responses() -> None:
@@ -402,6 +438,8 @@ class ConnectorManager:
                 "failures": self.failures,
                 "next_retry_at": int(self.next_start_at),
             }
+        os.environ["DT_FEISHU_LEASE_OWNER"] = self.lease_owner
+        os.environ["DT_FEISHU_GENERATION"] = str(self.generation)
         self.process = self.process_factory()
         self.process.start()
         return {"connector": "starting", "owner": self.owner, "generation": self.generation, "failures": self.failures, "next_retry_at": 0}
