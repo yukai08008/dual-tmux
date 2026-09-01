@@ -5,14 +5,14 @@
 | 维度 | 数量 | 通过 | 待外部条件 | 失败 |
 |---|---:|---:|---:|---:|
 | 应用内 Browser E2E 场景 | 3 | 3 | 0 | 0 |
-| 自动化/安全/构建 | 185 | 185 | 0 | 0 |
+| 自动化/安全/构建 | 186 | 186 | 0 | 0 |
 | 企业飞书真实 E2E | 1 | 0 | 1 | 0 |
 
 ## 逐条结果
 
 | ID | 用例 | 结果 | 备注 |
 |---|---|---|---|
-| B-00 | 全量 pytest | PASS | 185 tests |
+| B-00 | 全量 pytest | PASS | 186 tests |
 | B-01 | compileall/focused Ruff/build | PASS | sdist + wheel 0.4.48 |
 | B-02 | runtime data 未追踪 | PASS | `git ls-files data/` 为空 |
 | B-10~B-15 | bridge 摘要/路由/可靠性/验证/模式 | PASS | pytest + 隔离 mailbox |
@@ -20,6 +20,7 @@
 | D-20~D-25 | daemon、WS 退避、local/Hub 单活与 mailbox 回包 | PASS | pytest；含 Hub 删除失败保留本地安装、`chat_id` 回传 |
 | D-26~D-28 | 原子 owner、generation fencing、双容器接管、旧 owner 恢复与逐消息 fence | PASS | pytest + tom7r fault injection；generation 1 → 2，无双 active |
 | D-29~D-32 | Hub bridge ownership、权限诊断和 username namespace 隔离 | PASS | pytest + tom7r 容器内真实 routes 读写探针；真实双 daemon E2E 待 E-45 |
+| D-33 | 飞书重投的入口回执和 command 持久幂等 | PASS | pytest；command 消费后 receipt 仍阻止同 event 再入队 |
 | W-30~S-32 | Web 页面/API/QR/same-origin | PASS | pytest + Browser |
 | W-34 | deployment 已安装时禁止另一 Web 重复扫码，统一展示 Hub 状态 | PASS | pytest；`already_installed` fail-closed |
 | W-24 | pending turn 跨刷新恢复并幂等归集 | PASS | 真实 dt-portal 缺失结果恢复；刷新后 answer 不重复；无 console error |

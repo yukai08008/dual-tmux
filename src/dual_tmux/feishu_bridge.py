@@ -35,7 +35,15 @@ from .paths import home_dir
 
 MAX_ENVELOPE = 256 * 1024
 PAIR_TTL_SECONDS = 10 * 60
-BRIDGE_DIRS = ("routes", "commands", "responses", "callbacks", "pairing", "consumed")
+BRIDGE_DIRS = (
+    "routes",
+    "commands",
+    "responses",
+    "callbacks",
+    "pairing",
+    "consumed",
+    "receipts",
+)
 
 
 def _digest(value: str) -> str:
@@ -63,6 +71,42 @@ def _write_envelope(path: Path, payload: dict) -> Path:
     finally:
         tmp.unlink(missing_ok=True)
     return path
+
+
+def _write_envelope_once(
+    path: Path, receipt: Path, payload: dict
+) -> tuple[Path, bool]:
+    """Publish once and retain a hard-linked receipt after mailbox consumption."""
+    raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
+    if len(raw) > MAX_ENVELOPE:
+        raise FeishuError("envelope_too_large", "bridge envelope exceeds 256 KiB")
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    receipt.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if receipt.is_file():
+        return path, False
+    tmp = path.parent / f".{path.name}.{secrets.token_hex(6)}.tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(raw)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.link(tmp, path)
+        except FileExistsError:
+            pass
+        source = path if path.is_file() else tmp
+        try:
+            os.link(source, receipt)
+            accepted = True
+        except FileExistsError:
+            accepted = False
+        if path.is_file():
+            path.chmod(0o600)
+        receipt.chmod(0o600)
+        return path, accepted
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def _read_envelope(path: Path) -> dict:
@@ -141,6 +185,19 @@ class BridgeStore:
             raise FeishuError("invalid_envelope", "unsupported bridge envelope kind")
         filename = f"{_digest(envelope_id)}.json"
         return _write_envelope(self.root / kind / client / filename, payload)
+
+    def enqueue_once(
+        self, client: str, kind: str, envelope_id: str, payload: dict
+    ) -> tuple[Path, bool]:
+        client = _safe_client(client)
+        if kind not in {"callbacks", "commands", "responses"}:
+            raise FeishuError("invalid_envelope", "unsupported bridge envelope kind")
+        filename = f"{_digest(envelope_id)}.json"
+        return _write_envelope_once(
+            self.root / kind / client / filename,
+            self.root / "receipts" / kind / client / filename,
+            payload,
+        )
 
 
 def begin_hub_pairing(config: FeishuConfig | None = None, cfg: AppConfig | None = None) -> dict:

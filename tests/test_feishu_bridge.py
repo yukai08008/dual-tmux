@@ -68,6 +68,27 @@ def test_bridge_store_registers_only_hashes_and_routes(dt_home, tmp_path):
     assert store.client_for(identity) == "tm_laptop"
 
 
+def test_bridge_store_keeps_event_receipt_after_command_consumption(dt_home, tmp_path):
+    store = BridgeStore(tmp_path / "spool")
+    command, accepted = store.enqueue_once(
+        "tm_laptop", "commands", "evt-1", {"text": "/dt ls"}
+    )
+    _same, replay_accepted = store.enqueue_once(
+        "tm_laptop", "commands", "evt-1", {"text": "/dt show changed"}
+    )
+    assert accepted is True
+    assert replay_accepted is False
+    assert _read_envelope(command)["text"] == "/dt ls"
+    command.unlink()
+    _gone, consumed_replay = store.enqueue_once(
+        "tm_laptop", "commands", "evt-1", {"text": "/dt show changed"}
+    )
+    receipt = next((store.root / "receipts" / "commands" / "tm_laptop").glob("*.json"))
+    assert consumed_replay is False
+    assert not command.exists()
+    assert _read_envelope(receipt)["text"] == "/dt ls"
+
+
 def test_bridge_store_reports_unreadable_route_without_leaking_path(
     dt_home, monkeypatch, tmp_path
 ):
