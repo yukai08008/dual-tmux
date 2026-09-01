@@ -1,8 +1,9 @@
 import json
+from importlib.metadata import version
 
 import pytest
 
-from dual_tmux import upgrade
+from dual_tmux import __version__, upgrade
 
 
 class Response:
@@ -17,6 +18,10 @@ class Response:
 
     def read(self):
         return json.dumps(self.payload).encode()
+
+
+def test_cli_version_matches_package_metadata():
+    assert __version__ == version("dual-tmux")
 
 
 def release(url="https://github.com/yukai08008/dual-tmux/releases/download/v0.4.48.post1/dual_tmux-0.4.48.post1-py3-none-any.whl"):

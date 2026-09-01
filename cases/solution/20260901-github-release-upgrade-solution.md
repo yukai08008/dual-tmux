@@ -16,4 +16,4 @@
 
 ## 发布
 
-作为 v0.4.48.post1 独立 hotfix 发布，不改写 v0.4.48 tag 或 Release 历史。
+首次作为 v0.4.48.post1 独立 hotfix 发布，不改写 v0.4.48 tag 或 Release 历史。真实安装随后发现 pyproject 构建版本与 `dual_tmux.__version__` 漂移，包元数据为 post1 但 `dt --version` 显示 0.4.48；继续以 v0.4.48.post2 修正双版本源一致性，同样不改写既有 tag/asset。
