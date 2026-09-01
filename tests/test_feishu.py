@@ -272,6 +272,33 @@ def test_scan_registration_encrypts_generated_credentials(dt_home):
     assert list_bindings()[0].open_id == "ou_installer"
 
 
+def test_registration_refuses_to_replace_existing_deployment_bot(dt_home):
+    CredentialVault().save("cli_existing", "secret", {"open_id": "ou_a"})
+    service = AppRegistrationService(transport=FakeRegistration())
+    with pytest.raises(FeishuError) as caught:
+        service.begin()
+    assert caught.value.code == "already_installed"
+
+
+def test_registration_refuses_when_hub_already_has_deployment_bot(
+    dt_home, monkeypatch
+):
+    from dual_tmux import feishu_bridge
+    from dual_tmux.config import AppConfig, write_config
+
+    write_config(AppConfig(client="tm_laptop", server="tom7r", user="andy"))
+    monkeypatch.setattr(
+        feishu_bridge,
+        "hub_feishu_status",
+        lambda cfg: {"installed": True, "daemon": {"connector": "connected"}},
+    )
+    service = AppRegistrationService(transport=FakeRegistration())
+    with pytest.raises(FeishuError) as caught:
+        service.begin()
+    assert caught.value.code == "already_installed"
+    assert not (feishu_dir() / "registration.json").exists()
+
+
 def test_registration_expires_without_persisting_credentials(dt_home):
     clock = [1000.0]
     service = AppRegistrationService(

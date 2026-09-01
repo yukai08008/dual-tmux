@@ -1,6 +1,6 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-08-31 18:28 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-01 07:38 +08:00 | 更新者: Codex PM
 
 ## 状态树
 
@@ -10,6 +10,7 @@
 - **feature/v0.4.48-feishu-scan-ws** (CODE_COMPLETE): 飞书 Device Registration、自动加密凭据、独立 `dt daemon`、local/Hub 单活 WS、mailbox 路由与回包均已实现；174 tests、Browser 官方 QR/TTL 验收、构建和 tom7r 隔离 daemon 镜像验证全绿。待企业飞书真实扫码与 `/dt ls` 回包 E2E 后进入 MERGE_PENDING。
   - **issue-feishu-scan-to-create** (RESOLVED): 已移除正式路径中的 App ID/Secret/callback 配置，改为扫码自动创建 PersonalAgent；Hub 删除失败时保留本地安装。
   - **issue-feishu-hub-credential-owner** (RESOLVED): 首次真实扫码发现 `rsync -a` 保留 Client UID，Hub daemon 安全校验拒绝读取；发布后归一化为 Hub SSH 用户 ownership + 0600，tom7r WS 已 `connected`。
+  - **issue-feishu-single-bot-fencing** (RESOLVED): 一个 deployment 只有一个总 PersonalAgent；本地/Hub/双 Client 接管均使用唯一实例 owner、原子 lease 与 generation fencing。重复扫码 fail-closed，Hub 状态统一展示；tom7r 双容器接管与旧 owner 恢复实测无双 active。
 
 ### v0.4.47 (ARCHIVED) — 飞书绑定与鉴权 API
 

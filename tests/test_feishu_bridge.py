@@ -21,8 +21,10 @@ from dual_tmux.feishu_bridge import (
     BridgeHTTPServer,
     BridgeStore,
     _read_envelope,
+    hub_feishu_status,
     publish_installation_to_hub,
     sync_client,
+    sync_installation_from_hub,
 )
 
 
@@ -256,3 +258,66 @@ def test_publish_installation_sends_only_encrypted_bundle_and_hashed_route(
     route_text = next(content for _, dest, content in copied if dest.endswith("/bridge/routes/"))
     assert "ou_secret" not in route_text
     assert "TOP-SECRET" not in vault.installation_path.read_text()
+
+
+def test_hub_status_reads_only_public_daemon_state(dt_home, monkeypatch):
+    from dual_tmux import hub
+
+    calls = []
+
+    class Result:
+        def __init__(self, returncode=0, stdout=""):
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = ""
+
+    def run(argv, *args, **kwargs):
+        calls.append(argv)
+        if argv[-2:] == ["test", "-f"]:
+            return Result()
+        if "installation.json" in argv[-1]:
+            return Result()
+        return Result(
+            stdout=json.dumps(
+                {
+                    "running": True,
+                    "connector": "connected",
+                    "owner": "hub-instance",
+                    "generation": 4,
+                }
+            )
+        )
+
+    monkeypatch.setattr(hub, "_run", run)
+    monkeypatch.setattr(hub, "remote_root", lambda cfg: "/remote")
+    result = hub_feishu_status(
+        AppConfig(client="tm_laptop", server="tom7r", user="andy")
+    )
+    assert result["installed"] is True
+    assert result["daemon"]["generation"] == 4
+    assert not any("credential.key" in " ".join(argv) for argv in calls)
+
+
+def test_failover_sync_validates_then_atomically_installs_shared_bot(
+    dt_home, monkeypatch, tmp_path
+):
+    from dual_tmux import hub
+    from dual_tmux.feishu import CredentialVault
+
+    remote = CredentialVault(tmp_path / "remote")
+    remote.save("cli_shared", "SHARED-SECRET", {"open_id": "ou_a"})
+
+    def copy(src, dest, cfg, **kwargs):
+        name = str(src).rsplit("/", 1)[-1]
+        target = __import__("pathlib").Path(dest)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(remote.root / name, target)
+
+    monkeypatch.setattr(hub, "_rsync", copy)
+    monkeypatch.setattr(hub, "remote_root", lambda cfg: "/remote")
+    cfg = AppConfig(client="tm_backup", server="tom7r", user="andy")
+    assert sync_installation_from_hub(cfg) is True
+    local = CredentialVault().load()
+    assert local["app_id"] == "cli_shared"
+    assert local["app_secret"] == "SHARED-SECRET"
+    assert oct(CredentialVault().key_path.stat().st_mode & 0o777) == "0o600"

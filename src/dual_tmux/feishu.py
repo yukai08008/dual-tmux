@@ -16,6 +16,7 @@ import tempfile
 import time
 import urllib.parse
 import urllib.request
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -144,6 +145,18 @@ class CredentialVault:
         self.root = root or feishu_dir()
         self.key_path = self.root / "credential.key"
         self.installation_path = self.root / "installation.json"
+        self.lock_path = self.root / ".credential.lock"
+
+    @contextmanager
+    def locked(self, *, exclusive: bool):
+        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        handle = self.lock_path.open("a+", encoding="utf-8")
+        os.chmod(self.lock_path, 0o600)
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+        try:
+            yield
+        finally:
+            handle.close()
 
     def _key(self) -> bytes:
         if not self.key_path.exists():
@@ -160,29 +173,33 @@ class CredentialVault:
     def save(self, app_id: str, app_secret: str, user_info: dict | None = None) -> dict:
         if not app_id or not app_secret:
             raise FeishuError("invalid_registration", "registration returned incomplete credentials")
-        token = Fernet(self._key()).encrypt(app_secret.encode("utf-8")).decode("ascii")
-        record = {
-            "version": 1,
-            "app_id": app_id,
-            "app_secret_encrypted": token,
-            "user_info": dict(user_info or {}),
-            "active": True,
-            "created_at": int(time.time()),
-        }
-        _atomic_json(self.installation_path, record)
+        with self.locked(exclusive=True):
+            token = Fernet(self._key()).encrypt(app_secret.encode("utf-8")).decode("ascii")
+            record = {
+                "version": 1,
+                "app_id": app_id,
+                "app_secret_encrypted": token,
+                "user_info": dict(user_info or {}),
+                "active": True,
+                "created_at": int(time.time()),
+            }
+            _atomic_json(self.installation_path, record)
         return self.public(record)
 
     def load(self) -> dict | None:
-        if not self.installation_path.is_file():
-            return None
-        _strict_regular_file(self.installation_path, "Feishu installation")
-        record = _read_json(self.installation_path, {})
-        token = str(record.get("app_secret_encrypted") or "")
-        try:
-            secret = Fernet(self._key()).decrypt(token.encode("ascii")).decode("utf-8")
-        except (InvalidToken, ValueError, UnicodeError) as exc:
-            raise FeishuError("credential_decrypt", "Feishu installation cannot be decrypted") from exc
-        return {**record, "app_secret": secret}
+        with self.locked(exclusive=False):
+            if not self.installation_path.is_file():
+                return None
+            _strict_regular_file(self.installation_path, "Feishu installation")
+            record = _read_json(self.installation_path, {})
+            token = str(record.get("app_secret_encrypted") or "")
+            try:
+                secret = Fernet(self._key()).decrypt(token.encode("ascii")).decode("utf-8")
+            except (InvalidToken, ValueError, UnicodeError) as exc:
+                raise FeishuError(
+                    "credential_decrypt", "Feishu installation cannot be decrypted"
+                ) from exc
+            return {**record, "app_secret": secret}
 
     @staticmethod
     def public(record: dict | None) -> dict | None:
@@ -196,8 +213,10 @@ class CredentialVault:
         }
 
     def remove(self) -> bool:
-        existed = self.installation_path.exists()
-        self.installation_path.unlink(missing_ok=True)
+        with self.locked(exclusive=True):
+            existed = self.installation_path.exists() or self.key_path.exists()
+            self.installation_path.unlink(missing_ok=True)
+            self.key_path.unlink(missing_ok=True)
         return existed
 
 
@@ -259,6 +278,25 @@ class AppRegistrationService:
         self.path = feishu_dir() / "registration.json"
 
     def begin(self) -> dict:
+        if self.vault.installation_path.is_file():
+            raise FeishuError(
+                "already_installed",
+                "A deployment PersonalAgent is already installed; unlink it before replacement",
+            )
+        try:
+            from .config import load_config
+
+            cfg = load_config()
+            if cfg.hub_enabled:
+                from .feishu_bridge import hub_feishu_status
+
+                if hub_feishu_status(cfg).get("installed"):
+                    raise FeishuError(
+                        "already_installed",
+                        "The Hub already owns the deployment PersonalAgent; replacement must be explicit",
+                    )
+        except FileNotFoundError:
+            pass
         result = self.transport.begin()
         if result.get("error"):
             raise FeishuError(str(result["error"]), str(result.get("error_description") or "registration rejected"))

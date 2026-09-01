@@ -27,6 +27,8 @@
 | D-23 | Web 进程退出不影响独立 daemon | W-3 | process E2E |
 | D-24 | local/Hub 租约单活、过期接管、fencing | W-5 | pytest |
 | D-25 | event_id 重复不执行，消息通过 ControlService 回包 | W-4/W-6 | pytest fake connector |
+| D-26 | 同机双 daemon 只有一个 active；租约过期后 generation 单调递增 | W-5 | pytest fake clock |
+| D-27 | Hub 双实例/双 Client 竞选、断网与旧 owner 恢复不双活 | W-5 | pytest fault injection |
 
 ## 3. Web
 
@@ -36,6 +38,7 @@
 | W-31 | pair 返回 QR/TTL，status 展示安装和 WS 状态 | W-1/W-2 | pytest/Browser |
 | S-32 | Web POST 跨 Origin继续拒绝 | W-1 | pytest |
 | W-33 | 解绑需确认且停止 connector | W-3 | Browser |
+| W-34 | 已存在总 PersonalAgent 时另一 Web 禁止再次扫码，并展示 Hub owner/status | W-1/W-5 | pytest/Browser |
 
 ## 4. E2E/发布
 

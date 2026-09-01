@@ -203,6 +203,8 @@ v0.4.46 Web 控制面覆盖日常 tunnel 全闭环：创建本地/Hub tunnel、�
 
 v0.4.48 使用飞书官方的 scan-to-create Device Registration。用户不需要提供 App ID、App Secret、verification token 或公网 callback：Web 展示一次性二维码，飞书自动创建 PersonalAgent，dual-tmux 自动加密保存生成的凭据。`dt daemon` 独立于 `dt web` 持有出站 WebSocket，重启后自动恢复并监督重连。详见 [飞书扫码即用](docs/feishu.md)。
 
+每个 dual-tmux 部署只共享一个总 PersonalAgent，而不是每台 Client 各有一个。Hub 模式默认由 tom7r 持有常驻 WS；纯本地模式可以使用本地独立 WS；高级双 Client 接管通过 Hub 原子租约和 generation fencing 保证最多一个 active daemon。
+
 ## 默认 agent：OpenCode
 
 `op_*`（trigger）和 `run_*`（bullet）默认给 **[OpenCode](https://opencode.ai)** 会话用。

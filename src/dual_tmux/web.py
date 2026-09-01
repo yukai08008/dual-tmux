@@ -495,6 +495,8 @@ def feishu_page() -> str:
         <div class="stat"><b id="fs-configured">—</b><span>安装状态</span></div>
         <div class="stat"><b id="fs-bound">0</b><span>已绑定 operator</span></div>
         <div class="stat"><b id="fs-ws">—</b><span>WebSocket</span></div>
+        <div class="stat"><b id="fs-owner">—</b><span>WS owner</span></div>
+        <div class="stat"><b id="fs-generation">—</b><span>Generation</span></div>
       </div>
       <div class="card">
         <h2>扫码绑定</h2>
@@ -508,7 +510,7 @@ def feishu_page() -> str:
     <script>
     const out=document.getElementById('fs-result');
     async function api(url,body){const r=await fetch(url,{method:body?'POST':'GET',headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined});const j=await r.json();if(!r.ok)throw new Error((j.error&&j.error.message)||JSON.stringify(j));return j}
-    async function refresh(){try{const s=await api('/api/feishu/status');document.getElementById('fs-configured').textContent=s.installed?'ready':(s.registration_status||'idle');document.getElementById('fs-bound').textContent=(s.bindings||[]).length;document.getElementById('fs-ws').textContent=((s.daemon||{}).connector||'stopped');document.getElementById('fs-bindings').innerHTML=(s.bindings||[]).map(x=>'<div class="row"><span class="tag done">bound</span><span class="msg">'+Object.entries(x).filter(([k,v])=>v).map(([k,v])=>k+'='+v).join(' · ')+'</span></div>').join('')||'尚未绑定';if(s.registration_status==='pending'){const p=await api('/api/feishu/poll',{});if(p.status==='installed'){out.textContent='绑定成功；dt daemon 将自动启动 WebSocket。';document.getElementById('fs-pair-box').style.display='none';}}}catch(e){out.textContent=e.message}}
+    async function refresh(){try{const s=await api('/api/feishu/status');const d=s.daemon||{};document.getElementById('fs-configured').textContent=s.installed?'ready':(s.registration_status||'idle');document.getElementById('fs-bound').textContent=(s.bindings||[]).length;document.getElementById('fs-ws').textContent=d.connector||'stopped';document.getElementById('fs-owner').textContent=d.owner||'none';document.getElementById('fs-generation').textContent=d.generation||'—';document.getElementById('fs-pair').disabled=!!s.installed;document.getElementById('fs-bindings').innerHTML=(s.bindings||[]).map(x=>'<div class="row"><span class="tag done">bound</span><span class="msg">'+Object.entries(x).filter(([k,v])=>v).map(([k,v])=>k+'='+v).join(' · ')+'</span></div>').join('')||'尚未绑定';if((d.candidates||[]).length)out.dataset.candidates=JSON.stringify(d.candidates);if(s.registration_status==='pending'){const p=await api('/api/feishu/poll',{});if(p.status==='installed'){out.textContent='绑定成功；dt daemon 将自动启动 WebSocket。';document.getElementById('fs-pair-box').style.display='none';}}}catch(e){out.textContent=e.message}}
     document.getElementById('fs-pair').onclick=async()=>{try{const j=await api('/api/feishu/pair',{});document.getElementById('fs-pair-box').style.display='block';document.getElementById('fs-qr').src=j.qr;document.getElementById('fs-url').href=j.authorization_url;document.getElementById('fs-expiry').textContent='有效期 '+j.expires_in+' 秒';out.textContent='二维码已生成；请用飞书扫码确认，页面会自动完成安装。'}catch(e){out.textContent=e.message}};
     document.getElementById('fs-unbind').onclick=async()=>{if(!confirm('解绑飞书机器人并停止对应 WebSocket？'))return;try{out.textContent=JSON.stringify(await api('/api/feishu/unbind',{}),null,2);await refresh()}catch(e){out.textContent=e.message}};
     refresh();setInterval(refresh,3000);
@@ -1905,6 +1907,17 @@ class Handler(BaseHTTPRequestHandler):
             payload = status()
             cfg = load_config()
             payload["bridge"] = cfg.server if cfg.hub_enabled else "local-only"
+            if cfg.hub_enabled:
+                from .feishu_bridge import hub_feishu_status
+
+                remote = hub_feishu_status(cfg)
+                if remote:
+                    payload["installed"] = bool(remote.get("installed"))
+                    payload["configured"] = payload["installed"]
+                    payload["daemon"] = remote.get("daemon") or payload["daemon"]
+                    payload["ws_topology"] = "hub-persistent"
+            else:
+                payload["ws_topology"] = "local-standalone"
             self._send(200, json.dumps(payload), "application/json; charset=utf-8")
             return
         if parsed.path == "/api/events":
