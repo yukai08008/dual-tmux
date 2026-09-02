@@ -1,0 +1,56 @@
+version: v0.4.49
+parent_final: v0.4.48.post2
+title: Hotfix 合集（开发线）
+type: api
+prd: dev_plans/v0.4.48-v0.4.49/PRD.md
+test_cases: dev_plans/v0.4.48-v0.4.49/TEST_CASES.md
+
+invariants:
+  - "一个 deployment 只有一个总 PersonalAgent"
+  - "secret/token 仅以 AEAD 密文落盘"
+  - "local/Hub WS 单活租约 + generation fencing"
+  - "运行时数据不在 git 追踪中"
+  - "升级不降级，config/tunnel 哈希不变"
+  - "每个 hotfix commit message 标注 hotfix 并附测试验证"
+
+deliverables:
+  - module: src/dual_tmux/statusbar.py
+    change: tmux 会话级 status-right 同步状态 chip；hub-sync.json 状态落盘
+  - module: src/dual_tmux/hub.py
+    change: sync/push best-effort 写 hub 同步状态
+  - module: src/dual_tmux/cli.py
+    change: tick/push/pull 后刷新状态栏
+
+feature_branches:
+  - name: hotfix/v0.4.49-tmux-sync-status
+    title: tmux 状态栏同步状态提示
+    deps: []
+    files: [src/dual_tmux/statusbar.py, src/dual_tmux/hub.py, src/dual_tmux/cli.py, tests/test_statusbar.py]
+    acceptance:
+      - "tick 每分钟刷新 op_*/run_* status-right 显示 已同步/同步失败/local"
+      - "用户自定义 status-right 的会话不被覆盖"
+      - "非 dt 会话不受影响"
+    estimated_loc: ~260
+
+risk_register:
+  - id: R1
+    risk: hotfix 引入已验证路径回归
+    mitigation: 独立分支 + 相关测试 + 合并前全量 pytest
+    severity: medium
+  - id: R2
+    risk: 并行 hotfix 文件冲突
+    mitigation: 按序合并，rebase 最新 main
+    severity: low
+
+git_workflow:
+  branch_creation: from main @ v0.4.48.post2
+  merge_policy: PR 合并（pm-maintainer，保留审计记录）
+  before_merge_checks:
+    - "相关 pytest 全 PASS"
+    - "commit message 标注 hotfix"
+  final_tag: 待定（合集闭环后决定 post 发布或并入 v0.4.50）
+
+notes:
+  - 奇数版默认不单独发布；若含紧急修复可破例走 post hotfix 发布并标注原因。
+
+签名: Agent-PM-0.4.49
