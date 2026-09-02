@@ -11,8 +11,8 @@ from datetime import datetime
 from pathlib import Path
 
 from . import log as ev
+from . import statusbar, ui
 from . import tmux as tmux_ops
-from . import ui
 from .activity import TICKS, activity_path, frozen_last_ticks
 from .config import AppConfig, load_config
 from .identity import remote_dt_root
@@ -462,15 +462,19 @@ def push_best_effort(wait: bool = False) -> None:
     def _run_push() -> None:
         try:
             dest = push()
+            statusbar.write_state(True, dest)
             ev.emit("hub.push.ok", dest=dest)
         except SystemExit as exc:
+            statusbar.write_state(False, str(exc))
             ev.emit("hub.push.fail", error=str(exc))
 
     if wait:
         try:
             dest = push()
+            statusbar.write_state(True, dest)
             ui.info(f"hub push  {dest}")
         except SystemExit as exc:
+            statusbar.write_state(False, str(exc))
             ui.warn(f"hub push skipped  {exc}")
         return
     threading.Thread(target=_run_push, daemon=True).start()
@@ -482,15 +486,19 @@ def sync_best_effort(wait: bool = False) -> None:
     def _run_sync() -> None:
         try:
             dest = sync()
+            statusbar.write_state(True, dest)
             ev.emit("hub.sync.ok", dest=dest)
         except SystemExit as exc:
+            statusbar.write_state(False, str(exc))
             ev.emit("hub.sync.fail", error=str(exc))
 
     if wait:
         try:
             dest = sync()
+            statusbar.write_state(True, dest)
             ui.info(f"hub sync  {dest}")
         except SystemExit as exc:
+            statusbar.write_state(False, str(exc))
             ui.warn(f"hub sync skipped  {exc}")
         return
     threading.Thread(target=_run_sync, daemon=True).start()
