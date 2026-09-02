@@ -20,6 +20,11 @@
 | B-12 | 缺失会话跳过、用户自定义 status-right 保护 | tmux-sync-status | tests/test_statusbar.py |
 | B-13 | 重复刷新不叠加、local 模式计数 | tmux-sync-status | tests/test_statusbar.py |
 | E-10 | 源码 `dt tick` 后真实 tmux status-right 显示 ● 已同步 | tmux-sync-status | 手测（已通过 10:10） |
+| B-20 | cron 行带 PATH；install 替换旧行不丢其他条目 | tick-cron-path | tests/test_cron.py |
+| B-21 | tmux bin fallback（which 失败 → homebrew 绝对路径） | tick-cron-path | tests/test_cron.py |
+| B-22 | 未捕获异常写 cmd.fail 事件 | tick-cron-path | tests/test_cron.py |
+| B-23 | hotfix install_tick 对陈旧行纠偏 | tick-cron-path | tests/test_cron.py |
+| E-20 | 裸 cron 环境（PATH=/usr/bin:/bin）源码 `dt tick` 成功 | tick-cron-path | 手测（已通过） |
 
 ## 2. 合集闭环验证
 

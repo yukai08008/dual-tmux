@@ -1804,6 +1804,10 @@ def main() -> None:
         if code not in (0, None):
             ev.emit("cmd.fail", cmd=command, error=str(code))
         raise
+    except Exception as exc:
+        # cron/launchd discard stderr; make crashes visible in the event log.
+        ev.emit("cmd.fail", cmd=command, error=repr(exc))
+        raise
     ev.emit("cmd.ok", cmd=command)
 
 
