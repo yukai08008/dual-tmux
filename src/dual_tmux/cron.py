@@ -18,8 +18,12 @@ def dt_bin() -> str:
     return "dt"
 
 
+CRON_PATH = "/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$HOME/bin:/usr/bin:/bin"
+
+
 def line() -> str:
-    return f"* * * * * {dt_bin()} tick >/dev/null 2>&1"
+    # cron runs with a bare PATH (/usr/bin:/bin); tmux/ssh/rsync must be reachable.
+    return f"* * * * * PATH={CRON_PATH} {dt_bin()} tick >/dev/null 2>&1"
 
 
 def current() -> str:
@@ -37,11 +41,12 @@ def installed() -> bool:
 
 
 def install() -> bool:
-    if installed():
+    rows = current().splitlines()
+    wanted = line()
+    if any(row.strip() == wanted for row in rows):
         return False
-    body = current().rstrip()
-    extra = line()
-    text = f"{body}\n{extra}\n" if body else f"{extra}\n"
+    kept = [row for row in rows if MARKER not in row]
+    text = ("\n".join(kept).rstrip() + "\n" if kept else "") + wanted + "\n"
     result = subprocess.run(
         ["crontab", "-"], input=text, capture_output=True, text=True, timeout=8
     )
