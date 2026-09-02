@@ -7,7 +7,9 @@
 ### v0.4.49 (ACTIVE) — Hotfix 合集（开发线）
 
 - 三件套已建立：`dev_plans/v0.4.48-v0.4.49/`（PRD + TASK_CARD + TEST_CASES）。
-- hotfix 清单待用户口述后逐条追加，每条一个 `hotfix/v0.4.49-*` 分支（L3）。
+- **hotfix/v0.4.49-tmux-sync-status** (MERGED): PR #18 已合并（`e8ebdfd`）；op_*/run_* 会话 status-right 显示同步 chip——persist 锁期间黄色 spinner `同步中`（daemon 每 2s 推进帧）、成功绿色 `已同步 HH:MM`、失败红色；tick 每分钟保底刷新；用户自定义 status-right 的会话不触碰。213 tests、ruff、真实 lock→spinner→变绿验证通过。
+  - **issue-terminal-sync-status-missing** (CLOSED): 排查确认同步链路健康（tick OK、双端哈希一致），缺口是终端可视化；历史约定见 cc67ebc 提交信息 "matching the tmux status-bar cue"。
+- 后续 hotfix 待用户口述，每条一个 `hotfix/v0.4.49-*` 分支（L3）。
 
 ### v0.4.48 (RELEASED) — 飞书扫码 Web 与 tom7r 事件桥
 
