@@ -13,7 +13,7 @@ import uuid
 from pathlib import Path
 from typing import Protocol
 
-from . import log
+from . import log, statusbar
 from .config import load_config
 from .feishu import (
     CredentialVault,
@@ -491,6 +491,33 @@ class DualTmuxDaemon:
         self.mailbox_interval = mailbox_interval
         self.mailbox_sync = mailbox_sync
         self.stop_event = threading.Event()
+        self._statusbar_sig: tuple | None = None
+        self._statusbar_frame = 0
+
+    def _statusbar_step(self) -> None:
+        """Refresh tmux status-bar sync chips; animates the spinner while busy.
+
+        Steady state (no persist lock, unchanged sync state) costs nothing.
+        """
+        from .store import iter_dt_files, load
+
+        try:
+            cfg = load_config()
+        except (OSError, SystemExit):
+            return
+        try:
+            syncing = statusbar.busy()
+            sig = statusbar.signature(cfg.hub_enabled)
+            if not syncing and sig == self._statusbar_sig:
+                return
+            self._statusbar_sig = sig
+            self._statusbar_frame = (self._statusbar_frame + 1) % len(statusbar.SPINNER)
+            tunnels = [load(p) for p in iter_dt_files()]
+            statusbar.refresh(
+                tunnels, hub_enabled=cfg.hub_enabled, frame=self._statusbar_frame
+            )
+        except (OSError, SystemExit, ValueError):
+            return
 
     def _sync_mailbox_once(self) -> None:
         if os.environ.get("DT_FEISHU_ROLE", "client").strip().lower() == "hub":
@@ -558,6 +585,7 @@ class DualTmuxDaemon:
         try:
             while not self.stop_event.is_set():
                 self._write_status(self.manager.step())
+                self._statusbar_step()
                 if once:
                     return
                 self.stop_event.wait(self.interval)
