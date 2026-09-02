@@ -10,7 +10,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import __version__, activity, hub, opsdir, skillmgr, ui
+from . import __version__, activity, hub, opsdir, skillmgr, statusbar, ui
 from . import cron as cron_ops
 from . import hotfix as hotfix_ops
 from . import log as ev
@@ -1017,8 +1017,10 @@ def cmd_tick(_: argparse.Namespace) -> None:
     cfg = require_config()
     hub.enforce_local()
     n = 0
+    seen: list[dict] = []
     for path in iter_dt_files():
         data = load(path)
+        seen.append(data)
         name = data.get("name") or path.stem
         live = tmux_ops.has_session(data.get("op") or "") or tmux_ops.has_session(
             data.get("run") or ""
@@ -1042,6 +1044,7 @@ def cmd_tick(_: argparse.Namespace) -> None:
         recovery.observe(data)
         n += 1
     hub.sync_best_effort(wait=True)
+    statusbar.refresh(seen, hub_enabled=cfg.hub_enabled)
     try:
         sync_client(cfg)
     except (FeishuError, SystemExit, OSError) as exc:
@@ -1199,12 +1202,15 @@ def cmd_rm(args: argparse.Namespace) -> None:
 
 def cmd_push(_: argparse.Namespace) -> None:
     dest = hub.push()
+    statusbar.write_state(True, dest)
+    statusbar.refresh([load(p) for p in iter_dt_files()])
     ui.ok(f"pushed tunnels+entries → {dest}")
     ui.info("config.toml / ops / events stay on this Client")
 
 
 def cmd_pull(_: argparse.Namespace) -> None:
     dest = hub.pull()
+    statusbar.refresh([load(p) for p in iter_dt_files()])
     ui.ok(f"pulled tunnels+entries ← {dest}")
     ui.info(f"this Client stays {require_config().client}")
 
