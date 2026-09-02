@@ -1,6 +1,6 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-01 18:12 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-02 +08:00 | 更新者: Codex PM
 
 ## 状态树
 
@@ -80,6 +80,12 @@
 - 推进 `v0.4.48` 飞书扫码 Web 与 tom7r 中心事件桥，完成偶数版封板发布。
 
 ## Backlog
+
+### Agent：项目级套件与飞书智能入口
+
+- 后续在受管项目根目录建立 `agent/`，以 `agent/AGENTS.md` 作为稳定入口，并配套 skills、tools、policies、workflows 与行为测试。
+- 飞书机器人除保留确定性 `/dt` 控制面外，非命令消息可路由到项目 Agent，由其加载项目约定、理解目标、规划任务、调用受控工具并持续回报，而不是只做机械命令透传。
+- Agent 会话与任务必须按 tenant/user/project 隔离并持久化，支持多 Client owner 路由、离线恢复、审批、审计、TTL 和幂等；详细范围见 `dev_plans/_backlog/20260902-project-agent-feishu-entry.md`。
 
 ### Web：展示 trigger → bullet 的中间交接
 
