@@ -88,6 +88,13 @@
 
 ## Backlog
 
+### Trigger：判断 bullet 状态与卡死检测（BL-TRIGGER-001）
+
+- 真实案例（2026-09-02，dt-company_intro_v2）：bullet 模型请求挂起 77 分钟零输出，TUI spinner 持续动画掩盖卡死，发往 bullet 的消息全部积压 queue。
+- `activity.pane_hash` 整屏哈希被 TUI chrome（进度条/spinner）欺骗，`frozen_last_ticks` 永远判不出 frozen。
+- 需求：bullet 状态机（idle/working/stalled/down），以剥离 chrome 的有效增量为判据；trigger 轮询发现 stalled 后停止堆 queue 并上报，不自动中断。
+- 详见 `dev_plans/_backlog/20260902-trigger-bullet-status-detection.md`。
+
 ### Agent：项目级套件与飞书智能入口
 
 - 后续在受管项目根目录建立 `agent/`，以 `agent/AGENTS.md` 作为稳定入口，并配套 skills、tools、policies、workflows 与行为测试。

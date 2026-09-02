@@ -9,3 +9,4 @@
 | BL-WEB-003 | [任务生命周期自适应轮询](20260901-adaptive-polling.md) | BACKLOG |
 | BL-WEB-004 | [轮询时间线与核心文本提取](20260901-poll-timeline-core-extraction.md) | BACKLOG |
 | BL-AGENT-001 | [项目级 Agent 套件与飞书智能入口](20260902-project-agent-feishu-entry.md) | BACKLOG |
+| BL-TRIGGER-001 | [trigger 有能力判断 bullet 状态（卡死检测）](20260902-trigger-bullet-status-detection.md) | BACKLOG |
