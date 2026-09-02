@@ -80,9 +80,9 @@ class FakeTmux:
                 self.stdout = out
                 self.stderr = ""
 
-        if cmd[:2] == ["tmux", "has-session"]:
+        if cmd[1] == "has-session":
             return R(0 if cmd[-1] in self.sessions else 1)
-        if cmd[:2] == ["tmux", "show-option"]:
+        if cmd[1] == "show-option":
             opt = cmd[-1]
             if "-g" in cmd:
                 return R(0, self.global_right + "\n")
@@ -92,7 +92,7 @@ class FakeTmux:
                 return R(0 if val else 1, val + "\n" if val else "")
             val = self.session_opts.get((sess, opt), self.global_right)
             return R(0, val + "\n")
-        if cmd[:2] == ["tmux", "set-option"]:
+        if cmd[1] == "set-option":
             sess = cmd[cmd.index("-t") + 1]
             self.set_calls.append(cmd)
             self.session_opts[(sess, cmd[-2])] = cmd[-1]

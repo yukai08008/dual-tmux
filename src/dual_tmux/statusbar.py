@@ -57,7 +57,7 @@ def read_state() -> dict:
 
 
 def _show(option: str, session: str = "", global_: bool = False) -> str:
-    cmd = ["tmux", "show-option", "-qv"]
+    cmd = [tmux_ops.bin(), "show-option", "-qv"]
     if global_:
         cmd.append("-g")
     elif session:
@@ -73,7 +73,7 @@ def _show(option: str, session: str = "", global_: bool = False) -> str:
 
 def _set(session: str, option: str, value: str) -> None:
     subprocess.run(
-        ["tmux", "set-option", "-t", session, option, value],
+        [tmux_ops.bin(), "set-option", "-t", session, option, value],
         capture_output=True,
         check=False,
     )

@@ -240,10 +240,11 @@ def uninstall_persist_sync() -> Step:
 
 
 def install_tick() -> Step:
-    if cron_ops.installed():
-        return Step("tick-cron", True, cron_ops.line(), False)
+    wanted = cron_ops.line()
+    if wanted in cron_ops.current().splitlines():
+        return Step("tick-cron", True, wanted, False)
     cron_ops.install()
-    return Step("tick-cron", True, cron_ops.line(), True)
+    return Step("tick-cron", True, wanted, True)
 
 
 def install_feishu_daemon() -> Step:
