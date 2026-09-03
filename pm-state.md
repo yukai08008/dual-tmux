@@ -11,13 +11,15 @@
   - **issue-terminal-sync-status-missing** (CLOSED): 排查确认同步链路健康（tick OK、双端哈希一致），缺口是终端可视化；历史约定见 cc67ebc 提交信息 "matching the tmux status-bar cue"。
 - **hotfix/v0.4.49-tick-cron-path** (MERGED): PR #20 已合并，随 v0.4.48.post4 发布并真实 upgrade；tmux 二进制 which+绝对路径兜底、cron 行带 PATH、install_tick 纠偏、未捕获异常写 cmd.fail。修复后 13:40 出现本机首个 cron tick `cmd.ok`，hub-sync.json 与状态栏每分钟自动前进。220 tests 全过。
   - **issue-tick-cron-tmux-not-in-path** (CLOSED): cron 裸 PATH 无 homebrew，dt tick 从装上起每分钟 FileNotFoundError 崩溃（14292 start / 10 ok），错误被 `>/dev/null` 吞掉。附带发现：本机 crontab 写操作挂起（疑似 TCC），cron 行换新待写恢复后由 doctor 自动应用；upgrade GitHub discovery 缺 token 支持（403 rate limit 时静默 fallback）记为跟进项。
+- **hotfix/v0.4.49-bullet-fencing** (MERGED): PR #22 已合并，随 v0.4.48.post5 发布并真实升级；bullet resume/start 前经 ssh+docker pgrep 检测远端同 session 实例——pane 已附着 TUI 跳过（同时修复 resume 命令被打进 TUI 输入框变 queue 的缺陷）、检查失败拒绝盲启、孤儿实例 TERM→KILL 清理；换模型路径同样 fence。232 tests 全过，真实隧道只读验证通过。
+  - **issue-bullet-multiple-instances** (CLOSED): m7 容器 4 个 opencode 进程抢同一 bullet session（已现场清理 3 个孤儿 + 1 条孤儿 ssh 跳点），是 09-02 上午 bullet 卡死 queue 事故的根因。
 - 后续 hotfix 待用户口述，每条一个 `hotfix/v0.4.49-*` 分支（L3）。
 
 ### v0.4.48 (RELEASED) — 飞书扫码 Web 与 tom7r 事件桥
 
 - **hotfix/v0.4.48-upgrade-github-release** (MERGED): v0.4.48 已于 `687a356` 发布；真实升级发现 uv receipt 固定旧 GitHub wheel URL，已在 v0.4.48.post1 改为官方 GitHub latest discovery + tag/asset 校验 + force install + 禁止降级。
 - **hotfix/v0.4.48.post2-version-consistency** (MERGED): PR #16 已合并并发布 v0.4.48.post2；真实 `dt upgrade` 从 post1 自动选择 post2，CLI/metadata 均为 0.4.48.post2，config/tunnel 哈希不变，正式 launchd mailbox worker running。
-- **v0.4.48.post3 / post4** (RELEASED, 2026-09-02): post3 = tmux 状态栏同步 chip（v0.4.49 hotfix #1）；post4 = cron tick tmux PATH 修复（v0.4.49 hotfix #2）。本机已真实升级至 post4。
+- **v0.4.48.post3 / post4 / post5** (RELEASED, 2026-09-02): post3 = tmux 状态栏同步 chip（v0.4.49 hotfix #1）；post4 = cron tick tmux PATH 修复（#2）；post5 = bullet 单实例 fencing（#3）。本机已真实升级至 post5。
 
 - **feature/v0.4.48-feishu-web-bridge** (MERGED): PR #12 已合并，远端 main=`e1e2494`。Web QR/绑定管理、tom7r mailbox bridge、飞书 callback/event、Client 离线可靠消费、outbox 回包合同与 Docker 部署模板已完成；159 tests、Browser E2E、编译/lint/build、tom7r 容器 build/health 全绿。企业飞书真实 E2E 因缺 App 凭据/HTTPS callback 仍为 P1 发布门禁；v0.4.48 保持 ACTIVE，不创建 Release。
 - **feature/v0.4.48-feishu-scan-ws** (MERGE_PENDING): 飞书 Device Registration、自动加密凭据、独立 `dt daemon`、local/Hub 单活 WS、mailbox 路由、Markdown 卡片与常驻 Client worker 均已实现；193 tests、构建、真实扫码、WS、命令回包和无手工 sync 消费验证通过，PR #14 待自动合并发布。
