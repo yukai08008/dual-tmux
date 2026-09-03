@@ -44,7 +44,8 @@ main (v0.4.48.post2)
 | # | 分支 | 问题 | 状态 |
 |---|------|------|------|
 | 1 | hotfix/v0.4.49-tmux-sync-status | 终端 tmux 状态栏无同步状态提示（同步链路本身健康，属可视化缺口） | MERGED (PR #18) |
-| 2 | hotfix/v0.4.49-tick-cron-path | cron 裸 PATH 无 homebrew，`dt tick` 每分钟 FileNotFoundError: tmux 崩溃（14292 次 start 仅 10 次完成），错误被 `>/dev/null` 吞掉 | FIXING |
+| 2 | hotfix/v0.4.49-tick-cron-path | cron 裸 PATH 无 homebrew，`dt tick` 每分钟 FileNotFoundError: tmux 崩溃（14292 次 start 仅 10 次完成），错误被 `>/dev/null` 吞掉 | MERGED (PR #20, post4) |
+| 3 | hotfix/v0.4.49-bullet-fencing | bullet 同一 session 被多个 opencode 进程并发持有（m7 实测 4 实例），导致 turn 互相阻塞、消息积压 queue；pane 已附着 TUI 时 resume 命令被打进输入框 | FIXED |
 
 ## 4. 风险登记表
 
