@@ -29,6 +29,9 @@
 | B-31 | fence kill 命令构造与空跑/失败策略 | bullet-fencing | tests/test_bullet_fencing.py |
 | B-32 | pane TUI 检测；已附着跳过/检查失败拒启/清理后放行/本地跳过 | bullet-fencing | tests/test_bullet_fencing.py |
 | E-30 | 真实隧道 remote_session_pids=[现役 pid]、TUI 检测 True | bullet-fencing | 手测（已通过） |
+| B-40 | export_snapshot 写入/新鲜跳过/非本地跳过/失败清理/id 校验 | trigger-snapshot-export | tests/test_oc_export.py |
+| B-41 | persist_tenant 读 name 文件、回退 dt client；oc_bin 兜底 | trigger-snapshot-export | tests/test_oc_export.py |
+| E-40 | 真实 tick 自动导出各隧道 trigger 快照并经 persist cron 上 Hub | trigger-snapshot-export | 手测（已通过） |
 
 ## 2. 合集闭环验证
 
