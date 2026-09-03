@@ -292,6 +292,58 @@ def probe_tunnel(
     }
 
 
+def remote_session_pids(
+    data: dict, *, runner: Runner = subprocess.run
+) -> list[int] | None:
+    """Pids of remote processes whose command line carries the bullet session id.
+
+    None means the check itself failed (ssh/container unavailable).
+    """
+    bullet = data.get("bullet") or {}
+    sid = (bullet.get("session_id") or "").strip()
+    if not sid or not (data.get("runtime") or {}).get("server"):
+        return None
+    # Bracket the first character so pgrep cannot match this shell's own cmdline.
+    pattern = f"[{sid[0]}]{sid[1:]}"
+    script = f"pgrep -f {shlex.quote(pattern)} || true"
+    try:
+        result = _remote_command(data, script, runner=runner)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    return [int(tok) for tok in (result.stdout or "").split() if tok.isdigit()]
+
+
+def fence_remote_bullet(
+    data: dict, *, runner: Runner = subprocess.run
+) -> list[int] | None:
+    """Kill remote bullet processes bound to the session; return killed pids.
+
+    None = the check failed (callers should not start blind duplicates);
+    [] = nothing was running.
+    """
+    bullet = data.get("bullet") or {}
+    sid = (bullet.get("session_id") or "").strip()
+    pids = remote_session_pids(data, runner=runner)
+    if pids is None:
+        return None
+    if not pids:
+        return []
+    pattern = f"[{sid[0]}]{sid[1:]}"
+    joined = " ".join(str(pid) for pid in pids)
+    script = (
+        f"kill {joined} 2>/dev/null || true; "
+        f"sleep 1; "
+        f"pgrep -f {shlex.quote(pattern)} | xargs -r kill -9 2>/dev/null || true"
+    )
+    try:
+        _remote_command(data, script, runner=runner)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return pids
+
+
 def ensure_remote_session(
     data: dict, *, runner: Runner = subprocess.run
 ) -> bool:

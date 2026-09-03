@@ -25,6 +25,10 @@
 | B-22 | 未捕获异常写 cmd.fail 事件 | tick-cron-path | tests/test_cron.py |
 | B-23 | hotfix install_tick 对陈旧行纠偏 | tick-cron-path | tests/test_cron.py |
 | E-20 | 裸 cron 环境（PATH=/usr/bin:/bin）源码 `dt tick` 成功 | tick-cron-path | 手测（已通过） |
+| B-30 | remote_session_pids 解析/pattern bracket/失败与超时返回 None | bullet-fencing | tests/test_bullet_fencing.py |
+| B-31 | fence kill 命令构造与空跑/失败策略 | bullet-fencing | tests/test_bullet_fencing.py |
+| B-32 | pane TUI 检测；已附着跳过/检查失败拒启/清理后放行/本地跳过 | bullet-fencing | tests/test_bullet_fencing.py |
+| E-30 | 真实隧道 remote_session_pids=[现役 pid]、TUI 检测 True | bullet-fencing | 手测（已通过） |
 
 ## 2. 合集闭环验证
 
