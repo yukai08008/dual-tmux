@@ -324,6 +324,39 @@ def print_next_after_init() -> None:
     ui.print_next_init()
 
 
+def _pane_shows_agent(tmux_name: str) -> bool:
+    """True when the pane is attached to a live Agent TUI (footer visible)."""
+    from . import paneparse
+
+    text = tmux_ops.capture_pane(tmux_name, start=-15)
+    return bool(
+        paneparse.RUNNING_RE.search(text) or paneparse.FOOTER_RE.search(text)
+    )
+
+
+def _fence_remote_bullet(data: dict, info: dict, tmux_name: str) -> bool:
+    """Enforce a single remote bullet instance for the bound session.
+
+    Returns True when the caller should skip starting a new instance
+    (live TUI already attached, or the remote check failed).
+    """
+    from . import recovery
+
+    sid = info.get("session_id") or ""
+    if not sid or not (data.get("runtime") or {}).get("server"):
+        return False
+    if _pane_shows_agent(tmux_name):
+        ui.skip(f"{tmux_name} bullet TUI already attached; not starting a duplicate")
+        return True
+    fenced = recovery.fence_remote_bullet(data)
+    if fenced is None:
+        ui.warn("remote bullet process check failed; refusing to start blind")
+        return True
+    if fenced:
+        ui.warn(f"fenced stale bullet pid(s): {', '.join(map(str, fenced))}")
+    return False
+
+
 def _start_side(
     data: dict, tmux_name: str, side: str, model: str = "", resume: bool = False
 ) -> None:
@@ -342,6 +375,8 @@ def _start_side(
         directory = (data.get("runtime") or {}).get("directory") or ""
         if directory and Path(directory).expanduser().is_dir():
             cwd = str(Path(directory).expanduser())
+    if side == "bullet" and _fence_remote_bullet(data, info, tmux_name):
+        return
     sent = tmux_ops.ensure_agent(tmux_name, cmd, cwd=cwd)
     if sent:
         ui.ok(f"{side} {cmd} -> {tmux_name}" + (f"  cwd={cwd}" if cwd else ""))
@@ -665,6 +700,12 @@ def _apply_model_legacy(name: str, model: str, sides: list[str]) -> dict:
         if tmux_ops.pane_command(tmux_name) == "opencode":
             ui.info(f"quit {tmux_name} opencode")
             tmux_ops.quit_opencode(tmux_name)
+        if side == "bullet":
+            from . import recovery
+
+            fenced = recovery.fence_remote_bullet(data)
+            if fenced:
+                ui.warn(f"fenced stale bullet pid(s): {', '.join(map(str, fenced))}")
         cmd = oc_ops.start_cmd(info, model)
         cwd = str(opsdir.prepare(data)) if side == "trigger" else ""
         tmux_ops.ensure_agent(tmux_name, cmd, cwd=cwd)
