@@ -475,10 +475,121 @@ def persist_snapshot(info: dict, root: Path | None = None) -> Path | None:
 
 
 def import_snapshot(path: Path) -> None:
-    result = subprocess.run(["opencode", "import", str(path)], capture_output=True, text=True)
+    result = subprocess.run(
+        [oc_bin(), "import", str(path)], capture_output=True, text=True
+    )
     if result.returncode != 0:
         err = (result.stderr or result.stdout or "opencode import failed").strip().splitlines()
         raise SystemExit(f"[err] opencode import {path.name}: {err[-1] if err else 'failed'}")
+
+
+OPENCODE_FALLBACK_BINS = (
+    "~/.opencode/bin/opencode",
+    "/opt/homebrew/bin/opencode",
+    "/usr/local/bin/opencode",
+)
+
+
+def oc_bin() -> str:
+    """Resolve the opencode binary; cron/launchd run with a minimal PATH."""
+    import shutil
+
+    found = shutil.which("opencode")
+    if found:
+        return found
+    for cand in OPENCODE_FALLBACK_BINS:
+        path = Path(cand).expanduser()
+        if path.is_file() and os.access(path, os.X_OK):
+            return str(path)
+    return "opencode"
+
+
+def persist_tenant(default: str = "") -> str:
+    """The persist tenant this machine syncs: session-persist name, else default."""
+    try:
+        name = (
+            Path.home() / ".config" / "session-persist" / "name"
+        ).read_text(encoding="utf-8").strip()
+    except OSError:
+        name = ""
+    return name or default
+
+
+def session_updated_ms(session_id: str) -> int | None:
+    sid = (session_id or "").strip()
+    if not sid:
+        return None
+    db = db_path()
+    if not db.is_file():
+        return None
+    try:
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            row = conn.execute(
+                "SELECT time_updated FROM session WHERE id=?", (sid,)
+            ).fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return None
+    return int(row[0]) if row and row[0] else None
+
+
+def export_snapshot(
+    info: dict,
+    tenant: str,
+    root: Path | None = None,
+    *,
+    runner=subprocess.run,
+) -> Path | None:
+    """Export a live local session into the persist tree when it changed.
+
+    Only the session's owning Client can export (its sqlite holds the data);
+    callers must already hold the tunnel lock. Returns the snapshot path only
+    when the snapshot was (re)written; None when fresh or nothing local to
+    export. Raises SystemExit when the export itself fails.
+    """
+    sid = (info.get("session_id") or "").strip()
+    if not sid or not tenant:
+        return None
+    if (info.get("tool") or "opencode") != "opencode":
+        return None
+    if not by_id(sid):
+        return None
+    slug = (info.get("slug") or "").strip() or sid
+    dest_dir = (root or persist_root()) / tenant
+    dest = dest_dir / f"{slug}.json"
+    updated = session_updated_ms(sid)
+    if updated and dest.is_file() and dest.stat().st_mtime >= updated / 1000:
+        return None
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    import tempfile
+
+    fd, tmp = tempfile.mkstemp(prefix=f".{slug}.", suffix=".json", dir=str(dest_dir))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            result = runner(
+                [oc_bin(), "export", sid],
+                stdout=fh,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=120,
+                check=False,
+            )
+        if result.returncode != 0:
+            err = (result.stderr or "").strip().splitlines()
+            raise SystemExit(
+                f"[err] opencode export {sid}: {err[-1] if err else 'failed'}"
+            )
+        with open(tmp, encoding="utf-8") as fh:
+            payload = json.load(fh)
+        if (payload.get("info") or {}).get("id") != sid:
+            raise SystemExit(f"[err] opencode export {sid}: snapshot id mismatch")
+        os.replace(tmp, dest)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+    return dest
 
 
 def ensure_local(info: dict, *, importer=None, role: str = "trigger") -> bool:

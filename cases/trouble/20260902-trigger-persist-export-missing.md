@@ -1,6 +1,6 @@
 # 本机 trigger 会话无 persist 快照导出 + persist 租户名不一致
 
-> 日期：2026-09-02 | 状态：已临时缓解（手工导出），机制缺口待决策
+> 日期：2026-09-02 | 状态：已解决（solution 20260903-trigger-persist-export-missing-solution）
 
 ## 背景
 
