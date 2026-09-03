@@ -324,6 +324,23 @@ def print_next_after_init() -> None:
     ui.print_next_init()
 
 
+def _export_local_snapshots(data: dict, client: str) -> list:
+    """Persist-tree snapshots for live local sessions of this tunnel.
+
+    Trigger always lives on the Client; a bullet only when its runtime is
+    local (no server jump). Freshness-gated: only changed sessions export.
+    """
+    remote = bool((data.get("runtime") or {}).get("server"))
+    sides = ("trigger",) if remote else ("trigger", "bullet")
+    tenant = oc_ops.persist_tenant(client)
+    written = []
+    for side in sides:
+        path = oc_ops.export_snapshot(data.get(side) or {}, tenant)
+        if path:
+            written.append(path)
+    return written
+
+
 def _pane_shows_agent(tmux_name: str) -> bool:
     """True when the pane is attached to a live Agent TUI (footer visible)."""
     from . import paneparse
@@ -1083,6 +1100,12 @@ def cmd_tick(_: argparse.Namespace) -> None:
         except SystemExit:
             continue
         recovery.observe(data)
+        try:
+            written = _export_local_snapshots(data, cfg.client)
+            for snap in written:
+                ev.emit("persist.export", name=name, slug=snap.stem)
+        except SystemExit as exc:
+            ev.emit("persist.export.fail", name=name, error=str(exc))
         n += 1
     hub.sync_best_effort(wait=True)
     statusbar.refresh(seen, hub_enabled=cfg.hub_enabled)
