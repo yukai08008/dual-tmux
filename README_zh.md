@@ -1,6 +1,6 @@
 # dual-tmux
 
-[English](README.md) · [Persist 同步](docs/persist-sync.md)
+[English](README.md) · [Persist 同步](docs/persist-sync.md) · [会话位置与一致性](docs/session-location.md)
 
 双层 tmux 隧道。物理会话仍是普通 tmux；本 CLI 给它们命名，并按 1:1 绑定。dual-tmux 有两种基础运行模式：**纯本地模式**与 **Hub 同步模式**。
 
