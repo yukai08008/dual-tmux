@@ -879,16 +879,42 @@ def _apply_resume_legacy(name: str | None, force: bool = False) -> dict:
     if remote_bullet:
         from .recovery import ensure_remote_session
 
-        if ensure_remote_session(data):
+        if _pane_shows_agent(data["run"]):
+            ui.skip("remote bullet TUI is live; persist recovery not needed")
+        elif ensure_remote_session(data):
             ui.ok("imported remote bullet persist JSON")
     trigger = _side(data, "trigger")
     bullet = _side(data, "bullet")
-    if (trigger.get("tool") or "opencode") == "opencode" and oc_ops.ensure_local(trigger):
+
+    def ensure_snapshot(info: dict, tmux_name: str, role: str) -> bool:
+        def stop_loaded_tui() -> None:
+            current = tmux_ops.pane_command(tmux_name)
+            if current != "opencode":
+                if _pane_shows_agent(tmux_name):
+                    raise SystemExit(
+                        f"[err] cannot safely reload newer {role} snapshot: "
+                        f"{tmux_name} shows an agent but pane command is {current or 'unknown'}"
+                    )
+                return
+            if not tmux_ops.quit_opencode(tmux_name):
+                raise SystemExit(
+                    f"[err] cannot reload newer {role} snapshot while "
+                    f"{tmux_name} is still running opencode"
+                )
+            ui.info(f"stopped stale {role} TUI before snapshot import")
+
+        return oc_ops.ensure_local(
+            info, role=role, prepare_replace=stop_loaded_tui
+        )
+
+    if (trigger.get("tool") or "opencode") == "opencode" and ensure_snapshot(
+        trigger, data["op"], "trigger"
+    ):
         ui.ok("imported trigger persist JSON")
     if (
         not remote_bullet
         and (bullet.get("tool") or "opencode") == "opencode"
-        and oc_ops.ensure_local(bullet, role="bullet")
+        and ensure_snapshot(bullet, data["run"], "bullet")
     ):
         ui.ok("imported local bullet persist JSON")
     _start_side(data, data["op"], "trigger", "", True)
@@ -1274,9 +1300,15 @@ def cmd_push(_: argparse.Namespace) -> None:
 
 def cmd_pull(_: argparse.Namespace) -> None:
     dest = hub.pull()
-    statusbar.refresh([load(p) for p in iter_dt_files()])
     ui.ok(f"pulled tunnels+entries ← {dest}")
-    ui.info(f"this Client stays {require_config().client}")
+    cfg = require_config()
+    synced: list[str] = []
+    for kind in ("opencode", "tmux"):
+        hotfix_ops.sync_persist(kind, cfg)
+        synced.append(kind)
+    statusbar.refresh([load(p) for p in iter_dt_files()])
+    ui.ok(f"pulled persist snapshots  {', '.join(synced)}")
+    ui.info(f"this Client stays {cfg.client}")
 
 
 def cmd_log(args: argparse.Namespace) -> None:

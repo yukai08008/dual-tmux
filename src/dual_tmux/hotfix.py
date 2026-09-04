@@ -168,6 +168,7 @@ def persist_script(kind: str, host: str, user: str) -> str:
         "set -u",
         'export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$HOME/bin:$PATH"',
         f'HOST="${{1:-{host}}}"',
+        'WAIT="${2:-}"',
         'grep -Fqx "server = \\"$HOST\\"" "$HOME/.dual-tmux/config.toml" 2>/dev/null || exit 0',
         'ME="$(tr -d \'[:space:]\' < "$HOME/.config/session-persist/name" 2>/dev/null || true)"',
         'case "$ME" in tm_*) ;; *) exit 0 ;; esac',
@@ -175,26 +176,59 @@ def persist_script(kind: str, host: str, user: str) -> str:
         'LOCAL="$ROOT/$ME"',
         f'LOCK="$HOME/.dual-tmux/locks/persist-{kind}"',
         'mkdir -p "$LOCAL" "$(dirname "$LOCK")"',
-        'mkdir "$LOCK" >/dev/null 2>&1 || exit 0',
+        'if ! mkdir "$LOCK" >/dev/null 2>&1; then',
+        '    [ "$WAIT" = "--wait" ] || exit 0',
+        '    i=0',
+        '    while [ "$i" -lt 30 ] && [ -d "$LOCK" ]; do sleep 1; i=$((i+1)); done',
+        '    mkdir "$LOCK" >/dev/null 2>&1 || exit 1',
+        'fi',
         "trap 'rmdir \"$LOCK\" 2>/dev/null' EXIT",
     ]
     if extra:
         lines.append(extra)
     lines.extend(
         [
-            f'rsync -a --delete {exclude} "$LOCAL"/ "$HOST:{rel}/$ME/" >/dev/null 2>&1 || exit 1',
-            f'names="$(ssh -o BatchMode=yes "$HOST" "for d in \\"\\$HOME/{rel}\\"/*/; do [ -d \\"\\$d\\" ] || continue; b=\\$(basename \\"\\$d\\"); case \\"\\$b\\" in tm_*) printf \'%s\\\\n\' \\"\\$b\\" ;; esac; done" 2>/dev/null || true)"',
+            f'rsync -a --delete {exclude} "$LOCAL"/ "$HOST:{rel}/$ME/" || exit 1',
+            f'names="$(ssh -o BatchMode=yes "$HOST" "for d in \\"\\$HOME/{rel}\\"/*/; do [ -d \\"\\$d\\" ] || continue; b=\\$(basename \\"\\$d\\"); case \\"\\$b\\" in tm_*) printf \'%s\\\\n\' \\"\\$b\\" ;; esac; done")" || exit 1',
+            "failed=0",
             "while IFS= read -r n; do",
             '    [ -n "$n" ] || continue',
             '    [ "$n" = "$ME" ] && continue',
             '    mkdir -p "$ROOT/$n"',
-            f'    rsync -a "$HOST:{rel}/$n/" "$ROOT/$n/" >/dev/null 2>&1 || true',
+            f'    rsync -a "$HOST:{rel}/$n/" "$ROOT/$n/" || failed=1',
             'done <<< "$names"',
-            "exit 0",
+            'exit "$failed"',
             "",
         ]
     )
     return "\n".join(lines)
+
+
+def sync_persist(kind: str, cfg: AppConfig, timeout: int = 180) -> Path:
+    """Run an installed persist sync and wait for an overlapping cron run."""
+    if kind not in {"tmux", "opencode"}:
+        raise ValueError(f"unsupported persist kind: {kind}")
+    path = persist_bin(kind)
+    if not path.is_file():
+        raise SystemExit(
+            f"[err] persist sync missing: {path}. Run dt upgrade to install it."
+        )
+    try:
+        result = subprocess.run(
+            [str(path), cfg.server, "--wait"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SystemExit(f"[err] persist {kind} sync timed out after {timeout}s") from exc
+    if result.returncode != 0:
+        err = (result.stderr or result.stdout or "sync failed").strip().splitlines()
+        raise SystemExit(
+            f"[err] persist {kind} sync: {err[-1] if err else 'failed'}"
+        )
+    return path
 
 
 def install_persist_sync(cfg: AppConfig) -> Step:

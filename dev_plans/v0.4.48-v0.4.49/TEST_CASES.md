@@ -55,11 +55,13 @@
 | E-32 | v1/v2 Client 混合运行，锁与现有 tunnel binding 无损 | compatibility | 两版本真实 Client |
 | B-70 | persist job 先 export 活跃 trigger，再原子发布 manifest+snapshot | snapshot export | tests/test_persist_sync.py |
 | B-71 | persist identity 与 config.client 不一致/源目录为空时明确失败 | snapshot identity | tests/test_persist_sync.py |
-| B-72 | 本地已有同 session ID 但 revision 较旧，仍执行备份导入并验证尾消息 | snapshot freshness | tests/test_store.py |
-| B-73 | 本地 revision 更新时不反向降级 | snapshot freshness | tests/test_store.py |
-| B-74 | 两个 source 的同 ID revision 分叉返回 snapshot_conflict | snapshot conflict | tests/test_store.py |
+| B-72 | 本地已有同 session ID 但 revision 较旧，仍执行备份导入并验证尾消息 | snapshot freshness | tests/test_persist_sync.py |
+| B-73 | 本地 revision 更新时不反向降级 | snapshot freshness | tests/test_persist_sync.py |
+| B-74 | 两个 source 的同 ID revision 分叉返回 snapshot_conflict | snapshot conflict | tests/test_persist_sync.py |
 | B-75 | binding 已拉取但 snapshot 缺失时，resume plan 精确显示缺口 | diagnostics | tests/test_bullet_resume.py |
-| E-40 | OUC 更新 trigger/bullet 并锁屏，Home 同步后两侧最后问答一致 | cross-client snapshot | 两台真实 Client |
+| B-76 | `dt pull` 同步 OpenCode/tmux persist；重叠 cron 等待，SSH/rsync 失败可见 | snapshot transport | tests/test_config_modes.py + tests/test_persist_sync.py |
+| B-77 | stale TUI 在 import 前退出、import 后重新启动；live remote bullet 不被恢复覆盖 | transactional resume | tests/test_bullet_resume.py |
+| E-40 | OUC 更新 trigger/bullet 并锁屏，Home 同步后两侧最后问答一致 | cross-client snapshot | 已通过（2026-09-05，Home 恢复 1052 条消息并验证“你好”结果） |
 
 ## 3. 合集闭环验证
 

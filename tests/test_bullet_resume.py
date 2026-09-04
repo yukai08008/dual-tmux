@@ -76,6 +76,7 @@ def _patch_resume(monkeypatch, data: dict):
     monkeypatch.setattr(cli, "save", lambda *_args: None)
     monkeypatch.setattr(cli, "find_dt", lambda _name: None)
     monkeypatch.setattr(cli.ev, "emit", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cli, "_pane_shows_agent", lambda _name: False)
     monkeypatch.setattr(recovery, "ensure_remote_session", lambda *_args, **_kwargs: False)
 
 
@@ -111,6 +112,22 @@ def test_resume_waits_for_remote_jump_before_starting_bullet(monkeypatch):
     assert calls == ["jump", "landed", "trigger", "bullet"]
 
 
+def test_resume_does_not_recover_over_live_remote_bullet_tui(monkeypatch):
+    data = _dst()
+    _patch_resume(monkeypatch, data)
+    monkeypatch.setattr(cli.tmux_ops, "pane_command", lambda _name: "ssh")
+    monkeypatch.setattr(cli, "_pane_shows_agent", lambda _name: True)
+    monkeypatch.setattr(
+        recovery,
+        "ensure_remote_session",
+        lambda _data: pytest.fail("must not import over a live remote bullet"),
+    )
+    monkeypatch.setattr(cli.oc_ops, "ensure_local", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(cli, "_start_side", lambda *_args, **_kwargs: None)
+
+    cli._apply_resume_legacy("msg")
+
+
 def test_resume_imports_local_bullet_snapshot(monkeypatch):
     data = _dst(server="")
     data["runtime"]["cmd"] = ""
@@ -126,3 +143,38 @@ def test_resume_imports_local_bullet_snapshot(monkeypatch):
 
     cli._apply_resume_legacy("msg")
     assert seen == [("ses_trigger", "trigger"), ("ses_bullet", "bullet")]
+
+
+def test_resume_stops_loaded_trigger_before_importing_newer_snapshot(monkeypatch):
+    data = _dst(server="")
+    data["runtime"]["cmd"] = ""
+    _patch_resume(monkeypatch, data)
+    calls: list[str] = []
+    monkeypatch.setattr(
+        cli.tmux_ops,
+        "pane_command",
+        lambda name: "opencode" if name == "op_msg" else "zsh",
+    )
+    monkeypatch.setattr(
+        cli.tmux_ops,
+        "quit_opencode",
+        lambda name: calls.append(f"quit:{name}") or True,
+    )
+
+    def ensure(info, **kwargs):
+        if info["session_id"] != "ses_trigger":
+            return False
+        kwargs["prepare_replace"]()
+        calls.append("import")
+        return True
+
+    monkeypatch.setattr(cli.oc_ops, "ensure_local", ensure)
+    monkeypatch.setattr(
+        cli,
+        "_start_side",
+        lambda _data, _tmux, side, *_args: calls.append(f"start:{side}"),
+    )
+
+    cli._apply_resume_legacy("msg")
+
+    assert calls == ["quit:op_msg", "import", "start:trigger", "start:bullet"]
