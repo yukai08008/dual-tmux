@@ -1,6 +1,6 @@
 # dual-tmux
 
-[中文文档](README_zh.md) · [Persist sync](docs/persist-sync.md) · [Memory](docs/memory.md) · [Feishu API](docs/feishu.md)
+[中文文档](README_zh.md) · [Persist sync](docs/persist-sync.md) · [Session location](docs/session-location.md) · [Memory](docs/memory.md) · [Feishu API](docs/feishu.md)
 
 Dual tmux tunnels. Physical sessions stay ordinary tmux; this CLI names them and binds them 1:1. dual-tmux has two foundational operating modes: **local-only** and **Hub sync**.
 

@@ -64,7 +64,10 @@ main (v0.4.48.post4)
 | # | 分支 | 问题 | 状态 |
 |---|------|------|------|
 | 1 | hotfix/v0.4.49-tmux-sync-status | 终端 tmux 状态栏无同步状态提示（同步链路本身健康，属可视化缺口） | MERGED (PR #18) |
-| 2 | hotfix/v0.4.49-tick-cron-path | cron 裸 PATH 无 homebrew，`dt tick` 每分钟 FileNotFoundError: tmux 崩溃（14292 次 start 仅 10 次完成），错误被 `>/dev/null` 吞掉 | MERGED (PR #20) |
+| 2 | hotfix/v0.4.49-tick-cron-path | cron 裸 PATH 无 homebrew，`dt tick` 每分钟 FileNotFoundError: tmux 崩溃（14292 次 start 仅 10 次完成），错误被 `>/dev/null` 吞掉 | MERGED (PR #20, post4) |
+| 3 | hotfix/v0.4.49-bullet-fencing | bullet 同一 session 被多个 opencode 进程并发持有（m7 实测 4 实例），导致 turn 互相阻塞、消息积压 queue；pane 已附着 TUI 时 resume 命令被打进输入框 | MERGED (PR #22, post5) |
+| 4 | hotfix/v0.4.49-trigger-snapshot-export | tick 内建 trigger 快照导出，解决 Hub 快照停滞 | MERGED (PR #24, post6) |
+| 5 | feature/v0.4.49-session-ownership | 同 ID 的本地旧 revision 被 `ensure_local()` 直接跳过；补齐 freshness 收敛、事务 resume 与 ownership 语义 | DEVELOPING |
 
 ## 4. Session Ownership 状态机
 
