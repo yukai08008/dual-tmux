@@ -11,11 +11,15 @@
   - **issue-terminal-sync-status-missing** (CLOSED): 排查确认同步链路健康（tick OK、双端哈希一致），缺口是终端可视化；历史约定见 cc67ebc 提交信息 "matching the tmux status-bar cue"。
 - **hotfix/v0.4.49-tick-cron-path** (MERGED): PR #20 已合并，随 v0.4.48.post4 发布并真实 upgrade；tmux 二进制 which+绝对路径兜底、cron 行带 PATH、install_tick 纠偏、未捕获异常写 cmd.fail。修复后 13:40 出现本机首个 cron tick `cmd.ok`，hub-sync.json 与状态栏每分钟自动前进。220 tests 全过。
   - **issue-tick-cron-tmux-not-in-path** (CLOSED): cron 裸 PATH 无 homebrew，dt tick 从装上起每分钟 FileNotFoundError 崩溃（14292 start / 10 ok），错误被 `>/dev/null` 吞掉。附带发现：本机 crontab 写操作挂起（疑似 TCC），cron 行换新待写恢复后由 doctor 自动应用；upgrade GitHub discovery 缺 token 支持（403 rate limit 时静默 fallback）记为跟进项。
-- **feature/v0.4.49-session-ownership** (FORKED): 规划语义活动证据、Lease v2、owner daemon handoff、两阶段 resume、session writer 单活和统一 CLI/JSON 诊断；分支从 `v0.4.48.post4` 后的 main 创建，三件套已扩充。
+- **hotfix/v0.4.49-bullet-fencing** (MERGED): PR #22 已合并，随 v0.4.48.post5 发布并真实升级；bullet resume/start 前经 ssh+docker pgrep 检测远端同 session 实例——pane 已附着 TUI 跳过（同时修复 resume 命令被打进 TUI 输入框变 queue 的缺陷）、检查失败拒绝盲启、孤儿实例 TERM→KILL 清理；换模型路径同样 fence。232 tests 全过，真实隧道只读验证通过。
+  - **issue-bullet-multiple-instances** (CLOSED): m7 容器 4 个 opencode 进程抢同一 bullet session（已现场清理 3 个孤儿 + 1 条孤儿 ssh 跳点），是 09-02 上午 bullet 卡死 queue 事故的根因。
+- **hotfix/v0.4.49-trigger-snapshot-export** (MERGED): PR #24 已合并，随 v0.4.48.post6 发布并真实升级；tick 每分钟对本 Client 持有的隧道自动导出 trigger（本地模式含 bullet）会话快照到 persist 租户目录——time_updated 新鲜度门控、原子写、id 校验，失败记 `persist.export.fail` 不拖垮 tick。真实 tick 已自动导出 4 个隧道快照并经 persist cron 上 Hub 验证一致。原则落地：单一活动隧道/会话，任何机器 resume 都拿到最新数据。
+  - **issue-trigger-persist-export-missing** (CLOSED): 本机无外部 persist 导出器运行，Hub 快照停留 8/30。租户名（tm_andy_ouc）与 dt client（tm_ouc）不一致经评估不强制改名（保护 tmux-resurrect 路径），导出写入 name 文件指向的租户。
+- **feature/v0.4.49-session-ownership** (DEVELOPING): 基于 post6 继续实现 snapshot freshness 收敛、Lease/活动分离和事务化 resume；规划及故障证据已入库。
   - **issue-lockscreen-lease-false-active** (FOUND): 锁屏 Client 的 cron heartbeat 被描述为用户活跃；最后 30 条稀疏样本跨约 4 小时。
   - **issue-resume-reject-drops-local-pane** (FOUND): ownership preflight 拒绝通过 `require_active()` 隐式删除本地 op/run tmux。
-  - **issue-duplicate-session-writer** (FOUND): 远端曾同时有两个 OpenCode 进程打开同一 session ID，force resume 可能继续放大并发 writer。
-  - **issue-trigger-snapshot-stale-on-cross-client-resume** (FOUND): OUC 今日更新的 bullet session 在远端存在，但 Hub 的 OUC trigger persist 目录为空；Home 本地同 ID trigger 停在 8 月 30 日。现有 `ensure_local()` 只判断 session ID 是否存在，不比较 revision，因而会把旧内容当作已恢复。
+  - **issue-duplicate-session-writer** (CLOSED by post5): 远端同 session 多进程已由 bullet fencing 修复。
+  - **issue-trigger-snapshot-stale-on-cross-client-resume** (FIXING): post6 已让 OUC 新快照到达 Hub/Home，但 `ensure_local()` 只按 session ID 是否存在判断，Home 仍使用 8 月 30 日旧 SQLite revision。
 - 后续 hotfix 待用户口述，每条一个 `hotfix/v0.4.49-*` 分支（L3）。
 
 ### v0.4.50 (PLANNED) — Ownership 与安全接管 Web 版
@@ -28,7 +32,7 @@
 
 - **hotfix/v0.4.48-upgrade-github-release** (MERGED): v0.4.48 已于 `687a356` 发布；真实升级发现 uv receipt 固定旧 GitHub wheel URL，已在 v0.4.48.post1 改为官方 GitHub latest discovery + tag/asset 校验 + force install + 禁止降级。
 - **hotfix/v0.4.48.post2-version-consistency** (MERGED): PR #16 已合并并发布 v0.4.48.post2；真实 `dt upgrade` 从 post1 自动选择 post2，CLI/metadata 均为 0.4.48.post2，config/tunnel 哈希不变，正式 launchd mailbox worker running。
-- **v0.4.48.post3 / post4** (RELEASED, 2026-09-02): post3 = tmux 状态栏同步 chip（v0.4.49 hotfix #1）；post4 = cron tick tmux PATH 修复（v0.4.49 hotfix #2）。本机已真实升级至 post4。
+- **v0.4.48.post3 ~ post6** (RELEASED, 2026-09-02/03): post3 = tmux 状态栏同步 chip（#1）；post4 = cron tick tmux PATH 修复（#2）；post5 = bullet 单实例 fencing（#3）；post6 = trigger 快照自动导出（#4）。本机已真实升级至 post6。
 
 - **feature/v0.4.48-feishu-web-bridge** (MERGED): PR #12 已合并，远端 main=`e1e2494`。Web QR/绑定管理、tom7r mailbox bridge、飞书 callback/event、Client 离线可靠消费、outbox 回包合同与 Docker 部署模板已完成；159 tests、Browser E2E、编译/lint/build、tom7r 容器 build/health 全绿。企业飞书真实 E2E 因缺 App 凭据/HTTPS callback 仍为 P1 发布门禁；v0.4.48 保持 ACTIVE，不创建 Release。
 - **feature/v0.4.48-feishu-scan-ws** (MERGE_PENDING): 飞书 Device Registration、自动加密凭据、独立 `dt daemon`、local/Hub 单活 WS、mailbox 路由、Markdown 卡片与常驻 Client worker 均已实现；193 tests、构建、真实扫码、WS、命令回包和无手工 sync 消费验证通过，PR #14 待自动合并发布。
