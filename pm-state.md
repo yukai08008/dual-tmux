@@ -1,17 +1,28 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-02 +08:00 | 更新者: OpenCode PM
+> 最近更新: 2026-09-02 23:29 +08:00 | 更新者: Codex PM
 
 ## 状态树
 
-### v0.4.49 (ACTIVE) — Hotfix 合集（开发线）
+### v0.4.49 (ACTIVE) — 运行时修复与 Session Ownership API
 
 - 三件套已建立：`dev_plans/v0.4.48-v0.4.49/`（PRD + TASK_CARD + TEST_CASES）。
 - **hotfix/v0.4.49-tmux-sync-status** (MERGED): PR #18 已合并（`e8ebdfd`），随 v0.4.48.post3 发布并完成本机真实 upgrade；op_*/run_* 会话 status-right 显示同步 chip——persist 锁期间黄色 spinner `同步中`（daemon 每 2s 推进帧）、成功绿色 `已同步 HH:MM`、失败红色；tick 每分钟保底刷新；用户自定义 status-right 的会话不触碰。213 tests、ruff、真实 lock→spinner→变绿验证通过。
   - **issue-terminal-sync-status-missing** (CLOSED): 排查确认同步链路健康（tick OK、双端哈希一致），缺口是终端可视化；历史约定见 cc67ebc 提交信息 "matching the tmux status-bar cue"。
 - **hotfix/v0.4.49-tick-cron-path** (MERGED): PR #20 已合并，随 v0.4.48.post4 发布并真实 upgrade；tmux 二进制 which+绝对路径兜底、cron 行带 PATH、install_tick 纠偏、未捕获异常写 cmd.fail。修复后 13:40 出现本机首个 cron tick `cmd.ok`，hub-sync.json 与状态栏每分钟自动前进。220 tests 全过。
   - **issue-tick-cron-tmux-not-in-path** (CLOSED): cron 裸 PATH 无 homebrew，dt tick 从装上起每分钟 FileNotFoundError 崩溃（14292 start / 10 ok），错误被 `>/dev/null` 吞掉。附带发现：本机 crontab 写操作挂起（疑似 TCC），cron 行换新待写恢复后由 doctor 自动应用；upgrade GitHub discovery 缺 token 支持（403 rate limit 时静默 fallback）记为跟进项。
+- **feature/v0.4.49-session-ownership** (FORKED): 规划语义活动证据、Lease v2、owner daemon handoff、两阶段 resume、session writer 单活和统一 CLI/JSON 诊断；分支从 `v0.4.48.post4` 后的 main 创建，三件套已扩充。
+  - **issue-lockscreen-lease-false-active** (FOUND): 锁屏 Client 的 cron heartbeat 被描述为用户活跃；最后 30 条稀疏样本跨约 4 小时。
+  - **issue-resume-reject-drops-local-pane** (FOUND): ownership preflight 拒绝通过 `require_active()` 隐式删除本地 op/run tmux。
+  - **issue-duplicate-session-writer** (FOUND): 远端曾同时有两个 OpenCode 进程打开同一 session ID，force resume 可能继续放大并发 writer。
+  - **issue-trigger-snapshot-stale-on-cross-client-resume** (FOUND): OUC 今日更新的 bullet session 在远端存在，但 Hub 的 OUC trigger persist 目录为空；Home 本地同 ID trigger 停在 8 月 30 日。现有 `ensure_local()` 只判断 session ID 是否存在，不比较 revision，因而会把旧内容当作已恢复。
 - 后续 hotfix 待用户口述，每条一个 `hotfix/v0.4.49-*` 分支（L3）。
+
+### v0.4.50 (PLANNED) — Ownership 与安全接管 Web 版
+
+- 三件套草案：`dev_plans/v0.4.49-v0.4.50/`。
+- 等 v0.4.49 ownership API 冻结并形成 `v0.4.49-final` 后进入 ACTIVE、创建 L2 feature 分支。
+- 计划范围：四维状态面板、安全接管向导、handoff 时间线、force 风险确认，以及 Web/CLI/tmux chip 状态收敛。
 
 ### v0.4.48 (RELEASED) — 飞书扫码 Web 与 tom7r 事件桥
 
@@ -87,9 +98,16 @@
 
 ## 当前焦点
 
-- 推进 `v0.4.49` hotfix 合集：逐条接收用户口述问题，每条独立 `hotfix/v0.4.49-*` 分支修复并验证。
+- 推进 `feature/v0.4.49-session-ownership`：先完成 semantic activity 与 Lease v2，再实现 transactional resume/session writer singleton，最后冻结 API 供 v0.4.50 Web 使用。
 
 ## Backlog
+
+### Runtime：Session Ownership 与安全接管（BL-RUNTIME-001，PLANNED）
+
+- v0.4.49 API：lease/runtime/attached/progress 四维分离；owner handoff；resume 两阶段事务；同 session writer 单活。
+- v0.4.49 snapshot：内建 export/manifest；比较 revision 与尾消息 hash；同 ID 旧副本必须更新；多源冲突 fail closed。
+- v0.4.50 Web：四维事实面板、接管预检与时间线、精确拒绝原因和高风险 force 确认。
+- 详见 `dev_plans/_backlog/20260902-session-ownership-safe-takeover.md`。
 
 ### Trigger：判断 bullet 状态与卡死检测（BL-TRIGGER-001）
 
