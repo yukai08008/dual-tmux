@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -52,6 +53,16 @@ class OcSession:
     tool: str = "opencode"
     model: str = ""
     agent: str = ""
+
+
+@dataclass(frozen=True)
+class SnapshotRevision:
+    path: Path
+    session_id: str
+    updated_ms: int
+    tail_id: str
+    message_ids: frozenset[str]
+    digest: str
 
 
 def have_opencode() -> bool:
@@ -439,8 +450,40 @@ def is_dst(data: dict) -> bool:
     return side_ready(data.get("trigger")) and side_ready(data.get("bullet"))
 
 
-def persist_snapshot(info: dict, root: Path | None = None) -> Path | None:
-    """Find trigger JSON under ~/sessions/opencode/tm_*/. Never keyed by container."""
+def _snapshot_revision(path: Path, expected_sid: str = "") -> SnapshotRevision | None:
+    try:
+        raw = path.read_bytes()
+        payload = json.loads(raw)
+    except (OSError, json.JSONDecodeError):
+        return None
+    info = payload.get("info") or {}
+    sid = str(info.get("id") or "").strip()
+    if not sid or (expected_sid and sid != expected_sid):
+        return None
+    updated = (info.get("time") or {}).get("updated") or 0
+    try:
+        updated_ms = int(updated)
+    except (TypeError, ValueError):
+        updated_ms = 0
+    ids: list[str] = []
+    for message in payload.get("messages") or []:
+        mid = str((message.get("info") or {}).get("id") or "").strip()
+        if mid:
+            ids.append(mid)
+    return SnapshotRevision(
+        path=path,
+        session_id=sid,
+        updated_ms=updated_ms,
+        tail_id=ids[-1] if ids else "",
+        message_ids=frozenset(ids),
+        digest=hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest(),
+    )
+
+
+def resolve_snapshot(info: dict, root: Path | None = None) -> SnapshotRevision | None:
+    """Resolve the newest verified per-Client snapshot by payload revision."""
     from .identity import legal_source
 
     slug = (info.get("slug") or "").strip()
@@ -450,15 +493,14 @@ def persist_snapshot(info: dict, root: Path | None = None) -> Path | None:
     base = root or persist_root()
     if not base.is_dir():
         return None
-    hits: list[Path] = []
+    hits: set[Path] = set()
     for source in sorted(base.iterdir()):
         if not source.is_dir() or not legal_source(source.name):
             continue
         if slug:
             candidate = source / f"{slug}.json"
             if candidate.is_file():
-                hits.append(candidate)
-                continue
+                hits.add(candidate)
         if not sid:
             continue
         for path in source.glob("*.json"):
@@ -467,11 +509,32 @@ def persist_snapshot(info: dict, root: Path | None = None) -> Path | None:
             except (OSError, json.JSONDecodeError):
                 continue
             if (data.get("info") or {}).get("id") == sid:
-                hits.append(path)
+                hits.add(path)
                 break
     if not hits:
         return None
-    return max(hits, key=lambda p: p.stat().st_mtime)
+    revisions = [rev for path in hits if (rev := _snapshot_revision(path, sid))]
+    if not revisions:
+        return None
+    with_revision = [rev for rev in revisions if rev.updated_ms > 0]
+    if not with_revision:
+        # Compatibility for old exports without info.time.updated.
+        return max(revisions, key=lambda rev: rev.path.stat().st_mtime)
+    newest_ms = max(rev.updated_ms for rev in with_revision)
+    newest = [rev for rev in with_revision if rev.updated_ms == newest_ms]
+    if len({rev.digest for rev in newest}) > 1:
+        paths = ", ".join(str(rev.path) for rev in newest)
+        raise SystemExit(
+            f"[err] snapshot_conflict: session {sid} has divergent snapshots at "
+            f"revision {newest_ms}: {paths}"
+        )
+    return min(newest, key=lambda rev: str(rev.path))
+
+
+def persist_snapshot(info: dict, root: Path | None = None) -> Path | None:
+    """Find the freshest verified snapshot; never key it by container name."""
+    revision = resolve_snapshot(info, root)
+    return revision.path if revision else None
 
 
 def import_snapshot(path: Path) -> None:
@@ -535,6 +598,81 @@ def session_updated_ms(session_id: str) -> int | None:
     return int(row[0]) if row and row[0] else None
 
 
+def local_tail_message_id(session_id: str) -> str:
+    db = db_path()
+    if not db.is_file():
+        return ""
+    try:
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            row = conn.execute(
+                "SELECT id FROM message WHERE session_id=? ORDER BY id DESC LIMIT 1",
+                (session_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return ""
+    return str(row[0]) if row else ""
+
+
+def local_has_message(session_id: str, message_id: str) -> bool:
+    if not message_id:
+        return True
+    db = db_path()
+    if not db.is_file():
+        return False
+    try:
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM message WHERE session_id=? AND id=? LIMIT 1",
+                (session_id, message_id),
+            ).fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return False
+    return bool(row)
+
+
+def backup_local_snapshot(session_id: str, *, runner=subprocess.run) -> Path:
+    """Export the current local revision before replacing it with a newer one."""
+    root = Path(os.environ.get("DUAL_TMUX_HOME", Path.home() / ".dual-tmux"))
+    dest_dir = root / "backups" / "opencode"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    stamp = (
+        time.strftime("%Y%m%dT%H%M%S")
+        + f"-{time.time_ns() % 1_000_000_000:09d}"
+    )
+    dest = dest_dir / f"{session_id}-{stamp}.json"
+    import tempfile
+
+    fd, tmp = tempfile.mkstemp(prefix=f".{session_id}.", suffix=".json", dir=dest_dir)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            result = runner(
+                [oc_bin(), "export", session_id],
+                stdout=fh,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=120,
+                check=False,
+            )
+        if result.returncode != 0:
+            err = (result.stderr or "").strip().splitlines()
+            raise SystemExit(
+                f"[err] backup export {session_id}: {err[-1] if err else 'failed'}"
+            )
+        if not _snapshot_revision(Path(tmp), session_id):
+            raise SystemExit(f"[err] backup export {session_id}: invalid snapshot")
+        os.replace(tmp, dest)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+    return dest
+
+
 def export_snapshot(
     info: dict,
     tenant: str,
@@ -592,25 +730,72 @@ def export_snapshot(
     return dest
 
 
-def ensure_local(info: dict, *, importer=None, role: str = "trigger") -> bool:
-    """Import persist JSON if this Client sqlite lacks a local-side session.
+def ensure_local(
+    info: dict,
+    *,
+    importer=None,
+    backupper=None,
+    prepare_replace=None,
+    role: str = "trigger",
+) -> bool:
+    """Converge a local OpenCode session to the freshest persisted revision.
 
-    Returns True if import ran. A remote bullet must not call this; a bullet
-    whose captured runtime is local uses the same persist recovery as trigger.
+    Returns True if import ran. Existing session IDs are compared by revision
+    and tail ancestry; they are not assumed fresh merely because they exist.
     """
     sid = (info.get("session_id") or "").strip()
     if not sid:
         return False
-    if by_id(sid):
-        return False
-    path = persist_snapshot(info)
-    if path is None:
+    local = by_id(sid)
+    snapshot = resolve_snapshot(info)
+    if snapshot is None:
+        if local:
+            return False
         slug = info.get("slug") or "—"
         raise SystemExit(
             f"[err] {role} session {sid} ({slug}) not in local sqlite and no persist JSON "
             f"under {persist_root()}/tm_*/. Pull persist, then dt resume."
         )
-    (importer or import_snapshot)(path)
+    local_updated = session_updated_ms(sid) if local else None
+    local_tail = local_tail_message_id(sid) if local else ""
+    remote_updated = snapshot.updated_ms
+
+    if local and remote_updated <= 0:
+        return False
+    if local and local_updated is not None:
+        if local_updated == remote_updated:
+            if local_tail and snapshot.tail_id and local_tail != snapshot.tail_id:
+                raise SystemExit(
+                    f"[err] snapshot_conflict: local {role} {sid} and {snapshot.path} "
+                    f"share revision {remote_updated} but have different tails"
+                )
+            return False
+        if local_updated > remote_updated:
+            if snapshot.tail_id and not local_has_message(sid, snapshot.tail_id):
+                raise SystemExit(
+                    f"[err] snapshot_conflict: local {role} {sid} is newer but does "
+                    f"not contain persisted tail {snapshot.tail_id}"
+                )
+            return False
+    if local_tail and local_tail not in snapshot.message_ids:
+        raise SystemExit(
+            f"[err] snapshot_conflict: newer {role} snapshot does not contain local "
+            f"tail {local_tail}; refusing to overwrite"
+        )
+
+    if prepare_replace:
+        prepare_replace()
+    backup = None
+    if local:
+        backup = (backupper or backup_local_snapshot)(sid)
+    (importer or import_snapshot)(snapshot.path)
     if not by_id(sid):
-        raise SystemExit(f"[err] imported {path.name} but session {sid} still missing")
+        raise SystemExit(
+            f"[err] imported {snapshot.path.name} but session {sid} still missing"
+        )
+    if snapshot.tail_id and not local_has_message(sid, snapshot.tail_id):
+        recovery = f"; backup: {backup}" if backup else ""
+        raise SystemExit(
+            f"[err] imported {snapshot.path.name} but tail verification failed{recovery}"
+        )
     return True

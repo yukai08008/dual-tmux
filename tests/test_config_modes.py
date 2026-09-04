@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from dual_tmux import hub
+from dual_tmux import cli, hub
 from dual_tmux.cli import build_parser, cmd_config, cmd_new, cmd_pull
 from dual_tmux.config import (
     AppConfig,
@@ -110,6 +110,23 @@ def test_explicit_pull_in_local_mode_is_actionable(monkeypatch, tmp_path):
     init_config("tm_laptop", workspace=str(tmp_path))
     with pytest.raises(SystemExit, match="dt config --server"):
         cmd_pull(Namespace())
+
+
+def test_pull_syncs_persist_snapshots(monkeypatch, tmp_path):
+    _home(monkeypatch, tmp_path)
+    write_config(make_config("tm_laptop", "hub-a", "andy", str(tmp_path)))
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(hub, "pull", lambda: "hub-a")
+    monkeypatch.setattr(
+        cli.hotfix_ops,
+        "sync_persist",
+        lambda kind, cfg: calls.append((kind, cfg.server)),
+    )
+    monkeypatch.setattr(cli.statusbar, "refresh", lambda _items: None)
+
+    cmd_pull(Namespace())
+
+    assert calls == [("opencode", "hub-a"), ("tmux", "hub-a")]
 
 
 def test_local_health_has_no_ssh_check(monkeypatch, tmp_path):
