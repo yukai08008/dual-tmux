@@ -1,6 +1,6 @@
 version: v0.4.49
-parent_final: v0.4.48.post2
-title: Hotfix 合集（开发线）
+parent_final: v0.4.48.post4
+title: 运行时修复与 Session Ownership API
 type: api
 prd: dev_plans/v0.4.48-v0.4.49/PRD.md
 test_cases: dev_plans/v0.4.48-v0.4.49/TEST_CASES.md
@@ -12,6 +12,11 @@ invariants:
   - "运行时数据不在 git 追踪中"
   - "升级不降级，config/tunnel 哈希不变"
   - "每个 hotfix commit message 标注 hotfix 并附测试验证"
+  - "lease 只表达写权限，不冒充用户活动或 Agent 进展"
+  - "resume preflight 失败对本地 tmux 零副作用"
+  - "同一 session ID 同时最多一个可写进程"
+  - "同一 session ID 的本地旧 revision 不得冒充最新 conversation"
+  - "snapshot export 成功后才能 publish，identity 必须等于 config.client"
 
 deliverables:
   - module: src/dual_tmux/statusbar.py
@@ -20,6 +25,23 @@ deliverables:
     change: sync/push best-effort 写 hub 同步状态
   - module: src/dual_tmux/cli.py
     change: tick/push/pull 后刷新状态栏
+  - module: src/dual_tmux/activity.py
+    change: 语义指纹、时间窗口、attached 与 progress evidence
+    public_api: [semantic_fingerprint, activity_evidence]
+  - module: src/dual_tmux/hub.py
+    change: Lease v2、generation fencing 与 request/ack handoff
+    public_api: [read_ownership, request_handoff, acknowledge_handoff]
+  - module: src/dual_tmux/recovery.py
+    change: resume plan/preflight/commit/rollback 与 duplicate writer 拒绝
+    public_api: [plan_resume, execute_resume]
+  - module: src/dual_tmux/agent_sessions.py
+    change: 本地/SSH/container 精确 session writer 探测
+    public_api: [probe_session_writers]
+  - module: src/dual_tmux/oc.py
+    change: snapshot manifest、freshness resolver、备份导入和尾消息验证
+    public_api: [snapshot_revision, resolve_snapshot, ensure_fresh_local]
+  - module: src/dual_tmux/hotfix.py
+    change: persist job 内建 OpenCode export，禁止只同步空目录
 
 feature_branches:
   - name: hotfix/v0.4.49-tmux-sync-status
@@ -31,6 +53,37 @@ feature_branches:
       - "用户自定义 status-right 的会话不被覆盖"
       - "非 dt 会话不受影响"
     estimated_loc: ~260
+  - name: hotfix/v0.4.49-tick-cron-path
+    title: cron tick PATH 与异常可观测性
+    deps: [hotfix/v0.4.49-tmux-sync-status]
+    files: [src/dual_tmux/cron.py, src/dual_tmux/tmux.py, src/dual_tmux/hotfix.py, tests/test_cron.py]
+    acceptance:
+      - "cron 裸 PATH 下可定位 tmux/ssh/rsync"
+      - "安装流程纠正陈旧 cron 行且保留其他任务"
+      - "未捕获 tick 异常进入事件日志"
+      - "真实每分钟 tick 与状态栏刷新通过"
+    estimated_loc: ~220
+  - name: feature/v0.4.49-session-ownership
+    title: Session Ownership API、安全 handoff 与事务化 resume
+    deps: [hotfix/v0.4.49-tick-cron-path]
+    files: [src/dual_tmux/activity.py, src/dual_tmux/paneparse.py, src/dual_tmux/hub.py, src/dual_tmux/daemon.py, src/dual_tmux/recovery.py, src/dual_tmux/cli.py, src/dual_tmux/control.py, src/dual_tmux/agent_sessions.py, src/dual_tmux/oc.py, src/dual_tmux/hotfix.py, tests]
+    acceptance:
+      - "锁屏但 cron 存活只显示 owner heartbeat，不显示用户 active"
+      - "spinner/chrome 变化不刷新 last_semantic_change_at，样本数和覆盖时间准确"
+      - "租约、runtime、attached、progress 四维状态分离"
+      - "owner daemon 可 ack handoff，先 persist/park 后释放"
+      - "v1 lock 可读并惰性迁移；旧 generation fail closed"
+      - "claim/preflight 失败不删除本地 pane、不修改 binding"
+      - "相同 session ID 已运行时不启动第二个 writer；force 也需显式处置"
+      - "dt ownership/--json、dt resume --plan 与双 Client E2E 通过"
+      - "owner Client 内建导出 snapshot + manifest，空目录或 identity 漂移可诊断"
+      - "本机已有同 ID 旧 revision 时仍导入最新快照并验证尾消息"
+      - "多源 snapshot 分叉返回 snapshot_conflict，不静默覆盖"
+      - "OUC bullet/trigger 最新问答在 Home resume 后完整一致"
+    estimated_loc: ~1870
+
+acceptance_count: 19
+total_estimated_loc: ~2350
 
 risk_register:
   - id: R1
@@ -41,16 +94,35 @@ risk_register:
     risk: 并行 hotfix 文件冲突
     mitigation: 按序合并，rebase 最新 main
     severity: low
+  - id: R3
+    risk: 无输出误判为空闲，接管真实长任务
+    mitigation: 四维状态分离；working/stalled 不自动中断；owner ack handoff
+    severity: high
+  - id: R4
+    risk: 同一 session 多 writer 并发写入
+    mitigation: writer probe + generation fencing + fail closed
+    severity: critical
+  - id: R5
+    risk: 混合版本 Client 无法读 Lease v2
+    mitigation: v1 兼容读取与惰性迁移 E2E
+    severity: high
+  - id: R6
+    risk: 同 ID 旧 trigger 被误认为已经恢复
+    mitigation: manifest revision/tail hash 比较、备份导入与尾消息验证
+    severity: critical
 
 git_workflow:
-  branch_creation: from main @ v0.4.48.post2
+  branch_creation: from main @ v0.4.48.post4
   merge_policy: PR 合并（pm-maintainer，保留审计记录）
   before_merge_checks:
     - "相关 pytest 全 PASS"
     - "commit message 标注 hotfix"
-  final_tag: 待定（合集闭环后决定 post 发布或并入 v0.4.50）
+    - "ownership/resume 故障注入测试 PASS"
+    - "双 Client + Hub + 远端容器 session 单活 E2E PASS"
+  final_tag: v0.4.49-final（开发交接点，不创建公开 Release）
 
 notes:
   - 奇数版默认不单独发布；若含紧急修复可破例走 post hotfix 发布并标注原因。
+  - v0.4.49-final 只用于冻结 API 与创建 v0.4.50 分支，正式用户发布仍在 v0.4.50。
 
 签名: Agent-PM-0.4.49

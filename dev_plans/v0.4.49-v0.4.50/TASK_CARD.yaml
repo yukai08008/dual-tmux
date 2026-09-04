@@ -1,0 +1,100 @@
+version: v0.4.50
+parent_final: v0.4.49-final
+title: Ownership 与安全接管 Web 版
+type: web
+prd: dev_plans/v0.4.49-v0.4.50/PRD.md
+test_cases: dev_plans/v0.4.49-v0.4.50/TEST_CASES.md
+
+invariants:
+  - "UI 不把 lease heartbeat 标成用户活跃"
+  - "Web/CLI/tmux chip 使用同一 ownership snapshot"
+  - "claim/preflight 失败对本地 pane 与 binding 零副作用"
+  - "同一 session ID 同时最多一个 writer"
+  - "同 ID 的旧 snapshot 不显示为已恢复"
+  - "handoff transaction 跨页面生命周期持久且幂等"
+  - "运行时数据不在 git 追踪中"
+  - "前端 e2e 覆盖新功能"
+
+deliverables:
+  - module: src/dual_tmux/control.py
+    change: Web 可消费的 ownership snapshot、resume plan 与 handoff transaction API
+    public_api: [ownership, resume_plan, handoff_status]
+  - module: src/dual_tmux/web.py
+    change: 四维 ownership 面板、安全接管向导、阶段时间线和冲突提示
+  - module: src/dual_tmux/statusbar.py
+    change: owned/foreign/handoff/fenced/conflict 状态 chip
+  - module: docs/web.md
+    change: ownership 语义、安全接管流程和故障恢复说明
+
+feature_branches:
+  - name: feature/v0.4.50-ownership-panel
+    title: 四维 Ownership 状态面板
+    deps: [v0.4.49-final]
+    files: [src/dual_tmux/control.py, src/dual_tmux/web.py, tests/test_control.py, tests/test_web.py]
+    acceptance:
+      - "holder/runtime/attached/progress 独立展示"
+      - "显示样本数与时间窗口，unknown 不冒充 busy"
+      - "显示 snapshot source/revision/freshness，binding 与内容缺口可见"
+      - "刷新和 tab 切换不丢 snapshot"
+    estimated_loc: ~420
+  - name: feature/v0.4.50-safe-takeover
+    title: 安全接管向导
+    deps: [feature/v0.4.50-ownership-panel]
+    files: [src/dual_tmux/web.py, src/dual_tmux/control.py, tests/test_web.py]
+    acceptance:
+      - "plan→request→ack→claim→verify 阶段可见"
+      - "busy/attached/duplicate writer 分别 fail closed"
+      - "force 二次确认并明确 stale writer 处置"
+    estimated_loc: ~520
+  - name: feature/v0.4.50-cross-surface-status
+    title: Web/CLI/tmux 状态收敛
+    deps: [feature/v0.4.50-safe-takeover]
+    files: [src/dual_tmux/statusbar.py, src/dual_tmux/web.py, docs/web.md, tests]
+    acceptance:
+      - "三端 holder/generation 一致"
+      - "handoff 后一个 heartbeat 周期内收敛"
+      - "真实双 Client Browser E2E 通过"
+    estimated_loc: ~300
+
+acceptance_count: 10
+total_estimated_loc: ~1240
+
+risk_register:
+  - id: R1
+    risk: UI 聚合状态误导用户
+    mitigation: 固定展示四维原始 evidence + schema contract tests
+    severity: high
+  - id: R2
+    risk: force 接管误杀有效任务
+    mitigation: 安全 handoff 默认路径 + 二次确认 + 显式 stale writer disposition
+    severity: critical
+  - id: R3
+    risk: 页面刷新重复执行 handoff
+    mitigation: durable transaction ID + 幂等 API
+    severity: high
+
+git_workflow:
+  branch_creation: from v0.4.49-final
+  feature_order: ownership-panel, safe-takeover, cross-surface-status
+  merge_policy: --no-ff via PR（pm-maintainer）
+  before_merge_checks:
+    - "pytest tests/ -v 全 PASS"
+    - "Browser E2E 全 PASS"
+    - "双 Client + Hub + 远端容器真实接管 E2E PASS"
+    - "claim 拒绝零副作用验证 PASS"
+    - "session writer 单活验证 PASS"
+    - "git ls-files data/ | wc -l == 0"
+  final_tag: v0.4.50-final
+
+deployment_checklist:
+  - "构建 wheel/sdist 成功"
+  - "隔离安装后 CLI 与 metadata 版本一致"
+  - "Web 首页和 ownership API 返回 200"
+  - "tm_ouc → tm_andy_home 安全 handoff 成功"
+  - "dt-portal durable turn 回归通过"
+  - "配置、tunnel 和 session binding 哈希升级前后不变"
+
+notes:
+  - "v0.4.50 只有在 v0.4.49 ownership API 冻结后进入 ACTIVE。"
+
+签名: Agent-PM-0.4.50-draft

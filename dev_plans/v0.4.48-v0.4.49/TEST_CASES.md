@@ -26,9 +26,40 @@
 | B-23 | hotfix install_tick 对陈旧行纠偏 | tick-cron-path | tests/test_cron.py |
 | E-20 | 裸 cron 环境（PATH=/usr/bin:/bin）源码 `dt tick` 成功 | tick-cron-path | 手测（已通过） |
 
-## 2. 合集闭环验证
+## 2. Session Ownership API
+
+| ID | 用例 | → acceptance | 自动化 |
+|----|------|--------------|--------|
+| B-30 | spinner/footer/token 变化不改变 semantic fingerprint | activity semantics | tests/test_activity.py |
+| B-31 | attached、runtime、lease、progress 四维状态互不推断 | activity semantics | tests/test_activity.py |
+| B-32 | 少于 30 个样本返回 insufficient_evidence；时间窗口准确 | activity semantics | tests/test_activity.py |
+| B-33 | 锁屏等价场景：cron heartbeat 可续租但不刷新 user/progress 时间 | activity semantics | tests/test_activity.py |
+| B-40 | v1 lock 兼容读取并在续租时原子升级 v2 | lease v2 | tests/test_hub_sync.py |
+| B-41 | foreign owner attached/working 时拒绝 handoff | lease v2 | tests/test_hub_sync.py |
+| B-42 | idle owner ack：persist → park → release → claimant generation+1 | lease v2 | tests/test_hub_sync.py |
+| B-43 | owner 不可达时普通 resume fail closed 且原因准确 | lease v2 | tests/test_hub_sync.py |
+| B-50 | resume preflight claim 失败，本地 op/run 均保留 | transactional resume | tests/test_bullet_resume.py |
+| B-51 | 远端已有相同 session writer 时返回 duplicate_writer，不启动新进程 | transactional resume | tests/test_agent_sessions.py |
+| B-52 | force 未给 stale-writer disposition 时拒绝执行 | transactional resume | tests/test_bullet_resume.py |
+| B-53 | commit 中途失败回滚 generation，binding/pane/Hub 不发布半状态 | transactional resume | tests/test_bullet_resume.py |
+| B-60 | `dt resume --plan` 与 `dt ownership --json` 无副作用且 schema 稳定 | diagnostics | tests/test_control.py |
+| E-30 | tm_ouc 锁屏、tm_andy_home 请求 handoff，owner 自动 park 后安全接管 | cross-client | 两台真实 Client |
+| E-31 | 容器内预置相同 session writer，resume 不产生第二进程 | writer singleton | tom7r container |
+| E-32 | v1/v2 Client 混合运行，锁与现有 tunnel binding 无损 | compatibility | 两版本真实 Client |
+| B-70 | persist job 先 export 活跃 trigger，再原子发布 manifest+snapshot | snapshot export | tests/test_persist_sync.py |
+| B-71 | persist identity 与 config.client 不一致/源目录为空时明确失败 | snapshot identity | tests/test_persist_sync.py |
+| B-72 | 本地已有同 session ID 但 revision 较旧，仍执行备份导入并验证尾消息 | snapshot freshness | tests/test_store.py |
+| B-73 | 本地 revision 更新时不反向降级 | snapshot freshness | tests/test_store.py |
+| B-74 | 两个 source 的同 ID revision 分叉返回 snapshot_conflict | snapshot conflict | tests/test_store.py |
+| B-75 | binding 已拉取但 snapshot 缺失时，resume plan 精确显示缺口 | diagnostics | tests/test_bullet_resume.py |
+| E-40 | OUC 更新 trigger/bullet 并锁屏，Home 同步后两侧最后问答一致 | cross-client snapshot | 两台真实 Client |
+
+## 3. 合集闭环验证
 
 | ID | 用例 | 说明 |
 |----|------|------|
 | E-01 | 全量 pytest 回归 | 全部 hotfix 合并后跑一次 |
 | E-02 | 版本一致性 | CLI 与包 metadata 版本一致 |
+| E-03 | session 单活 | 每个绑定 session ID 的 writer 数量 ≤1 |
+| E-04 | 故障零副作用 | 所有 preflight/claim 拒绝路径不删除 pane、不改 binding |
+| E-05 | conversation freshness | resume 后 trigger/bullet 的 revision 与 owner 发布 manifest 一致 |
