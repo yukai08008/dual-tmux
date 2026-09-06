@@ -147,6 +147,15 @@ def test_ops_launch(monkeypatch, tmp_path):
     trigger_skill = (skills_dir() / "tmux-trigger" / "SKILL.md").read_text()
     assert "Container rebuild is trigger work" in trigger_skill
     assert "Architecture and flow → bullet mermaid" in trigger_skill
+    assert "Quiet-round cap" in trigger_skill
+    assert "are **not** progress" in trigger_skill
+    assert "After **8** quiet rounds" in trigger_skill
+    assert "tmux capture-pane -t <run_*> -p -S -80" in trigger_skill
+    assert "Models (development)" in trigger_skill
+    assert "gpt-5.6-sol" in trigger_skill
+    assert "dt model <dt> --run" in trigger_skill
+    assert "Dead client (stacked `--auto` + snapshot git)" in trigger_skill
+    assert "Pause and report only if that recovery fails" in trigger_skill
 
 
 def test_remove_dt(monkeypatch, tmp_path):
