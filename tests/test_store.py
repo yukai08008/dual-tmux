@@ -186,6 +186,50 @@ def test_parse_hops():
     assert point["cwd"] == "/workspace"
 
 
+def test_live_ssh_process_overrides_docker_only_scrollback(monkeypatch):
+    from dual_tmux import workpoint
+
+    hops = [
+        {
+            "from_host": "root@m1",
+            "from_path": "~",
+            "command": "docker exec -it cp_gateway_24629 bash",
+            "to_host": "root@container",
+            "to_path": "/workspace",
+        }
+    ]
+    point = workpoint._from_hops(hops)
+    assert point["container"] == "cp_gateway_24629"
+    assert point["ssh"] == ""
+    monkeypatch.setattr(
+        workpoint,
+        "walk_commands",
+        lambda _pid: ["-zsh", "ssh root@10.88.0.20"],
+    )
+
+    workpoint._from_processes("1", point)
+
+    assert point["ssh"] == "root@10.88.0.20"
+    assert point["resume_cmd"] == "ssh root@10.88.0.20"
+    assert point["kind"] == "docker"
+
+
+def test_remote_docker_exec_containers_uses_interactive_processes_only():
+    from dual_tmux.workpoint import remote_docker_exec_containers
+
+    class Result:
+        returncode = 0
+        stdout = """? docker exec background_box sh -lc pwd
+pts/0 docker exec -it cp_gateway_24629 bash
+pts/1 /usr/bin/docker exec --user root --workdir /workspace work_box sh
+pts/2 bash -lc echo docker exec fake_box
+"""
+
+    assert remote_docker_exec_containers(
+        ["ssh", "root@10.88.0.20"], runner=lambda *args, **kwargs: Result()
+    ) == ["cp_gateway_24629", "work_box"]
+
+
 def test_workpoint_empty():
     point = empty_point()
     assert point["kind"] == "local"

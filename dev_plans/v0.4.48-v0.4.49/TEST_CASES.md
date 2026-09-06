@@ -63,8 +63,12 @@
 | B-77 | stale TUI 在 import 前退出、import 后重新启动；live remote bullet 不被恢复覆盖 | transactional resume | tests/test_bullet_resume.py |
 | B-78 | 普通 enter 在 discover/attach 前以 ops 目录创建 trigger tmux | trigger workpoint | tests/test_enter_workdir.py |
 | B-79 | 已有错误 cwd 的空闲 shell 被纠正；已有 Agent/前台程序保持不变 | trigger workpoint | tests/test_enter_workdir.py |
+| B-80 | live ssh 进程覆盖混合/截断 scrollback 的伪 SSH target；docker token 不成为 server | runtime authority | tests/test_store.py |
+| B-81 | bullet client/session 探测失败时 runtime/run_point 不变，成功后才原子提交 | transactional freeze | tests/test_agentclient.py |
+| B-82 | 请求 sides 部分失败时保留成功 binding，但返回非零并记录 freeze.fail | freeze result | tests/test_agentclient.py |
 | E-40 | OUC 更新 trigger/bullet 并锁屏，Home 同步后两侧最后问答一致 | cross-client snapshot | 已通过（2026-09-05，Home 恢复 1052 条消息并验证“你好”结果） |
 | E-41 | 未完成 DST 的 `dt-cp-gate` 普通 enter 后 pane/op_point 均为专属 ops 目录 | trigger workpoint | 已通过（2026-09-06） |
+| E-42 | `dt-cp-gate` 从 live `ssh root@10.88.0.20` + `cp_gateway_24629` 取证并成功 freeze 为 DST | runtime authority | 已通过（2026-09-06，绑定 `ses_f8a384577ffeb75HokVSq3nf13`） |
 
 ## 3. 合集闭环验证
 
