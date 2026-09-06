@@ -72,7 +72,7 @@ main (v0.4.48.post4)
 | 4 | hotfix/v0.4.49-trigger-snapshot-export | tick 内建 trigger 快照导出，解决 Hub 快照停滞 | MERGED (PR #24, post6) |
 | 5 | feature/v0.4.49-session-ownership | 同 ID 的本地旧 revision 被 `ensure_local()` 直接跳过；补齐 freshness 收敛、事务 resume 与 ownership 语义 | DEVELOPING |
 | 6 | hotfix/v0.4.49-enter-workdir | 普通 `dt enter` 丢弃 `opsdir.prepare()` 返回值，并在记录 workpoint 后才无 cwd 创建 tmux，导致 trigger 落在调用者 `$HOME` | MERGED into feature/v0.4.49-session-ownership |
-| 7 | hotfix/v0.4.49-freeze-runtime-authority | pane 混合历史把 `docker exec` 误当 SSH server 并在探测前覆盖 runtime；bullet 已进入仍以 `ssh docker` freeze 失败，整体却记录 `freeze.ok` | RESOLVED (v0.4.49) |
+| 7 | hotfix/v0.4.49-freeze-runtime-authority | pane 混合历史把 `docker exec` 误当 SSH server 并在探测前覆盖 runtime；bullet 已进入仍以 `ssh docker` freeze 失败，整体却记录 `freeze.ok` | MERGED into feature/v0.4.49-session-ownership |
 
 ## 4. Session Ownership 状态机
 
