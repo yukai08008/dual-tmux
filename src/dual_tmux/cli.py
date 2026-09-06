@@ -417,7 +417,8 @@ def cmd_enter(args: argparse.Namespace) -> None:
         return
     data = _resolve(args.name)
     hub.require_active(data, force=bool(getattr(args, "force", False)))
-    opsdir.prepare(data)
+    launch = opsdir.prepare(data)
+    tmux_ops.ensure_session_cwd(data["op"], str(launch))
     ev.emit("dt.enter", name=data["name"], oc=bool(getattr(args, "oc", False)))
     wp.stamp(data, "enter_at")
     if getattr(args, "oc", False) or getattr(args, "resume", False):

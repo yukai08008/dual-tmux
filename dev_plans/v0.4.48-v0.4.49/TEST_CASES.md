@@ -61,7 +61,10 @@
 | B-75 | binding 已拉取但 snapshot 缺失时，resume plan 精确显示缺口 | diagnostics | tests/test_bullet_resume.py |
 | B-76 | `dt pull` 同步 OpenCode/tmux persist；重叠 cron 等待，SSH/rsync 失败可见 | snapshot transport | tests/test_config_modes.py + tests/test_persist_sync.py |
 | B-77 | stale TUI 在 import 前退出、import 后重新启动；live remote bullet 不被恢复覆盖 | transactional resume | tests/test_bullet_resume.py |
+| B-78 | 普通 enter 在 discover/attach 前以 ops 目录创建 trigger tmux | trigger workpoint | tests/test_enter_workdir.py |
+| B-79 | 已有错误 cwd 的空闲 shell 被纠正；已有 Agent/前台程序保持不变 | trigger workpoint | tests/test_enter_workdir.py |
 | E-40 | OUC 更新 trigger/bullet 并锁屏，Home 同步后两侧最后问答一致 | cross-client snapshot | 已通过（2026-09-05，Home 恢复 1052 条消息并验证“你好”结果） |
+| E-41 | 未完成 DST 的 `dt-cp-gate` 普通 enter 后 pane/op_point 均为专属 ops 目录 | trigger workpoint | 已通过（2026-09-06） |
 
 ## 3. 合集闭环验证
 
