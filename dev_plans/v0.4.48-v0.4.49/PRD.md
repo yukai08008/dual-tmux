@@ -21,6 +21,7 @@
 - 事务化 resume：所有权、远端入口、目标 session 和重复进程检查全部 preflight 成功后，才改变本地 tmux。
 - Session writer 单活：相同 session ID 已有 writer 时禁止再启动第二个进程；孤儿进程只能经显式确认处置。
 - Session snapshot 收敛：内建 export/sync，按 session revision/更新时间/尾消息 hash 比较本地与各 Client 快照；ID 相同但内容陈旧时不得跳过导入。
+- Trigger workpoint 收敛：无论是否启动 Agent，`dt enter` 都先在专属 `ops/<op>` 创建或定位 tmux；已有空闲 shell 位于错误目录时安全纠正，已有前台程序时不注入命令。
 - Persist identity 必须与 `config.client` 一致；`dt pull/resume` 的 preflight 必须报告 tunnel binding 与 conversation snapshot 是两条不同数据链。
 - CLI/JSON 诊断合同，为 v0.4.50 Web 消费。
 
@@ -44,6 +45,7 @@
 - 同一 OpenCode/Codex/Claude session ID 同时最多一个可写进程。
 - “session ID 存在”不等于“本地 session 内容最新”；resume 必须证明目标 revision 已落地。
 - snapshot 同步不能只 rsync 一个假定由外部工具生成的空目录；export 成功是 publish 的前置条件。
+- `dt enter` 的 trigger shell、Agent cwd 与记录的 `op_point.cwd` 必须收敛到专属 ops 目录；不得因未完成 DST 或未传 `--oc` 而退回调用者的 `$HOME`。
 - 无法证明安全时 fail closed，并给出 holder、lease age、attached、phase、last progress 和样本覆盖窗口。
 
 ## 2. 工作方式
@@ -68,6 +70,7 @@ main (v0.4.48.post4)
 | 3 | hotfix/v0.4.49-bullet-fencing | bullet 同一 session 被多个 opencode 进程并发持有（m7 实测 4 实例），导致 turn 互相阻塞、消息积压 queue；pane 已附着 TUI 时 resume 命令被打进输入框 | MERGED (PR #22, post5) |
 | 4 | hotfix/v0.4.49-trigger-snapshot-export | tick 内建 trigger 快照导出，解决 Hub 快照停滞 | MERGED (PR #24, post6) |
 | 5 | feature/v0.4.49-session-ownership | 同 ID 的本地旧 revision 被 `ensure_local()` 直接跳过；补齐 freshness 收敛、事务 resume 与 ownership 语义 | DEVELOPING |
+| 6 | hotfix/v0.4.49-enter-workdir | 普通 `dt enter` 丢弃 `opsdir.prepare()` 返回值，并在记录 workpoint 后才无 cwd 创建 tmux，导致 trigger 落在调用者 `$HOME` | RESOLVED |
 
 ## 4. Session Ownership 状态机
 

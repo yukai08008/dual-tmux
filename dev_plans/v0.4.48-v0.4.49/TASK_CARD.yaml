@@ -17,6 +17,7 @@ invariants:
   - "同一 session ID 同时最多一个可写进程"
   - "同一 session ID 的本地旧 revision 不得冒充最新 conversation"
   - "snapshot export 成功后才能 publish，identity 必须等于 config.client"
+  - "dt enter 无论是否启动 Agent，trigger tmux 与 op_point 都收敛到专属 ops 目录"
 
 deliverables:
   - module: src/dual_tmux/statusbar.py
@@ -42,6 +43,10 @@ deliverables:
     public_api: [snapshot_revision, resolve_snapshot, ensure_fresh_local]
   - module: src/dual_tmux/hotfix.py
     change: persist job 内建 OpenCode export，禁止只同步空目录
+  - module: src/dual_tmux/tmux.py
+    change: 创建 trigger tmux 时固定 cwd，并只对已有空闲 shell 安全纠正目录
+  - module: src/dual_tmux/cli.py
+    change: dt enter 在 discover/attach 前建立并校验 trigger workpoint
 
 feature_branches:
   - name: hotfix/v0.4.49-tmux-sync-status
@@ -81,9 +86,19 @@ feature_branches:
       - "多源 snapshot 分叉返回 snapshot_conflict，不静默覆盖"
       - "OUC bullet/trigger 最新问答在 Home resume 后完整一致"
     estimated_loc: ~1870
+  - name: hotfix/v0.4.49-enter-workdir
+    title: 普通 enter 的 trigger workpoint 收敛
+    deps: [feature/v0.4.49-session-ownership]
+    files: [src/dual_tmux/cli.py, src/dual_tmux/tmux.py, tests]
+    acceptance:
+      - "新建 op tmux 的 cwd 是 ~/.dual-tmux/ops/<op>"
+      - "已有空闲 shell 在错误目录时先 cd 到 ops 目录再记录 op_point"
+      - "已有 Agent 或其他前台程序时不注入 cd、不重启进程"
+      - "未完成 DST 不影响 dt enter 的 trigger workpoint"
+    estimated_loc: ~100
 
-acceptance_count: 19
-total_estimated_loc: ~2350
+acceptance_count: 23
+total_estimated_loc: ~2450
 
 risk_register:
   - id: R1

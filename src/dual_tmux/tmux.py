@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import subprocess
 import time
 
 FALLBACK_BINS = ("/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux")
+SHELL_COMMANDS = {"bash", "csh", "dash", "fish", "ksh", "sh", "tcsh", "zsh"}
 
 
 def bin() -> str:
@@ -66,6 +68,38 @@ def ensure_session(name: str, cwd: str = "") -> None:
         if cwd:
             cmd.extend(["-c", cwd])
         subprocess.run(cmd, check=True)
+
+
+def ensure_session_cwd(name: str, cwd: str) -> bool:
+    """Create at cwd, or align an existing idle shell without touching a program.
+
+    Returns whether the pane is at the requested directory. A running Agent or
+    any other foreground program is preserved and returns False.
+    """
+    wanted = os.path.realpath(os.path.expanduser(cwd))
+    ensure_session(name, cwd=wanted)
+    info = pane_info(name)
+    raw_current = info.get("cwd") or ""
+    current = os.path.realpath(raw_current) if raw_current else ""
+    if current == wanted:
+        return True
+    command = os.path.basename(info.get("cmd") or "")
+    if command not in SHELL_COMMANDS:
+        return False
+    subprocess.run([bin(), "send-keys", "-t", name, "C-c"], check=False)
+    time.sleep(0.05)
+    subprocess.run(
+        [bin(), "send-keys", "-t", name, "--", f"cd {shlex.quote(wanted)}", "Enter"],
+        check=False,
+    )
+    deadline = time.time() + 2
+    while time.time() < deadline:
+        raw_current = pane_info(name).get("cwd") or ""
+        current = os.path.realpath(raw_current) if raw_current else ""
+        if current == wanted:
+            return True
+        time.sleep(0.05)
+    raise SystemExit(f"[err] {name} shell did not enter {wanted}")
 
 
 def attach(name: str) -> None:
