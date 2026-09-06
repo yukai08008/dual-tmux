@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 import subprocess
 from datetime import datetime, timezone
 
@@ -174,11 +175,6 @@ def _from_hops(hops: list[dict]) -> dict:
             point["ssh"] = target.stored or token
             if point["kind"] == "local":
                 point["kind"] = "ssh"
-        if hop.get("to_host") and hop.get("from_host") and hop["to_host"] != hop["from_host"]:
-            if point["kind"] == "local":
-                point["kind"] = "ssh"
-            if not point["ssh"]:
-                point["ssh"] = token
     if hops:
         last = hops[-1]
         point["cwd"] = last.get("to_path") or ""
@@ -192,12 +188,13 @@ def _from_processes(pid: str, point: dict) -> None:
     for cmd in walk_commands(pid):
         if cmd.startswith("ssh ") or " ssh " in f" {cmd}":
             target = parse_ssh_target(cmd)
-            if not point["ssh"]:
-                point["ssh"] = target.stored or target.dest
+            # A live process is stronger evidence than truncated or mixed pane
+            # scrollback. In particular, never keep a heuristic "docker" token
+            # as the SSH target while a real ssh process says otherwise.
+            point["ssh"] = target.stored or target.dest
             if point["kind"] == "local":
                 point["kind"] = "ssh"
-            if not point["resume_cmd"]:
-                point["resume_cmd"] = cmd
+            point["resume_cmd"] = cmd
         docker = DOCKER_RE.search(cmd)
         if docker:
             if not point["container"]:
@@ -205,6 +202,55 @@ def _from_processes(pid: str, point: dict) -> None:
             point["kind"] = "docker"
             if "docker exec" in cmd and "docker exec" not in (point.get("resume_cmd") or ""):
                 point["resume_cmd"] = ((point.get("resume_cmd") or "") + " && " + cmd).strip(" &")
+
+
+def remote_docker_exec_containers(
+    ssh_argv: list[str], *, runner=subprocess.run
+) -> list[str]:
+    """Return containers held by interactive docker-exec processes on a host."""
+    result = runner(
+        [*ssh_argv, "ps -eo tty= -o args="],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    if result.returncode != 0:
+        return []
+    value_options = {
+        "--detach-keys",
+        "--env",
+        "--env-file",
+        "--user",
+        "--workdir",
+        "-e",
+        "-u",
+        "-w",
+    }
+    found: list[str] = []
+    for line in (result.stdout or "").splitlines():
+        fields = line.strip().split(maxsplit=1)
+        if len(fields) != 2 or fields[0] == "?":
+            continue
+        try:
+            argv = shlex.split(fields[1])
+        except ValueError:
+            continue
+        docker_at = next(
+            (i for i, arg in enumerate(argv) if arg.rsplit("/", 1)[-1] == "docker"),
+            -1,
+        )
+        if docker_at != 0 or docker_at + 1 >= len(argv) or argv[docker_at + 1] != "exec":
+            continue
+        i = docker_at + 2
+        while i < len(argv) and argv[i].startswith("-"):
+            option = argv[i].split("=", 1)[0]
+            i += 1
+            if option in value_options and "=" not in argv[i - 1] and i < len(argv):
+                i += 1
+        if i < len(argv) and argv[i] not in found:
+            found.append(argv[i])
+    return found
 
 
 def discover(tmux_name: str) -> dict:
