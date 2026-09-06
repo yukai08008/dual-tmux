@@ -18,6 +18,8 @@ invariants:
   - "同一 session ID 的本地旧 revision 不得冒充最新 conversation"
   - "snapshot export 成功后才能 publish，identity 必须等于 config.client"
   - "dt enter 无论是否启动 Agent，trigger tmux 与 op_point 都收敛到专属 ops 目录"
+  - "freeze 以实时进程为最高优先级，未验证候选不得覆盖权威 runtime"
+  - "任一请求 side freeze 失败时返回非零并记录 freeze.fail"
 
 deliverables:
   - module: src/dual_tmux/statusbar.py
@@ -96,9 +98,20 @@ feature_branches:
       - "已有 Agent 或其他前台程序时不注入 cd、不重启进程"
       - "未完成 DST 不影响 dt enter 的 trigger workpoint"
     estimated_loc: ~100
+  - name: hotfix/v0.4.49-freeze-runtime-authority
+    title: Freeze runtime 证据优先级与原子提交
+    deps: [hotfix/v0.4.49-enter-workdir]
+    files: [src/dual_tmux/workpoint.py, src/dual_tmux/cli.py, tests]
+    acceptance:
+      - "live ssh 进程目标覆盖 scrollback 中 docker/旧 host 猜测"
+      - "docker exec 命令本身不得成为 SSH server"
+      - "remote client/session 探测失败时 runtime/run_point 保持不变"
+      - "请求 sides 部分失败时保存成功 side，但命令返回非零并记录 freeze.fail"
+      - "dt-cp-gate 能绑定 root@10.88.0.20/cp_gateway_24629 中的真实 bullet session"
+    estimated_loc: ~220
 
-acceptance_count: 23
-total_estimated_loc: ~2450
+acceptance_count: 28
+total_estimated_loc: ~2670
 
 risk_register:
   - id: R1

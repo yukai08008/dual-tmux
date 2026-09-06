@@ -1,6 +1,6 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-06 14:34 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-06 16:46 +08:00 | 更新者: Codex PM
 
 ## 状态树
 
@@ -21,6 +21,7 @@
   - **issue-duplicate-session-writer** (CLOSED by post5): 远端同 session 多进程已由 bullet fencing 修复。
   - **issue-trigger-snapshot-stale-on-cross-client-resume** (CLOSED on feature): `dt pull` 已同步 tunnel + OpenCode/tmux persist 并显式传播传输失败；resolver 按 payload revision 选择快照，同 ID 本地会话也执行 freshness/祖先关系判断，新快照导入前备份并退出 stale TUI，导入后验证 tail；分叉返回 `snapshot_conflict`，本地较新不降级。`dt-company_intro_v2` 真实恢复由 8 月 30 日 revision 更新到 OUC 的 1052 条消息，tail=`msg_06c8ac05f001QkTggK2hk9TFi0`，本地 DB 已验证包含“它回了：你好。需要继续 intro_v2 哪一块？”。
   - **issue-enter-trigger-workdir-home** (CLOSED, `hotfix/v0.4.49-enter-workdir`): 已回合并 `feature/v0.4.49-session-ownership`。`cmd_enter()` 现于 discover/attach 前创建并校准 trigger tmux；新 pane 固定使用 ops cwd，已有错误 cwd 只在前台为空闲 shell 时清行并纠正，Agent/其他程序不注入命令。全量 pytest 通过；`dt-cp-gate` 实测 pane 与 `op_point.cwd` 均已收敛到 `/Users/andy/.dual-tmux/ops/op_cp_gate`。
+  - **issue-freeze-runtime-authority-corruption** (RESOLVED, `hotfix/v0.4.49-freeze-runtime-authority`): live SSH 进程现覆盖混合 scrollback，远端交互式 `docker exec` 进程用于解析当前容器；runtime/run_point 只在 Agent session 验证成功后原子提交，partial freeze 返回非零并记录 `freeze.fail`。`dt-cp-gate` 已实测绑定 `root@10.88.0.20 → cp_gateway_24629:/workspace` 的 OpenCode 1.18.29 session `ses_f8a384577ffeb75HokVSq3nf13`，`IS_DST=yes`，错误 hops 已清除。
 - 后续 hotfix 待用户口述，每条一个 `hotfix/v0.4.49-*` 分支（L3）。
 
 ### v0.4.50 (PLANNED) — Ownership 与安全接管 Web 版
