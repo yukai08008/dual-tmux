@@ -328,7 +328,7 @@ def _handoff_setup(monkeypatch, tmp_path):
     monkeypatch.setattr(
         ownership,
         "snapshot",
-        lambda _data: {
+        lambda _data, **_kwargs: {
             "attached": {"trigger": False, "bullet": False},
             "progress": {"trigger": "idle", "bullet": "idle"},
             "writers": {

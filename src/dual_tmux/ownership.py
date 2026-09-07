@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import json
+import os
 import subprocess
+import tempfile
 import time
+from pathlib import Path
 from typing import Any
 
 from . import hub
 from . import tmux as tmux_ops
 from .activity import read_evidence
 from .config import load_config
+from .paths import ownership_cache_dir
 
 SCHEMA = 1
 AGENTS = {"opencode", "codex", "claude"}
@@ -138,9 +143,9 @@ def _takeover(lease: dict, sides: dict, writers: dict) -> dict:
     return {"safe": True, "action": "resume", "reason": "already_owned"}
 
 
-def snapshot(data: dict) -> dict:
+def snapshot(data: dict, *, lease: dict | None = None) -> dict:
     name = str(data.get("name") or "")
-    lease = hub.read_ownership(name)
+    lease = lease or hub.read_ownership(name)
     local_evidence = read_evidence(name)
     evidence = (
         local_evidence
@@ -245,30 +250,87 @@ def snapshot(data: dict) -> dict:
     return result
 
 
-def plan_resume(data: dict) -> dict:
-    facts = snapshot(data)
-    takeover = facts["takeover"]
-    if not all(
-        (data.get(role) or {}).get("session_id") for role in ("trigger", "bullet")
-    ):
+def cache_path(name: str) -> Path:
+    return ownership_cache_dir() / f"{name}.json"
+
+
+def write_cache(facts: dict, *, now: int | None = None) -> Path:
+    """Atomically persist facts for read-only Web requests."""
+    name = str(facts.get("name") or "")
+    if not name or "/" in name or name in {".", ".."}:
+        raise ValueError("invalid ownership cache name")
+    payload = {"cached_at": int(time.time()) if now is None else int(now), "facts": facts}
+    path = cache_path(name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, raw = tempfile.mkstemp(prefix=".ownership-", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        Path(raw).replace(path)
+    finally:
+        Path(raw).unlink(missing_ok=True)
+    return path
+
+
+def read_cache(name: str, *, now: int | None = None) -> dict:
+    """Read cached facts without tmux, process or network probes."""
+    path = cache_path(name)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError):
+        return {
+            "available": False,
+            "cached_at": 0,
+            "age_seconds": None,
+            "freshness": "missing",
+            "facts": None,
+        }
+    cached_at = int(payload.get("cached_at") or 0)
+    epoch = int(time.time()) if now is None else int(now)
+    facts = payload.get("facts") if isinstance(payload.get("facts"), dict) else None
+    age = max(0, epoch - cached_at) if cached_at else None
+    return {
+        "available": facts is not None,
+        "cached_at": cached_at,
+        "age_seconds": age,
+        "freshness": "fresh" if age is not None and age <= EVIDENCE_TTL else "stale",
+        "facts": facts,
+    }
+
+
+def plan_from_facts(data: dict, facts: dict) -> dict:
+    """Build the frozen resume-plan shape from already collected facts."""
+    takeover = dict(facts.get("takeover") or {})
+    if not all((data.get(role) or {}).get("session_id") for role in ("trigger", "bullet")):
         takeover = {"safe": False, "action": "stop", "reason": "not_a_frozen_dst"}
-        facts["takeover"] = takeover
-    steps = []
-    if takeover["action"] == "request_handoff":
+    steps: list[str] = []
+    if takeover.get("action") == "request_handoff":
         steps.append("request_handoff")
-    elif takeover["action"] == "claim":
+    elif takeover.get("action") == "claim":
         steps.append("claim")
-    if takeover["safe"]:
+    if takeover.get("safe"):
         steps.extend(["prepare", "restore", "verify"])
     return {
         "schema": SCHEMA,
-        "name": facts["name"],
-        "safe": takeover["safe"],
-        "action": takeover["action"],
-        "reason": takeover["reason"],
+        "name": str(facts.get("name") or data.get("name") or ""),
+        "safe": bool(takeover.get("safe")),
+        "action": str(takeover.get("action") or "stop"),
+        "reason": str(takeover.get("reason") or "facts_unavailable"),
         "steps": steps,
         "ownership": facts,
     }
+
+
+def plan_resume(data: dict) -> dict:
+    facts = snapshot(data)
+    plan = plan_from_facts(data, facts)
+    facts["takeover"] = {
+        "safe": plan["safe"], "action": plan["action"], "reason": plan["reason"]
+    }
+    return plan
 
 
 def acquire_for_resume(data: dict, plan: dict, *, force: bool = False) -> dict:

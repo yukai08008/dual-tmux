@@ -265,3 +265,73 @@ def test_native_pull_failure_releases_new_generation_before_commit(monkeypatch):
     with pytest.raises(ControlError, match="native pull failed"):
         service.resume("dt-msg")
     assert released == [("dt-msg", 13)]
+
+
+def test_cached_web_preflight_never_runs_live_snapshot(tmp_path, monkeypatch):
+    from dual_tmux import ownership
+
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
+    data = _tunnel()
+    data["trigger"]["session_id"] = "trigger-1"
+    data["bullet"]["session_id"] = "bullet-1"
+    save(tunnels_dir() / "dt-msg.json", data)
+    facts = {
+        "schema": 1,
+        "name": "dt-msg",
+        "takeover": {"safe": True, "action": "resume", "reason": "already_owned"},
+    }
+    ownership.write_cache(facts)
+    monkeypatch.setattr(
+        ownership, "snapshot", lambda *_a, **_kw: pytest.fail("must not probe")
+    )
+    service = ControlService()
+    assert service.cached_ownership("dt-msg").data["facts"] == facts
+    plan = service.cached_resume_plan("dt-msg").data
+    assert plan["safe"] is True
+    assert plan["action"] == "resume"
+
+
+def test_handoff_rechecks_live_plan_before_remote_request(monkeypatch):
+    from dual_tmux import hub, ownership
+
+    service = ControlService()
+    data = _tunnel()
+    monkeypatch.setattr(ControlService, "_get_tunnel_readonly", lambda *_a: data)
+    monkeypatch.setattr(
+        ownership,
+        "plan_resume",
+        lambda _data: {"safe": False, "action": "stop", "reason": "bullet_duplicate_writer"},
+    )
+    monkeypatch.setattr(
+        hub, "request_handoff", lambda *_a, **_kw: pytest.fail("must not request")
+    )
+    with pytest.raises(ControlError) as caught:
+        service.handoff("dt-msg")
+    assert caught.value.code == "handoff_preflight_rejected"
+    assert caught.value.detail["reason"] == "bullet_duplicate_writer"
+
+
+def test_cached_foreign_evidence_expires_independently_of_cache(tmp_path, monkeypatch):
+    from dual_tmux import ownership
+
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
+    data = _tunnel()
+    data["trigger"]["session_id"] = "trigger-1"
+    data["bullet"]["session_id"] = "bullet-1"
+    save(tunnels_dir() / "dt-msg.json", data)
+    facts = {
+        "schema": 1,
+        "name": "dt-msg",
+        "lease": {"state": "foreign", "evidence": {"sampled_at": 100}},
+        "takeover": {
+            "safe": True,
+            "action": "request_handoff",
+            "reason": "foreign_idle_detached",
+        },
+    }
+    ownership.write_cache(facts, now=250)
+    monkeypatch.setattr(ownership.time, "time", lambda: 260)
+    monkeypatch.setattr("dual_tmux.control.time.time", lambda: 400)
+    plan = ControlService().cached_resume_plan("dt-msg").data
+    assert plan["safe"] is False
+    assert plan["reason"] == "owner_evidence_stale"

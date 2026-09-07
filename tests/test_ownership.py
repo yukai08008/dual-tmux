@@ -274,3 +274,39 @@ def test_resume_plan_cli_skips_ready_checks_and_audit_writes(monkeypatch):
     )
     cli.main()
     assert seen == [("dt-a", True)]
+
+
+def test_ownership_cache_is_atomic_read_only_and_stale(tmp_path, monkeypatch):
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
+    facts = {
+        "schema": 1,
+        "name": "dt-a",
+        "takeover": {"safe": True, "action": "resume", "reason": "already_owned"},
+    }
+    path = ownership.write_cache(facts, now=100)
+    assert path == tmp_path / "ownership-cache" / "dt-a.json"
+    fresh = ownership.read_cache("dt-a", now=120)
+    assert fresh == {
+        "available": True,
+        "cached_at": 100,
+        "age_seconds": 20,
+        "freshness": "fresh",
+        "facts": facts,
+    }
+    assert ownership.read_cache("dt-a", now=400)["freshness"] == "stale"
+    assert ownership.read_cache("missing", now=120)["freshness"] == "missing"
+
+
+def test_plan_from_cached_facts_preserves_frozen_shape():
+    facts = {
+        "schema": 1,
+        "name": "dt-a",
+        "takeover": {
+            "safe": True,
+            "action": "request_handoff",
+            "reason": "foreign_idle_detached",
+        },
+    }
+    plan = ownership.plan_from_facts(_data(), facts)
+    assert plan["steps"] == ["request_handoff", "prepare", "restore", "verify"]
+    assert plan["ownership"] is facts
