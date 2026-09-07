@@ -35,8 +35,8 @@ def persist_local_root() -> str:
 
 
 def persist_kind(kind: str) -> str:
-    if kind not in {"tmux", "opencode"}:
-        raise ValueError("kind must be tmux or opencode")
+    if kind not in {"tmux", "opencode", "native"}:
+        raise ValueError("kind must be tmux, opencode or native")
     return kind
 
 

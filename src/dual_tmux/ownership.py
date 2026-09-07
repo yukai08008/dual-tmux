@@ -21,10 +21,10 @@ EVIDENCE_TTL = 180
 def persistence_supported(data: dict, role: str) -> bool:
     """Whether a cross-Client handoff can preserve this side's session store."""
     tool = str((data.get(role) or {}).get("tool") or "opencode")
-    if tool == "opencode":
+    if tool in AGENTS:
         return True
-    # A remote bullet remains in the same SSH/container session store. Native
-    # trigger and local-bullet stores are Client-local and are not synced yet.
+    # Unknown tools are only safe when a remote bullet remains in the same
+    # SSH/container store and therefore does not need Client-local migration.
     return role == "bullet" and bool((data.get("runtime") or {}).get("server"))
 
 
@@ -67,7 +67,12 @@ def probe_writers(data: dict, side: str) -> dict[str, Any]:
     sid = str(info.get("session_id") or "")
     tool = str(info.get("tool") or "opencode")
     if tool not in AGENTS or not sid:
-        return {"status": "unknown", "count": None, "pids": [], "reason": "missing_session_identity"}
+        return {
+            "status": "unknown",
+            "count": None,
+            "pids": [],
+            "reason": "missing_session_identity",
+        }
     remote = side == "bullet" and bool((data.get("runtime") or {}).get("server"))
     if remote:
         from .recovery import remote_session_pids
@@ -79,7 +84,12 @@ def probe_writers(data: dict, side: str) -> dict[str, Any]:
     else:
         pids = _local_session_pids(sid)
     if pids is None:
-        return {"status": "unknown", "count": None, "pids": [], "reason": "probe_failed"}
+        return {
+            "status": "unknown",
+            "count": None,
+            "pids": [],
+            "reason": "probe_failed",
+        }
     return {
         "status": "duplicate" if len(pids) > 1 else "ok",
         "count": len(pids),
@@ -92,17 +102,37 @@ def _takeover(lease: dict, sides: dict, writers: dict) -> dict:
     for role in ("trigger", "bullet"):
         writer = writers[role]
         if writer["status"] == "unknown":
-            return {"safe": False, "action": "stop", "reason": f"{role}_writer_probe_failed"}
+            return {
+                "safe": False,
+                "action": "stop",
+                "reason": f"{role}_writer_probe_failed",
+            }
         if writer["status"] == "duplicate":
-            return {"safe": False, "action": "stop", "reason": f"{role}_duplicate_writer"}
+            return {
+                "safe": False,
+                "action": "stop",
+                "reason": f"{role}_duplicate_writer",
+            }
     if lease["state"] == "foreign":
         for role in ("trigger", "bullet"):
             fact = sides[role]
             if fact["attached"] is not False:
-                return {"safe": False, "action": "stop", "reason": f"{role}_attached_or_unknown"}
+                return {
+                    "safe": False,
+                    "action": "stop",
+                    "reason": f"{role}_attached_or_unknown",
+                }
             if fact["progress"] != "idle":
-                return {"safe": False, "action": "stop", "reason": f"{role}_{fact['progress']}"}
-        return {"safe": True, "action": "request_handoff", "reason": "foreign_idle_detached"}
+                return {
+                    "safe": False,
+                    "action": "stop",
+                    "reason": f"{role}_{fact['progress']}",
+                }
+        return {
+            "safe": True,
+            "action": "request_handoff",
+            "reason": "foreign_idle_detached",
+        }
     if lease["state"] in {"free", "expired"}:
         return {"safe": True, "action": "claim", "reason": lease["state"]}
     return {"safe": True, "action": "resume", "reason": "already_owned"}
@@ -126,18 +156,28 @@ def snapshot(data: dict) -> dict:
         ev = (side_evidence or {}).get(role) or {}
         if foreign:
             runtime = str(ev.get("runtime") or "unknown")
-            attached = ev.get("attached") if isinstance(ev.get("attached"), bool) else None
+            attached = (
+                ev.get("attached") if isinstance(ev.get("attached"), bool) else None
+            )
             progress = str(ev.get("state") or "unknown")
             writer = ev.get("writers") if isinstance(ev.get("writers"), dict) else {}
             writers[role] = writer or {
-                "status": "unknown", "count": None, "pids": [],
+                "status": "unknown",
+                "count": None,
+                "pids": [],
                 "reason": "foreign_owner_probe_required",
             }
         else:
             runtime = _runtime(pane)
-            count = tmux_ops.attached_clients(pane) if pane and tmux_ops.has_session(pane) else 0
+            count = (
+                tmux_ops.attached_clients(pane)
+                if pane and tmux_ops.has_session(pane)
+                else 0
+            )
             attached = None if count is None else count > 0
-            progress = str(ev.get("state") or ("idle" if runtime == "shell" else "unknown"))
+            progress = str(
+                ev.get("state") or ("idle" if runtime == "shell" else "unknown")
+            )
             writers[role] = probe_writers(data, role)
         sides[role] = {
             "runtime": runtime,
@@ -160,16 +200,40 @@ def snapshot(data: dict) -> dict:
             "conflict": bool(lease.get("conflict")),
         },
     }
+    from . import native_persist
+
+    result["native_snapshots"] = {
+        role: native_persist.inspect_session(data.get(role) or {})
+        for role in ("trigger", "bullet")
+    }
     result["takeover"] = _takeover(lease, sides, writers)
-    sampled_at = int((evidence or {}).get("sampled_at") or 0) if isinstance(evidence, dict) else 0
+    conflicts = [
+        role
+        for role, state in result["native_snapshots"].items()
+        if state.get("status") == "conflict"
+    ]
+    if conflicts:
+        result["takeover"] = {
+            "safe": False,
+            "action": "stop",
+            "reason": f"{conflicts[0]}_native_snapshot_conflict",
+        }
+    sampled_at = (
+        int((evidence or {}).get("sampled_at") or 0)
+        if isinstance(evidence, dict)
+        else 0
+    )
     if foreign and (not sampled_at or int(time.time()) - sampled_at > EVIDENCE_TTL):
         result["snapshot"]["freshness"] = "stale" if sampled_at else "unknown"
         result["takeover"] = {
-            "safe": False, "action": "stop", "reason": "owner_evidence_stale"
+            "safe": False,
+            "action": "stop",
+            "reason": "owner_evidence_stale",
         }
     if foreign and result["takeover"]["safe"]:
         unsupported = [
-            role for role in ("trigger", "bullet")
+            role
+            for role in ("trigger", "bullet")
             if not persistence_supported(data, role)
         ]
         if unsupported:
@@ -184,7 +248,9 @@ def snapshot(data: dict) -> dict:
 def plan_resume(data: dict) -> dict:
     facts = snapshot(data)
     takeover = facts["takeover"]
-    if not all((data.get(role) or {}).get("session_id") for role in ("trigger", "bullet")):
+    if not all(
+        (data.get(role) or {}).get("session_id") for role in ("trigger", "bullet")
+    ):
         takeover = {"safe": False, "action": "stop", "reason": "not_a_frozen_dst"}
         facts["takeover"] = takeover
     steps = []
@@ -194,12 +260,22 @@ def plan_resume(data: dict) -> dict:
         steps.append("claim")
     if takeover["safe"]:
         steps.extend(["prepare", "restore", "verify"])
-    return {"schema": SCHEMA, "name": facts["name"], "safe": takeover["safe"], "action": takeover["action"], "reason": takeover["reason"], "steps": steps, "ownership": facts}
+    return {
+        "schema": SCHEMA,
+        "name": facts["name"],
+        "safe": takeover["safe"],
+        "action": takeover["action"],
+        "reason": takeover["reason"],
+        "steps": steps,
+        "ownership": facts,
+    }
 
 
 def acquire_for_resume(data: dict, plan: dict, *, force: bool = False) -> dict:
     if not plan.get("safe"):
-        raise SystemExit(f"[err] resume preflight rejected: {plan.get('reason') or 'unsafe'}")
+        raise SystemExit(
+            f"[err] resume preflight rejected: {plan.get('reason') or 'unsafe'}"
+        )
     lease = plan["ownership"]["lease"]
     if plan["action"] == "request_handoff":
         result = hub.request_handoff(str(data.get("name") or ""), reason="resume")
@@ -219,18 +295,26 @@ def acquire_for_resume(data: dict, plan: dict, *, force: bool = False) -> dict:
                     "newly_acquired": True,
                 }
             handoff = current.get("handoff") or {}
-            if handoff.get("request_id") == request and handoff.get("status") == "rejected":
+            if (
+                handoff.get("request_id") == request
+                and handoff.get("status") == "rejected"
+            ):
                 raise SystemExit(
                     f"[err] handoff rejected: {handoff.get('reason') or 'owner declined'}"
                 )
             time.sleep(0.5)
-        raise SystemExit(f"[err] handoff pending ({request}); owner did not release within 30s")
+        raise SystemExit(
+            f"[err] handoff pending ({request}); owner did not release within 30s"
+        )
     was_owned = lease.get("state") == "owned"
     hub.claim(str(data.get("name") or ""), force=force)
     current = hub.read_ownership(str(data.get("name") or ""))
     if current.get("state") != "owned" or current.get("holder") != load_config().client:
         raise SystemExit("[err] ownership acquisition could not be verified")
-    return {"generation": int(current.get("generation") or 0), "newly_acquired": not was_owned}
+    return {
+        "generation": int(current.get("generation") or 0),
+        "newly_acquired": not was_owned,
+    }
 
 
 def verify_resume(data: dict, token: dict) -> dict:
@@ -242,13 +326,17 @@ def verify_resume(data: dict, token: dict) -> dict:
     deadline = time.monotonic() + 5
     writers = {role: probe_writers(data, role) for role in ("trigger", "bullet")}
     while (
-        any(value["status"] == "ok" and value["count"] == 0 for value in writers.values())
+        any(
+            value["status"] == "ok" and value["count"] == 0
+            for value in writers.values()
+        )
         and time.monotonic() < deadline
     ):
         time.sleep(0.25)
         writers = {role: probe_writers(data, role) for role in ("trigger", "bullet")}
     bad = [
-        role for role, value in writers.items()
+        role
+        for role, value in writers.items()
         if value["status"] != "ok" or value["count"] != 1
     ]
     if bad:
