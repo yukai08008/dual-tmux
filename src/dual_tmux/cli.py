@@ -920,10 +920,17 @@ def cmd_make(args: argparse.Namespace) -> None:
     hub.push_best_effort(wait=True)
 
 
-def _apply_resume_legacy(name: str | None, force: bool = False) -> dict:
+def _apply_resume_legacy(
+    name: str | None,
+    force: bool = False,
+    *,
+    ownership_checked: bool = False,
+    finalize: bool = True,
+) -> dict:
     """Resume a DST without attaching; shared by the CLI and local web UI."""
     data = _resolve(name)
-    hub.require_active(data, force=force)
+    if not ownership_checked:
+        hub.require_active(data, force=force)
     opsdir.prepare(data)
     if not oc_ops.is_dst(data):
         raise SystemExit("[err] not a DST. Freeze both oc sessions first: dt freeze")
@@ -991,9 +998,10 @@ def _apply_resume_legacy(name: str | None, force: bool = False) -> dict:
     data["run_point"] = wp.canonical_runtime_point(
         data, wp.discover(data["run"])
     )
-    save(find_dt(data["name"]), data)
-    ev.emit("dt.resume", name=data["name"])
-    hub.push_best_effort()
+    if finalize:
+        save(find_dt(data["name"]), data)
+        ev.emit("dt.resume", name=data["name"])
+        hub.push_best_effort()
     return data
 
 
@@ -1007,10 +1015,44 @@ def apply_resume(name: str | None, force: bool = False) -> dict:
 
 
 def cmd_resume(args: argparse.Namespace) -> None:
+    if bool(getattr(args, "plan", False)):
+        from .control import get_control_service
+
+        result = get_control_service().plan_resume(args.name).data
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        if not result.get("safe"):
+            raise SystemExit(2)
+        return
     data = apply_resume(args.name, force=bool(getattr(args, "force", False)))
     ui.ok(f"resumed DST {data['name']}")
     if getattr(args, "attach", True):
         tmux_ops.attach(data["op"])
+
+
+def cmd_ownership(args: argparse.Namespace) -> None:
+    from .control import get_control_service
+
+    data = get_control_service().ownership(args.name).data
+    if getattr(args, "json", False):
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return
+    lease = data["lease"]
+    print(
+        f"{data['name']}  lease={lease['state']} holder={lease.get('holder') or '—'} "
+        f"generation={lease.get('generation') or 0}"
+    )
+    for side in ("trigger", "bullet"):
+        writer = data["writers"][side]
+        print(
+            f"  {side}: runtime={data['runtime'][side]} "
+            f"attached={data['attached'][side]} progress={data['progress'][side]} "
+            f"writers={writer.get('count')} ({writer.get('status')})"
+        )
+    takeover = data["takeover"]
+    print(
+        f"  takeover: safe={str(takeover['safe']).lower()} "
+        f"action={takeover['action']} reason={takeover['reason']}"
+    )
 
 
 def _prompt(label: str) -> str:
@@ -1188,6 +1230,7 @@ def cmd_tick(_: argparse.Namespace) -> None:
             hub.drop_local(data)
             continue
         activity.append_sample(data)
+        activity.activity_evidence(data)
         try:
             hub.claim(name)
         except SystemExit:
@@ -1734,6 +1777,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_resume.add_argument(
         "--force", action="store_true", help="steal hub lock from another Client"
     )
+    p_resume.add_argument(
+        "--plan", action="store_true", help="read-only ownership and resume preflight"
+    )
+    p_ownership = sub.add_parser(
+        "ownership", help="show lease, attachment, progress and session writers"
+    )
+    p_ownership.add_argument("name", nargs="?", help="defaults to latest tunnel")
+    p_ownership.add_argument("--json", action="store_true")
 
     p_drop = sub.add_parser(
         "drop", help="kill local op_*/run_* and release hub lock; binding stays"
@@ -1897,6 +1948,7 @@ def main() -> None:
         ensure_ready()
         cmd_enter(argparse.Namespace(name=None))
         return
+    readonly_resume_plan = command == "resume" and bool(getattr(args, "plan", False))
     if command not in {
         "config",
         "doctor",
@@ -1909,6 +1961,7 @@ def main() -> None:
         "tick",
         "health",
         "recover",
+        "ownership",
         "cron",
         "mem",
         "note",
@@ -1917,7 +1970,7 @@ def main() -> None:
         "skill",
         "feishu",
         "daemon",
-    }:
+    } and not readonly_resume_plan:
         if not config_path().is_file():
             prompt_init()
         ensure_ready()
@@ -1934,6 +1987,7 @@ def main() -> None:
         "capture": cmd_capture,
         "make": cmd_make,
         "resume": cmd_resume,
+        "ownership": cmd_ownership,
         "drop": cmd_drop,
         "park": cmd_park,
         "enter": cmd_enter,
@@ -1959,6 +2013,9 @@ def main() -> None:
         "daemon": cmd_daemon,
         "upgrade": cmd_upgrade,
     }
+    if readonly_resume_plan:
+        handlers[command](args)
+        return
     ev.emit("cmd.start", cmd=command)
     try:
         handlers[command](args)

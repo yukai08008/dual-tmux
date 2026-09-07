@@ -26,8 +26,27 @@ def have_tmux() -> bool:
 
 
 def has_session(name: str) -> bool:
-    r = subprocess.run([bin(), "has-session", "-t", name], capture_output=True)
+    r = subprocess.run(
+        [bin(), "has-session", "-t", name], capture_output=True, check=False
+    )
     return r.returncode == 0
+
+
+def attached_clients(name: str) -> int | None:
+    """Return attached client count, or None when tmux cannot answer."""
+    if not name:
+        return 0
+    result = subprocess.run(
+        [bin(), "list-clients", "-t", name, "-F", "#{client_pid}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode == 1 and "no current client" in (result.stderr or "").lower():
+        return 0
+    if result.returncode != 0:
+        return None
+    return len([line for line in result.stdout.splitlines() if line.strip()])
 
 
 def kill_session(name: str) -> bool:
@@ -56,7 +75,9 @@ def quit_opencode(name: str) -> bool:
 def drop_session(name: str) -> bool:
     if not name or not has_session(name):
         return False
-    subprocess.run([bin(), "detach-client", "-s", name], capture_output=True)
+    subprocess.run(
+        [bin(), "detach-client", "-s", name], capture_output=True, check=False
+    )
     return kill_session(name)
 
 
@@ -119,6 +140,7 @@ def pane_info(name: str) -> dict[str, str]:
         ],
         capture_output=True,
         text=True,
+        check=False,
     )
     if r.returncode != 0 or not r.stdout.strip():
         return {"pid": "", "cmd": "", "cwd": "", "title": ""}
@@ -131,6 +153,7 @@ def capture_pane(name: str, start: int = -200) -> str:
         [bin(), "capture-pane", "-t", name, "-p", "-S", str(start)],
         capture_output=True,
         text=True,
+        check=False,
     )
     return r.stdout or ""
 

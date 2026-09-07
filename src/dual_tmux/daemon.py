@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Protocol
 
 from . import log, statusbar
+from . import tmux as tmux_ops
 from .config import load_config
 from .feishu import (
     CredentialVault,
@@ -485,14 +486,17 @@ class DualTmuxDaemon:
         interval: float = 2.0,
         mailbox_interval: float = 5.0,
         mailbox_sync=None,
+        ownership_interval: float = 15.0,
     ):
         self.manager = manager or ConnectorManager()
         self.interval = interval
         self.mailbox_interval = mailbox_interval
         self.mailbox_sync = mailbox_sync
+        self.ownership_interval = ownership_interval
         self.stop_event = threading.Event()
         self._statusbar_sig: tuple | None = None
         self._statusbar_frame = 0
+        self._ownership_last = 0.0
 
     def _statusbar_step(self) -> None:
         """Refresh tmux status-bar sync chips; animates the spinner while busy.
@@ -528,6 +532,83 @@ class DualTmuxDaemon:
         from .feishu_bridge import sync_client_if_pending
 
         sync_client_if_pending(cfg)
+
+    def _ownership_step(self, *, force: bool = False) -> None:
+        """Serve safe handoff requests in persist→park→ack→release order."""
+        now = time.monotonic()
+        if not force and now - self._ownership_last < self.ownership_interval:
+            return
+        self._ownership_last = now
+        from . import activity, hub, ownership
+        from .store import iter_dt_files, load
+
+        try:
+            cfg = load_config()
+        except (OSError, SystemExit):
+            return
+        if not cfg.hub_enabled:
+            return
+        for path in iter_dt_files():
+            data = load(path)
+            name = str(data.get("name") or path.stem)
+            try:
+                lease = hub.read_ownership(name, cfg)
+            except SystemExit:
+                continue
+            handoff = lease.get("handoff") or {}
+            if (
+                lease.get("state") != "owned"
+                or lease.get("holder") != cfg.client
+                or handoff.get("status") != "pending"
+            ):
+                continue
+            request_id = str(handoff.get("request_id") or "")
+            generation = int(lease.get("generation") or 0)
+            try:
+                activity.activity_evidence(data)
+                facts = ownership.snapshot(data)
+                reasons = []
+                for role in ("trigger", "bullet"):
+                    if not ownership.persistence_supported(data, role):
+                        reasons.append(f"{role}_snapshot_persistence_unsupported")
+                    if facts["attached"][role] is not False:
+                        reasons.append(f"{role}_attached_or_unknown")
+                    if facts["progress"][role] != "idle":
+                        reasons.append(f"{role}_{facts['progress'][role]}")
+                    if facts["writers"][role]["status"] != "ok":
+                        reasons.append(f"{role}_{facts['writers'][role]['status']}")
+                if reasons:
+                    hub.decide_handoff(
+                        name, request_id, generation, accept=False,
+                        reason=",".join(reasons),
+                    )
+                    log.emit("ownership.handoff.reject", name=name, reason=",".join(reasons))
+                    continue
+                from .cli import _export_local_snapshots
+                from .hotfix import sync_persist
+
+                _export_local_snapshots(data, cfg.client)
+                sync_persist("opencode", cfg)
+                hub.push(cfg)
+                log.emit("ownership.handoff.persist", name=name, generation=generation)
+                hub.park_local(data)
+                if any(
+                    tmux_ops.has_session(str(data.get(key) or ""))
+                    for key in ("op", "run")
+                ):
+                    raise SystemExit("[err] handoff park did not stop all local panes")
+                log.emit("ownership.handoff.park", name=name, generation=generation)
+                hub.decide_handoff(
+                    name, request_id, generation, accept=True, reason="persisted_and_parked"
+                )
+                log.emit("ownership.handoff.ack", name=name, generation=generation)
+                hub.release(name, generation=generation)
+                log.emit("ownership.handoff.release", name=name, generation=generation)
+            except (OSError, RuntimeError, SystemExit) as exc:
+                log.emit(
+                    "ownership.handoff.fail", name=name, generation=generation,
+                    reason=type(exc).__name__,
+                )
 
     def _mailbox_worker(self) -> None:
         sync = self.mailbox_sync or self._sync_mailbox_once
@@ -586,6 +667,7 @@ class DualTmuxDaemon:
             while not self.stop_event.is_set():
                 self._write_status(self.manager.step())
                 self._statusbar_step()
+                self._ownership_step(force=once)
                 if once:
                     return
                 self.stop_event.wait(self.interval)

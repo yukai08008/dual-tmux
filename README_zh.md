@@ -104,6 +104,8 @@ workspace = "/workspace"  # 默认跳板目录；初始化不问
 ├── config.toml               # client + server + workspace
 ├── tunnels/dt-<name>.json    # op/run 1:1 绑定
 ├── entries/run_<name>.cmd    # run_* 回连命令
+├── ownership-evidence/       # 本机语义活动与 writer 证据
+├── instance-id               # 稳定安装实例 ID（不是 Client 名）
 ├── events.jsonl              # CLI 事件 / 操作日志
 ├── skills/                   # 从安装包同步出来的 trigger 技能
 └── ops/op_<name>/AGENTS.md   # trigger OpenCode 的启动目录
@@ -138,9 +140,16 @@ dt resume dt-msg              # import trigger JSON，再 -s；bullet 在跳板�
 
 `dt pull` 只恢复绑定。`dt resume` 会把 **trigger** 的 persist JSON import 进本机 sqlite，再在 `op_*` 里 `opencode --auto -s <id>`。远端 bullet 会重放 `runtime.cmd`，等待跳板稳定后在目标 sqlite 执行 `-s`；纯本地 bullet 则把 JSON 导入 Client sqlite。见 [docs/persist-sync.md](docs/persist-sync.md)。
 
-同一时刻只有一台 Client：枢纽锁 `~/<user>/dual-tmux/locks/<dt-名>`（`client@epoch`，TTL 300s）。`enter` / `work` / `resume` 占锁。
+同一时刻只有一台 Client：兼容锁仍保留在 `~/<user>/dual-tmux/locks/<dt-名>`（`client@epoch@generation`，TTL 300s）；Lease v2 另用 `ownership/<dt-名>.json` 保存安装实例、语义证据和 handoff，不破坏旧 Client。
 
-闲置不看 TTL。`dt tick` 每分钟打指纹。另一台 `dt resume` 在近 **30 个 tick** 冻住时接管。旧 Client 上的 `op_*`/`run_*` **直接杀掉**（不留 `__parked`）。绑定在枢纽，对话在 persist，下次 `dt resume` 再起一套很轻的 tmux。现在放手：`dt drop dt-msg`。抢：`--force`。
+`dt resume` 在改变 pane 前会分别检查 lease、runtime、是否 attached、语义进展及同一冻结 session 的 writer 进程数。检查失败或证据不充分时 fail closed，不 kill/detach/reconnect pane，也不改 binding；`--force` 不能绕过未知探测或重复 writer。可先做完全只读的判断：
+
+```sh
+dt ownership dt-msg --json
+dt resume dt-msg --plan
+```
+
+只有原 owner 处于 idle、detached 且证据新鲜时才发起 handoff；原 Client daemon 必须依次完成 persist → park → ack → release，申请端才能取得下一代 generation 并恢复。attached、working、stalled、未知或过期证据都会拒绝自动接管。主动放手仍使用 `dt drop dt-msg`。
 
 要 **分叉**（两条隧道同时活，不是抢锁）：
 
@@ -300,7 +309,8 @@ freeze 还会记下 **工作点**（`op_point` / `run_point`：kind、cwd、ssh�
 | `dt model <name> [--run|--op] <id>` | 退出该侧 oc，用新模型再起，freeze |
 | `dt ls` | 第 1 列 DT，第 2 列 IS_DST |
 | `dt make dst <name> [--tool] [--model]` | 一键 DT + 两侧 oc + freeze |
-| `dt resume <name> [--force]` | 接续 DST；`--force` 抢枢纽锁 |
+| `dt ownership <name> [--json]` | 查看 lease/runtime/attached/progress/writers 与接管判断 |
+| `dt resume <name> [--plan] [--force]` | 只读规划或接续 DST；force 不绕过 writer/证据安全门 |
 | `dt drop <name>` | 杀掉本机 op_*/run_* 并放锁；枢纽绑定保留 |
 | `dt tick` | 每分钟任务（安装 / doctor 会加 crontab） |
 | `dt cron [--remove]` | 安装或去掉 tick crontab |

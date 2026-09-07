@@ -1,8 +1,14 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-07 08:51 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-07 09:23 +08:00 | 更新者: Codex PM
 
 ## 状态树
+
+### v0.4.51 (ACTIVE) — Session Ownership API
+
+- 三件套：`dev_plans/v0.4.49-v0.4.51/`。
+- **feature/v0.4.51-session-ownership** (MERGE_PENDING): PR #28；Lease v2 sidecar、semantic activity、三客户端 writer probe、ownership snapshot、handoff daemon、resume plan/transaction 与 CLI/ControlService 合同已实现；277 tests、Ruff/compileall/build、tom7r 隔离 generation/handoff E2E 与真实隧道只读 plan 均通过。Codex/Claude Client-local store 跨机器 handoff 现明确 fail closed，待后续复制协议。
+- 父版本：正式 Release `v0.4.49`；0.4.50 旧 Web 草案因缺少 API 前提保持 `REBASE_REQUIRED`。
 
 ### v0.4.49 (RELEASED) — 运行时修复与 Session 快照收敛
 
@@ -24,11 +30,11 @@
   - **issue-freeze-runtime-authority-corruption** (CLOSED, merged into `feature/v0.4.49-session-ownership`): live SSH 进程现覆盖混合 scrollback，远端交互式 `docker exec` 进程用于解析当前容器；runtime/run_point 只在 Agent session 验证成功后原子提交，partial freeze 返回非零并记录 `freeze.fail`。`dt-cp-gate` 已实测绑定 `root@10.88.0.20 → cp_gateway_24629:/workspace` 的 OpenCode 1.18.29 session `ses_f8a384577ffeb75HokVSq3nf13`，`IS_DST=yes`，错误 hops 已清除。
 - 后续 hotfix 待用户口述，每条一个 `hotfix/v0.4.49-*` 分支（L3）。
 
-### v0.4.50 (PLANNED, REBASE_REQUIRED) — Ownership 与安全接管
+### v0.4.50 (ARCHIVED) — 失效的 Ownership Web 草案
 
 - 三件套草案：`dev_plans/v0.4.49-v0.4.50/`。
 - 原计划依赖 v0.4.49 ownership API，但该 API 未实现，现有 v0.4.50 草案不可直接启动。
-- 下一轮需按奇偶版本规则重新基线：先排入后续奇数 API 版完成 Lease v2/handoff/transactional resume，再由后续偶数 Web 版消费；不得在 Web 中重新猜测状态。
+- 已由 v0.4.51 API 版重新基线；API 冻结后建立 v0.4.52 Web 版，不得在 Web 中重新猜测状态。
 
 ### v0.4.48 (RELEASED) — 飞书扫码 Web 与 tom7r 事件桥
 
@@ -104,7 +110,7 @@
 
 ## 当前焦点
 
-- v0.4.49 已封板发布。下一轮先重新规划 `BL-RUNTIME-001` 的奇数 API 版本，再建立对应偶数 Web 版本；现有 v0.4.50 草案保持 `REBASE_REQUIRED`，不得直接开工。
+- 复核并合并 PR #28；远端 SHA 与 `v0.4.51-final` 校验后再启动 v0.4.52 Web。
 
 ## Backlog
 

@@ -1,0 +1,75 @@
+version: v0.4.51
+parent_final: v0.4.49
+title: Session Ownership API
+type: api
+prd: dev_plans/v0.4.49-v0.4.51/PRD.md
+test_cases: dev_plans/v0.4.49-v0.4.51/TEST_CASES.md
+
+invariants:
+  - "v1 lock remains readable/writable by old Clients"
+  - "lease/runtime/attached/progress are independent facts"
+  - "preflight failure has zero pane/binding side effects"
+  - "one writable process per session ID"
+  - "handoff order is persist, park, acknowledge, release, claim, verify"
+  - "runtime ownership data is not tracked by Git"
+
+deliverables:
+  - module: src/dual_tmux/activity.py
+    change: semantic fingerprint and durable progress evidence
+    public_api: [semantic_fingerprint, activity_evidence, read_evidence]
+  - module: src/dual_tmux/hub.py
+    change: v1-compatible Lease v2 sidecar and handoff primitives
+    public_api: [read_ownership, claim, release, request_handoff, decide_handoff]
+  - module: src/dual_tmux/ownership.py
+    change: unified snapshot, writer probes, takeover decision and resume plan
+    public_api: [snapshot, plan_resume, acquire_for_resume, verify_resume]
+  - module: src/dual_tmux/daemon.py
+    change: owner handoff worker with persist→park→ack→release ordering
+  - module: src/dual_tmux/control.py
+    change: stable ownership and resume-plan control contracts
+  - module: src/dual_tmux/cli.py
+    change: dt ownership, dt resume --plan and safe transactional resume integration
+
+feature_branches:
+  - name: feature/v0.4.51-session-ownership
+    title: Ownership facts and safe handoff
+    deps: [v0.4.49]
+    files: [src/dual_tmux/activity.py, src/dual_tmux/hub.py, src/dual_tmux/ownership.py, src/dual_tmux/daemon.py, src/dual_tmux/control.py, src/dual_tmux/cli.py, tests]
+    acceptance:
+      - "v1/v2 mixed lock compatibility and generation fencing"
+      - "semantic progress ignores TUI chrome"
+      - "ownership JSON exposes independent facts and exact refusal reason"
+      - "resume --plan is side-effect free"
+      - "foreign owner handoff follows persist→park→ack→release→claim"
+      - "duplicate/unknown writers fail closed"
+      - "claim/commit failure does not delete panes or publish binding"
+
+acceptance_count: 7
+total_estimated_loc: ~1600
+
+risk_register:
+  - id: R1
+    risk: mixed-version lock regression
+    mitigation: sidecar design and v1/v2 E2E
+    severity: critical
+  - id: R2
+    risk: unsafe automatic handoff
+    mitigation: revalidate evidence and fail closed
+    severity: critical
+
+git_workflow:
+  branch_creation: from v0.4.49
+  merge_policy: PR via pm-maintainer after Reviewer/Tester gates
+  before_merge_checks:
+    - "pytest all PASS"
+    - "focused Ruff and compileall PASS"
+    - "v1/v2 lock E2E PASS"
+    - "two-Client handoff E2E PASS"
+    - "duplicate writer and zero-side-effect fault injection PASS"
+    - "git ls-files data/ is empty"
+  final_tag: v0.4.51-final
+
+notes:
+  - "API 版默认不公开发布；能力冻结后进入对应偶数 Web 版。"
+
+签名: Agent-PM-0.4.51
