@@ -254,6 +254,62 @@ def test_remote_writer_probe_supports_container_runtime(monkeypatch):
     assert ownership.probe_writers(data, "bullet")["pids"] == [7]
 
 
+def test_local_blank_opencode_argv_uses_exact_live_pane_session(monkeypatch):
+    from dual_tmux import oc
+
+    data = _data()
+    monkeypatch.setattr(ownership, "_local_session_pids", lambda _sid: [])
+    monkeypatch.setattr(
+        ownership.tmux_ops,
+        "pane_info",
+        lambda _pane: {"pid": "42", "cmd": "opencode", "cwd": "/workspace"},
+    )
+    monkeypatch.setattr(
+        oc,
+        "from_pane",
+        lambda *_args, **_kwargs: oc.OcSession("ses_trigger", "live"),
+    )
+    assert ownership.probe_writers(data, "trigger")["pids"] == [42]
+
+
+def test_remote_blank_opencode_argv_uses_exact_live_session(monkeypatch):
+    from dual_tmux import oc, recovery
+
+    data = _data()
+    data["runtime"] = {"server": "box"}
+    monkeypatch.setattr(recovery, "remote_session_pids", lambda _data: [])
+    monkeypatch.setattr(
+        ownership.tmux_ops,
+        "pane_info",
+        lambda _pane: {"pid": "84", "cmd": "ssh", "cwd": "/workspace"},
+    )
+    monkeypatch.setattr("dual_tmux.cli._ssh_argv", lambda _data: ["ssh", "box"])
+    monkeypatch.setattr(
+        oc,
+        "active_remote",
+        lambda *_args, **_kwargs: oc.OcSession("ses_bullet", "live"),
+    )
+    assert ownership.probe_writers(data, "bullet")["pids"] == [84]
+
+
+def test_blank_opencode_argv_rejects_different_live_session(monkeypatch):
+    from dual_tmux import oc
+
+    data = _data()
+    monkeypatch.setattr(ownership, "_local_session_pids", lambda _sid: [])
+    monkeypatch.setattr(
+        ownership.tmux_ops,
+        "pane_info",
+        lambda _pane: {"pid": "42", "cmd": "opencode", "cwd": "/workspace"},
+    )
+    monkeypatch.setattr(
+        oc,
+        "from_pane",
+        lambda *_args, **_kwargs: oc.OcSession("ses_other", "other"),
+    )
+    assert ownership.probe_writers(data, "trigger")["count"] == 0
+
+
 def test_resume_plan_cli_skips_ready_checks_and_audit_writes(monkeypatch):
     from dual_tmux import cli
 
