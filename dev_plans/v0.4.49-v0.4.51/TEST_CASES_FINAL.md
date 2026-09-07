@@ -3,6 +3,7 @@
 > 验收日期：2026-09-07
 > 分支：`feature/v0.4.51-session-ownership`
 > 合并：PR #28，merge commit `f2f8f31dd6e9169816485e53aa4080ad8dfd30ad`
+> 冻结/发布：`v0.4.51-final`；安全能力例外 Release `v0.4.51`
 
 ## 验收摘要
 
@@ -33,9 +34,10 @@
 | E-02 | PASS | tom7r 临时目录双实例 handoff；测试目录已删除 |
 | E-03 | PASS（隔离自动化） | duplicate writer fixture 阻止 commit；未触碰真实 Agent 进程 |
 | E-04 | PASS（状态模拟） | heartbeat/attached/progress 独立；未锁定用户当前桌面 |
+| E-05 | PASS | 本机 `dt upgrade` 0.4.49→0.4.51；config/tunnel 汇总哈希不变；launchd daemon 新 PID 8623，真实 tunnel 已生成 v2 sidecar/evidence |
 
 ## 结论
 
 - API 代码完成并已通过 PR #28 合并。
-- 本版是奇数 API 版；不把 Ownership Web UI 冒充为已完成，UI 留到 v0.4.52。
+- 本版是奇数 API 版，但 Ownership 属安全关键且需多机升级验证，依用户既有发布授权作为例外创建公开 Release；不把 Ownership Web UI 冒充为已完成，UI 留到 v0.4.52。
 - 无 P0/P1 代码门禁遗留；Codex/Claude 的 Client-local store 跨机器复制仍是后续协议项，本版会明确拒绝这类 handoff；真实多 Client 业务隧道切换应在发布/升级后的受控隧道上做一次非破坏 smoke。
