@@ -1,4 +1,5 @@
 version: v0.4.50
+status: rebase_required
 parent_final: v0.4.49-final
 title: Ownership 与安全接管 Web 版
 type: web
@@ -95,6 +96,7 @@ deployment_checklist:
   - "配置、tunnel 和 session binding 哈希升级前后不变"
 
 notes:
-  - "v0.4.50 只有在 v0.4.49 ownership API 冻结后进入 ACTIVE。"
+  - "原前提（v0.4.49 ownership API 已冻结）不成立；本草案不得直接进入 ACTIVE。"
+  - "先重新规划奇数 API 版，再建立对应偶数 Web 版并更新 parent_final/deps。"
 
 签名: Agent-PM-0.4.50-draft
