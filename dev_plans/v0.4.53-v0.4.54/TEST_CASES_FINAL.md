@@ -33,7 +33,8 @@
 | R-01 | 验收报告 | PASS | 本文件 |
 | R-02 | P0/P1 遗留 | PASS | 无阻断遗留 |
 | R-03 | 隔离安装版本一致 | PASS | CLI 与 metadata 均为 `0.4.54` |
-| R-04 | 数据无损 | PASS | 新代码不迁移或改写 config/tunnel/session binding；GET 零写入 |
+| R-04 | 数据无损 | PASS | 本机真实升级前后 config + 10 tunnel 聚合 SHA-256 均为 `940a3e1985d2b0652d2654601c9e477fc65061fedc98f04595694ab2ef709cbb` |
+| R-05 | Tag、Release、真实 upgrade | PASS | `v0.4.54-final`/`v0.4.54` 指向 `a3a88c1`；GitHub wheel 安装后 `dt 0.4.54` |
 
 ## Browser E2E 证据
 
@@ -41,8 +42,10 @@
 - local-only、Codex trigger、Claude bullet、runtime/attached/progress/writer/native snapshot 均可视。
 - 页面 reload 后 facts 保持，未创建 tmux session。
 - 浏览器 console warning/error 为 0。
+- 真实本机 `dt-company_intro_v2` 显示 Hub Lease generation 3、trigger attached/working、bullet detached/working 及 writer/PID；cache 持续刷新。
+- launchd daemon 重启为 PID 17336，`mailbox_worker=running`、飞书 owner=`tom7r`、本地 connector=`standby`；10 条 tunnel 中 10 条均已生成 cache。
 
 ## 遗留问题
 
 - Python 依赖 `lark-oapi` 在测试中产生上游 naive UTC deprecation warning；不影响业务与发布。
-- 真实多机 handoff 会在发布后的本机/Hub 无损升级阶段复核；协议与 generation fencing 未在本 Web 版修改。
+- 真实破坏性跨机 handoff 未为验收人为中断正在工作的 Agent；既有协议与 generation fencing 未在本 Web 版修改，真实面板证据及 fail-closed 状态已验证。
