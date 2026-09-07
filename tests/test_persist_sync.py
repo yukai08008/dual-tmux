@@ -18,12 +18,20 @@ def test_tenant_paths_not_login_home():
     assert remote_sessions_root("andy") == "~/andy/sessions"
     assert remote_dt_root("andy") == "~/andy/dual-tmux"
     assert persist_local_kind("opencode") == "~/sessions/opencode"
+    assert persist_local_kind("native") == "~/sessions/native"
     assert persist_local_kind("tmux") == "~/sessions/tmux"
     assert persist_hub_kind("andy", "opencode") == "~/andy/sessions/opencode"
     assert persist_hub_kind("andy", "tmux") == "~/andy/sessions/tmux"
+    assert persist_hub_kind("andy", "native") == "~/andy/sessions/native"
     assert persist_rsync_rel("andy", "opencode") == "andy/sessions/opencode"
-    assert persist_source_dir("opencode", "tm_andy_home") == "~/sessions/opencode/tm_andy_home"
-    assert persist_source_dir("opencode", "tm_ouc", hub_user="andy") == "~/andy/sessions/opencode/tm_ouc"
+    assert (
+        persist_source_dir("opencode", "tm_andy_home")
+        == "~/sessions/opencode/tm_andy_home"
+    )
+    assert (
+        persist_source_dir("opencode", "tm_ouc", hub_user="andy")
+        == "~/andy/sessions/opencode/tm_ouc"
+    )
     with pytest.raises(ValueError):
         persist_rsync_rel("tm_andy", "opencode")
     with pytest.raises(ValueError):
@@ -59,7 +67,9 @@ def _write_json(
 
 def test_snapshot_ignores_container_named_dirs(tmp_path: Path):
     root = tmp_path / "sessions" / "opencode"
-    _write_json(root / "andy_messenger" / "eager-orchid.json", "ses_wrong", "eager-orchid")
+    _write_json(
+        root / "andy_messenger" / "eager-orchid.json", "ses_wrong", "eager-orchid"
+    )
     _write_json(root / "tm_ouc" / "eager-orchid.json", "ses_fdbe", "eager-orchid")
     found = persist_snapshot({"slug": "eager-orchid", "session_id": "ses_fdbe"}, root)
     assert found == root / "tm_ouc" / "eager-orchid.json"
@@ -89,7 +99,10 @@ def test_snapshot_uses_payload_revision_not_file_mtime(tmp_path: Path):
     _write_json(stale, "ses_fdbe", "eager-orchid", updated=100, messages=("msg_1",))
     os.utime(newest, (1, 1))
     os.utime(stale, (999, 999))
-    assert persist_snapshot({"slug": "eager-orchid", "session_id": "ses_fdbe"}, root) == newest
+    assert (
+        persist_snapshot({"slug": "eager-orchid", "session_id": "ses_fdbe"}, root)
+        == newest
+    )
 
 
 def test_snapshot_rejects_divergent_same_revision(tmp_path: Path):
@@ -129,9 +142,16 @@ def test_ensure_local_imports_trigger_only(tmp_path: Path, monkeypatch):
         imported_ids.add("ses_fdbe")
 
     monkeypatch.setattr("dual_tmux.oc.by_id", fake_by_id)
-    assert ensure_local({"session_id": "ses_fdbe", "slug": "eager-orchid"}, importer=fake_import)
+    assert ensure_local(
+        {"session_id": "ses_fdbe", "slug": "eager-orchid"}, importer=fake_import
+    )
     assert imported == [snap]
-    assert ensure_local({"session_id": "ses_fdbe", "slug": "eager-orchid"}, importer=fake_import) is False
+    assert (
+        ensure_local(
+            {"session_id": "ses_fdbe", "slug": "eager-orchid"}, importer=fake_import
+        )
+        is False
+    )
 
 
 def test_ensure_local_missing_json(tmp_path: Path, monkeypatch):
@@ -185,10 +205,13 @@ def test_ensure_local_does_not_downgrade_newer_local(tmp_path: Path, monkeypatch
     monkeypatch.setattr("dual_tmux.oc.local_tail_message_id", lambda _sid: "msg_new")
     monkeypatch.setattr("dual_tmux.oc.local_has_message", lambda _sid, _mid: True)
 
-    assert ensure_local(
-        {"session_id": "ses_fdbe", "slug": "eager-orchid"},
-        importer=lambda _path: pytest.fail("must not import an older snapshot"),
-    ) is False
+    assert (
+        ensure_local(
+            {"session_id": "ses_fdbe", "slug": "eager-orchid"},
+            importer=lambda _path: pytest.fail("must not import an older snapshot"),
+        )
+        is False
+    )
 
 
 def test_ensure_local_rejects_non_ancestral_newer_snapshot(tmp_path: Path, monkeypatch):
@@ -222,9 +245,19 @@ def test_hotfix_identity_and_trees(tmp_path: Path, monkeypatch):
     write_config(AppConfig(client="tm_box", server="tom7r", user="andy"))
     persist.mkdir()
     (persist / "name").write_text("MacBookPro\n")
-    monkeypatch.setattr(hotfix, "install_tick", lambda: hotfix.Step("tick-cron", True, "skip", False))
-    monkeypatch.setattr(hotfix, "install_feishu_daemon", lambda: hotfix.Step("feishu-daemon", True, "skip", False))
-    monkeypatch.setattr(hotfix, "install_persist_sync", lambda cfg: hotfix.Step("persist-cron", True, "skip", False))
+    monkeypatch.setattr(
+        hotfix, "install_tick", lambda: hotfix.Step("tick-cron", True, "skip", False)
+    )
+    monkeypatch.setattr(
+        hotfix,
+        "install_feishu_daemon",
+        lambda: hotfix.Step("feishu-daemon", True, "skip", False),
+    )
+    monkeypatch.setattr(
+        hotfix,
+        "install_persist_sync",
+        lambda cfg: hotfix.Step("persist-cron", True, "skip", False),
+    )
     steps = hotfix.apply(ssh=False)
     ids = {s.id: s for s in steps}
     assert ids["identity"].ok

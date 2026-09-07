@@ -119,6 +119,7 @@ This is a **third tree**. It does not collide with tmux persist or OpenCode pers
 |------|------|------|
 | tmux persist | `~/sessions/tmux/tm_*/` | windows / processes / screen |
 | OpenCode persist | `~/sessions/opencode/tm_*/` | conversation JSON |
+| Codex/Claude native persist | `~/sessions/native/tm_*/<tool>/<uuid>/` | the single frozen JSONL + verified manifest |
 | **dt hub** | Server `~/<user>/dual-tmux/` | DT/DST bindings only |
 
 Hub sync is **automatic**: `new` / `freeze` / `bind` / `enter` / `work` / `resume` push in the background; the minute `dt tick` merges local and Hub `tunnels/` + `entries/` by `updated_at`, so tunnels created on another Client appear automatically. Use `dt push` / `dt pull` for an immediate one-way sync. Local-only mode performs no network sync or distributed locking. Never copies `config.toml`, `ops/`, or `events.jsonl`.
@@ -149,6 +150,17 @@ dt ownership dt-msg --json
 dt resume dt-msg --plan
 ```
 
+For Codex and Claude, cross-Client resume transfers only the JSONL whose UUID
+was recorded by `dt freeze`. The snapshot contains per-file SHA-256, source
+Client/instance, lease generation, frozen workdir and Agent client version.
+Import is staged and atomically committed: identical snapshots are idempotent,
+an append-only newer history is accepted with a local backup, and divergent or
+truncated histories are rejected. Authentication, global configuration,
+skills and unrelated sessions are never copied. The owner uploads successfully
+before it parks or releases; the receiver rechecks the lease generation before
+commit. In local-only mode the same machinery can restore a locally persisted
+snapshot without requiring a Hub.
+
 A foreign idle, detached owner receives a handoff request. Its daemon must persist snapshots, park local panes, acknowledge and release—in that order—before the claimant acquires the next generation and resumes. Attached, working, stalled or stale/unknown evidence is rejected. To leave explicitly, use `dt drop dt-msg`.
 
 To **branch** (two live tunnels, not steal the lock):
@@ -175,6 +187,8 @@ If you also persist tmux / OpenCode (optional, separate tools), those trees are 
 | tmux persist (Server) | `~/<user>/sessions/tmux/<tm_source>/` | same tree, namespaced by person |
 | OpenCode persist (Client) | `~/sessions/opencode/<tm_source>/` | same `tm_*` source as tmux |
 | OpenCode persist (Server) | `~/<user>/sessions/opencode/<tm_source>/` | same tree, namespaced by person |
+| Native persist (Client) | `~/sessions/native/<tm_source>/<codex\|claude>/<uuid>/` | exact frozen session only |
+| Native persist (Server) | `~/<user>/sessions/native/<tm_source>/<codex\|claude>/<uuid>/` | same tree, namespaced by person |
 | OpenCode live DB | `~/.local/share/opencode/opencode.db` | do not rsync the DB |
 | OpenCode config | `~/.config/opencode/` | your model/auth, not this CLI |
 | tmux live | tmux server memory + socket under `/tmp/tmux-*` | not files this CLI owns |
