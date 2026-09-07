@@ -1,13 +1,13 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-07 18:30 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-07 14:55 +08:00 | 更新者: Codex PM
 
 ## 状态树
 
-### v0.4.54 (CODE_COMPLETE) — Ownership 与安全接管 Web
+### v0.4.54 (RELEASED) — Ownership 与安全接管 Web
 
 - 三件套与验收报告：`dev_plans/v0.4.53-v0.4.54/`。
-- **feature/v0.4.54-ownership-web** (CODE_COMPLETE): 从 `origin/main@325f81e`（含 v0.4.53.post1）建立。后台 daemon/tick 原子 Ownership cache、cache-only Web GET、四维 Lease/trigger/bullet/native snapshot 面板、显式 handoff/resume、force 全名确认与提交时实时重验已完成；页面生命周期 auto-resume 已移除。299 tests、聚焦 Ruff、compileall、build、隔离安装与 Browser E2E 全绿，待 PR/合并、`v0.4.54-final` 与 Release。
+- **feature/v0.4.54-ownership-web** (MERGED): PR #35 合并至 `main`（merge `a3a88c1`）。后台 daemon/tick 原子 Ownership cache、cache-only Web GET、四维 Lease/trigger/bullet/native snapshot 面板、显式 handoff/resume、force 全名确认与提交时实时重验已完成；页面生命周期 auto-resume 已移除。299 tests、聚焦 Ruff、compileall、build、隔离安装与 Browser E2E 全绿；`v0.4.54-final`、`v0.4.54` 与 GitHub Release 已发布。本机真实 upgrade 从 0.4.53.post1 到 0.4.54，config + 10 tunnel 聚合 hash 不变；daemon PID 17336、mailbox worker running，10/10 Ownership cache 生成，真实 `dt-company_intro_v2` 面板通过。
 
 ### v0.4.53 (RELEASED) — Codex / Claude Native Session Runtime
 
@@ -121,7 +121,7 @@
 
 ## 当前焦点
 
-- 将 v0.4.54 从 CODE_COMPLETE 推进至 PR 合并、`v0.4.54-final`、Release 和本机无损升级验证。
+- v0.4.54 已封板发布；下一步从 backlog 选择后续奇数 API 版，不在 v0.4.54 继续增加协议。
 
 ## Backlog
 
