@@ -1,13 +1,13 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-07 14:30 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-07 16:05 +08:00 | 更新者: Codex PM
 
 ## 状态树
 
-### v0.4.53 (ACTIVE) — Codex / Claude Native Session Runtime
+### v0.4.53 (RELEASED) — Codex / Claude Native Session Runtime
 
 - 三件套：`dev_plans/v0.4.51-v0.4.53/`。
-- **feature/v0.4.53-native-session-runtime** (CODE_COMPLETE): 从 `origin/main` 独立 worktree开发；精确 UUID JSONL snapshot、sealed manifest/hash、append-only ancestry、原子导入/备份、native Hub persist、handoff durable-upload gate、generation fencing 与 resume plan 状态已完成。289 tests、focused Ruff、compileall、build 与 tom7r 隔离往返 E2E 均通过；待 PR 合并与 API 冻结记录。v0.4.52 Ownership Web 顺延为 v0.4.54，待本 API 冻结后重新基线。
+- **feature/v0.4.53-native-session-runtime** (MERGED): PR #31 已合并至 `main`（merge `e7e64f7`）。精确 UUID JSONL snapshot、sealed manifest/hash、append-only ancestry、原子导入/备份、native Hub persist、handoff durable-upload gate、generation fencing 与 resume plan 状态已完成。289 tests、focused Ruff、compileall、build、tom7r 隔离往返 E2E 与 Claude 跨 cwd UUID 发现探针通过；按跨机器安全能力例外发布 `v0.4.53`。v0.4.52 Ownership Web 顺延为 v0.4.54，从本 API freeze 重新基线。
 
 ### v0.4.51 (RELEASED) — Session Ownership API
 
@@ -115,7 +115,7 @@
 
 ## 当前焦点
 
-- 提交并合并 v0.4.53 Native Session Runtime，写入 API 冻结记录；随后从冻结 API 建立 v0.4.54 Ownership Web。
+- 从 `v0.4.53-final` 建立 v0.4.54 Ownership Web 三件套与功能分支。
 
 ## Backlog
 
