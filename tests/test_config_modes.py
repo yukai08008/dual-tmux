@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from dual_tmux import cli, hub
-from dual_tmux.cli import build_parser, cmd_config, cmd_new, cmd_pull
+from dual_tmux.cli import build_parser, cmd_config, cmd_new, cmd_pull, cmd_tick
 from dual_tmux.config import (
     AppConfig,
     _parse_toml,
@@ -17,6 +17,7 @@ from dual_tmux.config import (
 )
 from dual_tmux.health import collect_checks
 from dual_tmux.runtime import build_cmd
+from dual_tmux.store import save, tunnels_dir
 
 
 def _home(monkeypatch, tmp_path: Path) -> Path:
@@ -131,6 +132,47 @@ def test_pull_syncs_persist_snapshots(monkeypatch, tmp_path):
         ("tmux", "hub-a"),
         ("native", "hub-a"),
     ]
+
+
+def test_tick_immediately_syncs_changed_native_snapshot(monkeypatch, tmp_path):
+    from dual_tmux import activity, feishu_bridge, recovery, statusbar
+
+    _home(monkeypatch, tmp_path)
+    cfg = make_config("tm_laptop", "hub-a", "andy", str(tmp_path))
+    write_config(cfg)
+    save(
+        tunnels_dir() / "dt-a.json",
+        {
+            "name": "dt-a",
+            "op": "op_a",
+            "run": "run_a",
+            "runtime": {},
+            "trigger": {"tool": "codex"},
+            "bullet": {"tool": "opencode"},
+        },
+    )
+    monkeypatch.setattr(hub, "enforce_local", lambda: None)
+    monkeypatch.setattr(hub, "read_lock", lambda _name: ("tm_laptop", 0))
+    monkeypatch.setattr(hub, "claim", lambda _name: "tm_laptop")
+    monkeypatch.setattr(hub, "sync_best_effort", lambda **_kw: None)
+    monkeypatch.setattr(cli.tmux_ops, "has_session", lambda _name: True)
+    monkeypatch.setattr(activity, "append_sample", lambda _data: None)
+    monkeypatch.setattr(activity, "activity_evidence", lambda _data: {})
+    monkeypatch.setattr(activity, "activity_path", lambda: tmp_path / "activity.log")
+    monkeypatch.setattr(recovery, "observe", lambda _data: {})
+    monkeypatch.setattr(statusbar, "refresh", lambda *_a, **_kw: None)
+    monkeypatch.setattr(feishu_bridge, "sync_client", lambda _cfg: {})
+    monkeypatch.setattr(cli, "_export_local_snapshots", lambda *_a: [])
+    calls = []
+    monkeypatch.setattr(
+        cli.hotfix_ops,
+        "sync_persist",
+        lambda kind, used_cfg: calls.append((kind, used_cfg.server)),
+    )
+
+    cmd_tick(Namespace())
+
+    assert calls == [("native", "hub-a")]
 
 
 def test_local_health_has_no_ssh_check(monkeypatch, tmp_path):
