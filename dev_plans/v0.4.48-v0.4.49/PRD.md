@@ -1,187 +1,83 @@
-# v0.4.49 PRD — 运行时修复与 Session Ownership API
+# v0.4.49 PRD — 运行时修复与 Session 快照收敛
 
-> 父版本：v0.4.48.post4（当前规划基线；v0.4.49 最初从 post2 开线）
+> 父版本：v0.4.48.post6
 > 起草日期：2026-09-02
-> 类型：API 版（奇数，默认不单独发布；纯 hotfix 不受奇偶约束，可破例走 post 发布）
-> 范围来源：用户口述问题清单；2026-09-02 `dt-company_intro_v2` 跨 Client resume 现场
-> 架构决策：[[decision-lease-activity-separation]]
+> 封板日期：2026-09-07
+> 类型：API 版（用户明确要求将已完成修复发布，作为奇数版发布例外）
+> 范围来源：跨 Client resume、trigger workdir 与 freeze runtime 现场问题
 
 ## 0. 一句话目标
 
-集中修复 v0.4.48 发布后发现的问题，并建立“租约不等于活动、活动不等于进展、session 只能有一个 writer”的 ownership API，为 v0.4.50 Web 交互提供可靠事实源。
+让跨机器恢复时的 conversation snapshot、trigger 工作目录和 bullet runtime 绑定以可验证证据收敛，并把已完成修复交付为可由 `dt upgrade` 安装的 v0.4.49。
 
 ## 1. 范围与不变量
 
 ### 1.1 In-scope
 
-- 用户口述的 hotfix 问题清单（见第 3 节，逐条追加，每条对应 `hotfix/v0.4.49-*` 分支）。
-- 语义活动采样：剥离 TUI chrome，分别记录 owner heartbeat、pane 存活、用户 attached、turn phase 和有效进展。
-- Lease v2：租约只表达写权限，generation 用于 fencing；不得把锁屏后台 tick 描述为用户活跃。
-- 安全接管：支持 owner daemon 的 request/ack handoff；无法 ack 时必须给出可解释状态，不静默抢占。
-- 事务化 resume：所有权、远端入口、目标 session 和重复进程检查全部 preflight 成功后，才改变本地 tmux。
-- Session writer 单活：相同 session ID 已有 writer 时禁止再启动第二个进程；孤儿进程只能经显式确认处置。
-- Session snapshot 收敛：内建 export/sync，按 session revision/更新时间/尾消息 hash 比较本地与各 Client 快照；ID 相同但内容陈旧时不得跳过导入。
-- Trigger workpoint 收敛：无论是否启动 Agent，`dt enter` 都先在专属 `ops/<op>` 创建或定位 tmux；已有空闲 shell 位于错误目录时安全纠正，已有前台程序时不注入命令。
-- Persist identity 必须与 `config.client` 一致；`dt pull/resume` 的 preflight 必须报告 tunnel binding 与 conversation snapshot 是两条不同数据链。
-- CLI/JSON 诊断合同，为 v0.4.50 Web 消费。
+- `dt pull` 同步 tunnel/entry 之外，同时同步 OpenCode 与 tmux persist 数据；传输失败显式返回。
+- snapshot resolver 按 payload revision 与尾消息判断新鲜度，不按文件 mtime 或“相同 session ID 已存在”直接跳过。
+- 本地旧 revision 在导入前备份；导入后验证尾消息；本地较新时禁止降级；同 revision 分叉时 `snapshot_conflict` fail closed。
+- 普通 `dt enter` 在 discover/attach 前把 trigger tmux 收敛到专属 `~/.dual-tmux/ops/<op>`；已有前台 Agent 时不注入 `cd`。
+- freeze 以实时 SSH/交互式 docker 进程为最高优先级，候选 runtime 仅在远端 Agent/session 探测成功后提交。
+- partial freeze 保存已验证 side，但命令返回非零并记录 `freeze.fail`。
+- trigger 套件补充进展证据、模型梯级和 Client 失联恢复约定。
+- 累积包含 v0.4.48.post3～post6 已发布的状态栏、cron PATH、bullet fencing 和 trigger snapshot export 修复。
 
 ### 1.2 Out-of-scope
 
-- Backlog 中的新功能（项目级 Agent 套件、Web 交接区、自适应轮询等）不在本版，归 v0.4.50+。
-- Web 大规模改版、接管弹窗和状态可视化，进入 v0.4.50。
-- 自动中断 working/stalled Agent；本版只检测、阻止继续堆队列并请求人工决策。
-- 以屏幕锁定状态作为接管依据；它不可靠且不等价于 session 空闲。
+- Lease v2、owner request/ack handoff、四维 semantic activity、通用 transactional resume 和 `dt ownership` 尚未实现，不计入 v0.4.49 发布验收。
+- 上述 Session Ownership API 保留在 `BL-RUNTIME-001`，重新排入后续奇数 API 版本；其 Web 消费版本在 API 冻结后再立项。
+- Web 大规模改版、项目级 Agent 套件、交接区、自适应轮询和自动中断 stalled Agent。
 
-### 1.3 不变量（继承 v0.4.48）
+### 1.3 不变量
 
-- 一个 deployment 只有一个总 PersonalAgent；凭据仅以 AEAD 密文落盘。
-- local/Hub WS 单活租约 + generation fencing；旧 generation fail-closed。
-- 运行时数据不在 git 追踪中。
-- 升级路径不降级；config/tunnel 哈希在升级前后不变。
-- 每个 hotfix：commit message 标注 `hotfix`，附简要测试验证，不混入功能开发。
-- lease freshness 只证明 owner daemon 存活，不证明用户活跃或 pane 正在产生有效进展。
-- 未取得目标 generation 前不得向 pane 或 session 发送输入。
-- preflight 失败不得删除、重建或重连本地 tmux；后台 fencing 必须是独立、可审计事件。
-- 同一 OpenCode/Codex/Claude session ID 同时最多一个可写进程。
-- “session ID 存在”不等于“本地 session 内容最新”；resume 必须证明目标 revision 已落地。
-- snapshot 同步不能只 rsync 一个假定由外部工具生成的空目录；export 成功是 publish 的前置条件。
-- `dt enter` 的 trigger shell、Agent cwd 与记录的 `op_point.cwd` 必须收敛到专属 ops 目录；不得因未完成 DST 或未传 `--oc` 而退回调用者的 `$HOME`。
-- freeze 的实时进程证据优先于 pane scrollback；候选 runtime 必须在远端 Agent/session 探测成功后原子提交，partial freeze 必须明确失败。
-- 无法证明安全时 fail closed，并给出 holder、lease age、attached、phase、last progress 和样本覆盖窗口。
+- 一个 deployment 只有一个总 PersonalAgent；飞书凭据只以 AEAD 密文落盘。
+- 运行时数据不进入 Git；升级前后 config 与 tunnel 内容哈希不变。
+- 无法验证 snapshot 祖先关系、远端 Agent 或 runtime 时 fail closed。
+- freeze 的候选证据不得在验证前覆盖已有权威 binding。
+- 本地已更新 conversation 不被旧 Hub snapshot 反向降级。
+- trigger 空闲 shell可纠正目录，正在运行的 Agent/前台程序不接收隐式命令。
 
-## 2. 工作方式
-
-```
-main (v0.4.48.post4)
-  └── hotfix/v0.4.49-<issue-slug>   ← 每个问题一个分支（L3）
-        → 本地测试验证 → PR → 合并 main
-  └── feature/v0.4.49-session-ownership
-        → activity semantics → lease v2 → transactional resume → diagnostics
-```
-
-- Git 权限模式：`pm-maintainer`（门禁全过后经 PR 合并保留审计记录）。
-- 全部 hotfix 合并后：跑全量 pytest 回归，更新 pm-state.md，再决定发布形式。
-
-## 3. Hotfix 清单
-
-| # | 分支 | 问题 | 状态 |
-|---|------|------|------|
-| 1 | hotfix/v0.4.49-tmux-sync-status | 终端 tmux 状态栏无同步状态提示（同步链路本身健康，属可视化缺口） | MERGED (PR #18) |
-| 2 | hotfix/v0.4.49-tick-cron-path | cron 裸 PATH 无 homebrew，`dt tick` 每分钟 FileNotFoundError: tmux 崩溃（14292 次 start 仅 10 次完成），错误被 `>/dev/null` 吞掉 | MERGED (PR #20, post4) |
-| 3 | hotfix/v0.4.49-bullet-fencing | bullet 同一 session 被多个 opencode 进程并发持有（m7 实测 4 实例），导致 turn 互相阻塞、消息积压 queue；pane 已附着 TUI 时 resume 命令被打进输入框 | MERGED (PR #22, post5) |
-| 4 | hotfix/v0.4.49-trigger-snapshot-export | tick 内建 trigger 快照导出，解决 Hub 快照停滞 | MERGED (PR #24, post6) |
-| 5 | feature/v0.4.49-session-ownership | 同 ID 的本地旧 revision 被 `ensure_local()` 直接跳过；补齐 freshness 收敛、事务 resume 与 ownership 语义 | DEVELOPING |
-| 6 | hotfix/v0.4.49-enter-workdir | 普通 `dt enter` 丢弃 `opsdir.prepare()` 返回值，并在记录 workpoint 后才无 cwd 创建 tmux，导致 trigger 落在调用者 `$HOME` | MERGED into feature/v0.4.49-session-ownership |
-| 7 | hotfix/v0.4.49-freeze-runtime-authority | pane 混合历史把 `docker exec` 误当 SSH server 并在探测前覆盖 runtime；bullet 已进入仍以 `ssh docker` freeze 失败，整体却记录 `freeze.ok` | MERGED into feature/v0.4.49-session-ownership |
-
-## 4. Session Ownership 状态机
-
-### 4.1 四个正交事实
-
-| 维度 | 示例状态 | 含义 |
-|---|---|---|
-| owner lease | free / held / expired | 哪个 Client 当前具有写权限 |
-| runtime | down / shell / agent | tmux、跳板与 Agent 进程是否存在 |
-| interaction | detached / attached | 是否有用户正连接 pane |
-| progress | idle / working / stalled / unknown | turn 是否有剥离 chrome 后的有效增量 |
-
-不得从其中一个维度推断另一个维度。锁屏机器可能 `held + agent + detached + idle`；这不是用户活跃，也不是 owner 失联。
-
-### 4.2 Lease v2 记录
-
-```json
-{
-  "holder": "tm_ouc",
-  "generation": 7,
-  "renewed_at": 1788361508,
-  "instance_id": "daemon-uuid",
-  "handoff": {"requested_by": "tm_andy_home", "requested_at": 0},
-  "evidence": {
-    "attached": false,
-    "phase": "idle",
-    "last_semantic_change_at": 1788359466,
-    "sample_count": 30,
-    "window_seconds": 1800
-  }
-}
-```
-
-旧 `holder@timestamp@generation` 记录必须可读，并在 owner 下一次续租时原子升级；不做破坏性批量迁移。
-
-### 4.3 接管协议
-
-```mermaid
-stateDiagram-v2
-  [*] --> Preflight
-  Preflight --> Start: lease free/expired and no duplicate writer
-  Preflight --> RequestHandoff: foreign owner daemon reachable
-  RequestHandoff --> Parked: owner persists, parks panes, releases generation
-  Parked --> Start: claimant atomically acquires next generation
-  RequestHandoff --> Rejected: attached or working
-  Preflight --> NeedsConfirmation: orphan/duplicate writer or owner unreachable
-  NeedsConfirmation --> Start: explicit force + stale-writer disposition succeeds
-  Rejected --> [*]
-  Start --> Verify
-  Verify --> [*]
-```
-
-- 普通 `dt resume`：只做安全接管；任何不确定性均无副作用失败。
-- `--force`：不是跳过检查，而是允许进入显式 stale-writer 处置流程；仍须保证最终只有一个 writer。
-- owner 收到 handoff 后先持久化/freeze，再 park 本地 pane，最后释放 lease；claimant 取得新 generation 后才能启动。
-- 旧 generation 的 daemon、mailbox 和自动恢复动作全部 fail closed。
-
-### 4.4 Resume 两阶段事务
-
-1. **Plan/preflight**：解析 binding，读取 lease/evidence，探测本地与远端 session writer，验证 persist/DB 和入口。
-2. **Commit**：取得 generation，按 side 启动或复用唯一 writer，验证 session ID 与 cwd。
-3. **Rollback**：启动失败时释放新 generation；保留原 pane/快照，不把半完成状态发布到 Hub。
-
-`require_active()` 不再在 claim 异常路径里隐式 `drop_local()`。需要 fencing 时产生独立 `ownership.fence` 事件并保留诊断快照。
-
-### 4.5 CLI/JSON 合同
-
-- `dt ownership <name> [--json]`：输出 holder、generation、lease age、attached、phase、last progress、sample window 和每侧 writer。
-- `dt resume <name> --plan`：只输出将执行的接管/启动动作。
-- `dt resume <name>`：安全路径；支持 daemon handoff。
-- `dt resume <name> --force`：要求确认并明确 stale writer 如何处理，不允许静默启动重复 session。
-- 所有拒绝信息区分 `busy`、`attached`、`insufficient_evidence`、`owner_unreachable`、`duplicate_writer`，禁止统一写成 “last 30 ticks still changing”。
-
-### 4.6 Session snapshot 收敛
-
-跨 Client resume 需要同时恢复 binding 和 conversation，两者不能再由用户隐式拼接：
+## 2. 数据收敛
 
 ```mermaid
 flowchart LR
-  OwnerDB["Owner OpenCode DB"] --> Export["atomic export + manifest"]
+  Owner["Owner OpenCode DB"] --> Export["atomic export"]
   Export --> Hub["Hub per-client snapshots"]
-  Hub --> Resolve["resolve freshest verified revision"]
-  LocalDB["Local OpenCode DB"] --> Compare["compare revision / tail hash"]
+  Hub --> Resolve["revision + tail resolver"]
+  Local["Local OpenCode DB"] --> Compare["freshness compare"]
   Resolve --> Compare
-  Compare -->|remote newer| Import["backup + import/merge + verify"]
-  Compare -->|same| Resume["resume exact session"]
-  Import --> Resume
+  Compare -->|remote newer| Backup["backup + import + verify"]
+  Compare -->|local newer/same| Resume["resume exact session"]
+  Compare -->|divergent| Conflict["snapshot_conflict"]
+  Backup --> Resume
 ```
 
-- daemon/tick 在 owner Client 内建导出活跃 trigger session；生成脚本不能只 rsync 空的 `~/sessions/opencode/<client>`。
-- manifest 至少包含 session ID、source Client、exported_at、session updated_at、最后 message ID/hash、内容 hash 和 schema version。
-- resolver 按同一 session ID 选择最新完整快照，不按 slug 或文件 mtime 猜测；source identity 必须与 `config.client` 一致。
-- `ensure_local()` 必须从“存在即跳过”改为 freshness compare；本地旧 revision 先备份，再导入/合并并验证尾消息。
-- `dt pull` 增加可观测的 persist 同步阶段，或提供默认开启的 `--with-persist`；resume plan 显示 binding revision 与 snapshot revision。
-- 多源 revision 分叉时不得静默 last-write-wins，返回 `snapshot_conflict` 并保留双方证据。
+binding 与 conversation snapshot 是两条独立数据链。`dt pull` 必须先完成 persist 传输；resume 再选择最新的完整 snapshot，并验证实际导入结果。
 
-## 5. 与 v0.4.50 的关系
+## 3. 工作点与 freeze 权威
 
-v0.4.49 只交付可靠 API、CLI 与事件合同，不做大规模 Web 改动。v0.4.50 直接消费 ownership JSON 和 handoff 操作，不在前端重新猜测状态。
+- Trigger：项目操作目录固定为 `ops/<op>`。新 tmux 直接以该目录创建；只有空闲 shell 才可安全纠正 cwd。
+- Bullet：实时进程链优先于 pane scrollback。`docker exec` token 不能被误识别为 SSH server。
+- 提交：只有远端 client/session 探测成功后，才原子更新 runtime、run_point 和 side binding。
+- 失败：请求的任一 side 未完成即返回失败；已验证 side 可以持久化，但不得记录整体 `freeze.ok`。
 
-## 6. 风险登记表
+## 4. 真实环境证据
+
+- 2026-09-05：Home 从 OUC snapshot 恢复 `dt-company_intro_v2` trigger 的 1052 条消息，尾消息校验一致。
+- 2026-09-06：`dt-cp-gate` 普通 enter 后 pane 与 `op_point.cwd` 均落在专属 ops 目录。
+- 2026-09-06：`dt-cp-gate` 从 live `ssh root@10.88.0.20` 与 `cp_gateway_24629` 取证，freeze 到 session `ses_f8a384577ffeb75HokVSq3nf13`。
+
+## 5. 风险登记表
 
 | ID | 风险 | 缓解 | 严重度 |
-|----|------|------|--------|
-| R1 | hotfix 触及飞书/升级等已验证路径引入回归 | 每个 hotfix 独立分支 + 相关测试全跑 + 合并前全量回归 | medium |
-| R2 | 多个 hotfix 并行改同一文件产生冲突 | 按序合并，后一个 rebase 到最新 main | low |
-| R3 | 把“无输出”误判为空闲并接管真实长任务 | progress 与 attached/lease 分离；working/stalled 不自动中断；handoff 由 owner ack | high |
-| R4 | 同一 session 多进程并发写坏历史 | 启动前 writer probe；generation fencing；duplicate_writer fail closed | critical |
-| R5 | preflight 失败导致本地 pane 被删除 | 两阶段 resume；异常路径零副作用；故障注入测试 | high |
-| R6 | Lease v2 让旧 Client 无法工作 | 向后兼容读取 v1；owner 续租时惰性升级；混合版本 E2E | high |
-| R7 | 同 ID 的旧 trigger 被误认为已恢复 | revision/tail hash 比较；导入后验证；真实 OUC→Home E2E | critical |
-| R8 | 多 Client 同时导出造成 snapshot 分叉 | generation/source manifest；冲突 fail closed；不覆盖原快照 | high |
+|---|---|---|---|
+| R1 | 同 ID 的旧 snapshot 被误认为最新 | revision、tail 与祖先关系比较；导入后验证 | critical |
+| R2 | 多源 snapshot 分叉被静默覆盖 | `snapshot_conflict` fail closed并保留双方 | high |
+| R3 | scrollback 污染 runtime | 实时进程优先；远端 session 验证后提交 | high |
+| R4 | enter 向运行中的 Agent 注入 `cd` | 只纠正空闲 shell | high |
+| R5 | 规划范围大于实际交付 | 封板时移出未实现 Ownership API，不伪造验收 | high |
+
+## 6. 签名
+
+`Agent-PM-0.4.49-final`

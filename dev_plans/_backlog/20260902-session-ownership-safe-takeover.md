@@ -2,7 +2,7 @@
 
 ## 状态
 
-`PLANNED`：API 底座进入 v0.4.49；Web 交互进入 v0.4.50。
+`PLANNED`：v0.4.49 已交付 snapshot convergence 底座；剩余 Ownership API 与 Web 交互待按奇偶版本规则重新排期。
 
 ## 现场
 
@@ -21,8 +21,9 @@
 
 ## 规划
 
-- v0.4.49：语义活动、Lease v2、daemon handoff、transactional resume、session writer singleton、snapshot export/manifest/freshness resolver、CLI/JSON 合同。
-- v0.4.50：四维状态面板、安全接管向导、跨 Web/CLI/tmux 状态收敛与正式发布。
+- 已完成底座：v0.4.49 交付 snapshot export/manifest/freshness resolver、trigger workdir 与 freeze runtime authority。
+- 待重新排期的奇数 API 版：语义活动、Lease v2、daemon handoff、transactional resume、session writer singleton 与 CLI/JSON 合同。
+- API 冻结后的偶数 Web 版：四维状态面板、安全接管向导、跨 Web/CLI/tmux 状态收敛与正式发布。
 
 ## 验收摘要
 

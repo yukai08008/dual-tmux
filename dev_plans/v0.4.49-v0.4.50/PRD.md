@@ -1,6 +1,8 @@
 # v0.4.50 PRD — Ownership 与安全接管 Web 版
 
-> 父版本：v0.4.49-final
+> 状态：`REBASE_REQUIRED`。本草案原本假设 v0.4.49 已交付完整 Ownership API；封板核查确认该前提不成立，因此不得按本草案直接开工。先将 Ownership API 重新排入奇数 API 版，再为其创建对应偶数 Web 版。
+
+> 原父版本假设：v0.4.49-final（已失效）
 > 起草日期：2026-09-02
 > 类型：Web 版（偶数，完整封板后发布）
 > 范围来源：v0.4.49 Session Ownership API；`dt-company_intro_v2` 跨 Client resume 事故
@@ -41,8 +43,8 @@
 ### 1.4 与历史版本的关系
 
 - v0.4.48 提供 Web 控制面和 durable Web turn。
-- v0.4.49 提供 ownership、handoff、semantic progress 和 transactional resume API。
-- v0.4.50 只负责消费这些事实并完成用户交互与正式发布。
+- v0.4.49 仅提供 snapshot convergence、trigger workdir 和 freeze runtime authority。
+- Ownership API 与其 Web 消费版本需重新编号和基线；Web 不得自行实现或猜测这些事实。
 
 ## 2. 顶层蓝图
 
