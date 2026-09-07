@@ -1,7 +1,6 @@
 import pytest
 
-from dual_tmux import cli
-from dual_tmux import recovery
+from dual_tmux import cli, recovery
 from dual_tmux import workpoint as wp
 
 
@@ -178,3 +177,14 @@ def test_resume_stops_loaded_trigger_before_importing_newer_snapshot(monkeypatch
     cli._apply_resume_legacy("msg")
 
     assert calls == ["quit:op_msg", "import", "start:trigger", "start:bullet"]
+
+
+def test_claim_rejection_does_not_drop_local_panes(monkeypatch):
+    from dual_tmux import hub
+
+    dropped = []
+    monkeypatch.setattr(hub, "claim", lambda *_args, **_kwargs: (_ for _ in ()).throw(SystemExit("held")))
+    monkeypatch.setattr(hub, "drop_local", lambda data: dropped.append(data))
+    with pytest.raises(SystemExit, match="held"):
+        hub.require_active(_dst())
+    assert dropped == []

@@ -304,3 +304,58 @@ def test_failover_message_fence_requires_same_owner_and_generation(
         lambda cfg, owner="": (False, "tm_b:instance", 8),
     )
     assert connector_fence_valid() is False
+
+
+def _handoff_setup(monkeypatch, tmp_path):
+    from dual_tmux import activity, daemon, hub, ownership
+    from dual_tmux.store import save, tunnels_dir
+
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
+    cfg = AppConfig(client="tm_a", server="tom7r", user="andy")
+    save(tunnels_dir() / "dt-a.json", {"name": "dt-a", "op": "op_a", "run": "run_a"})
+    monkeypatch.setattr(daemon, "load_config", lambda: cfg)
+    monkeypatch.setattr(activity, "activity_evidence", lambda _data: {})
+    monkeypatch.setattr(hub, "read_ownership", lambda *_args: {
+        "state": "owned", "holder": "tm_a", "generation": 3,
+        "handoff": {"status": "pending", "request_id": "req-1"},
+    })
+    monkeypatch.setattr(ownership, "snapshot", lambda _data: {
+        "attached": {"trigger": False, "bullet": False},
+        "progress": {"trigger": "idle", "bullet": "idle"},
+        "writers": {
+            "trigger": {"status": "ok"}, "bullet": {"status": "ok"},
+        },
+    })
+    return hub
+
+
+def test_handoff_orders_persist_park_ack_release(monkeypatch, tmp_path):
+    from dual_tmux import cli, hotfix
+
+    hub = _handoff_setup(monkeypatch, tmp_path)
+    calls = []
+    monkeypatch.setattr(cli, "_export_local_snapshots", lambda *_a: calls.append("export") or [])
+    monkeypatch.setattr(hotfix, "sync_persist", lambda *_a: calls.append("sync"))
+    monkeypatch.setattr("dual_tmux.daemon.tmux_ops.has_session", lambda _name: False)
+    monkeypatch.setattr(hub, "push", lambda *_a: calls.append("push"))
+    monkeypatch.setattr(hub, "park_local", lambda *_a: calls.append("park"))
+    monkeypatch.setattr(hub, "decide_handoff", lambda *_a, **_kw: calls.append("ack"))
+    monkeypatch.setattr(hub, "release", lambda *_a, **_kw: calls.append("release"))
+
+    DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
+    assert calls == ["export", "sync", "push", "park", "ack", "release"]
+
+
+def test_handoff_persist_failure_never_parks_or_releases(monkeypatch, tmp_path):
+    from dual_tmux import cli, hotfix
+
+    hub = _handoff_setup(monkeypatch, tmp_path)
+    calls = []
+    monkeypatch.setattr(cli, "_export_local_snapshots", lambda *_a: (_ for _ in ()).throw(SystemExit("persist failed")))
+    monkeypatch.setattr(hotfix, "sync_persist", lambda *_a: None)
+    monkeypatch.setattr(hub, "park_local", lambda *_a: calls.append("park"))
+    monkeypatch.setattr(hub, "decide_handoff", lambda *_a, **_kw: calls.append("ack"))
+    monkeypatch.setattr(hub, "release", lambda *_a, **_kw: calls.append("release"))
+
+    DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
+    assert calls == []

@@ -50,6 +50,18 @@ _OPERATIONS = (
         "control.session.resume",
     ),
     OperationSpec(
+        "session.resume.plan", "resume", "read", ("cli", "web", "feishu"),
+        "control.session.resume.plan",
+    ),
+    OperationSpec(
+        "ownership.get", "detect", "read", ("cli", "web", "feishu"),
+        "control.ownership.get",
+    ),
+    OperationSpec(
+        "ownership.handoff", "resume", "write", ("cli", "web", "feishu"),
+        "control.ownership.handoff",
+    ),
+    OperationSpec(
         "agent.model",
         "model",
         "execute",
@@ -234,6 +246,14 @@ class ControlService:
         data = _translate(lambda: _resolve(name))
         return ControlResult("tunnel.get", data, _event("tunnel.get"))
 
+    @staticmethod
+    def _get_tunnel_readonly(name: str | None) -> dict:
+        """Resolve only the local binding; never pull or create directories."""
+        from .store import find_dt, latest_dt
+
+        path = find_dt(name) if name else latest_dt()
+        return load(path)
+
     def send(self, name: str, text: str, side: str = "bullet") -> ControlResult:
         data = self.get_tunnel(name).data
         normalized = {"op": "trigger", "run": "bullet"}.get(side, side)
@@ -260,11 +280,82 @@ class ControlService:
         return ControlResult("session.freeze", data, _event("session.freeze"))
 
     def resume(self, name: str | None, force: bool = False) -> ControlResult:
+        from . import hub, ownership
+        from . import log as ev
         from .cli import _apply_resume_legacy
+        from .store import find_dt, save
 
-        # The legacy implementation validates both sides and preserves its exact safety checks.
-        data = _translate(lambda: _apply_resume_legacy(name, force))
+        original = _translate(lambda: self._get_tunnel_readonly(name))
+        plan = _translate(lambda: ownership.plan_resume(original))
+        token = _translate(lambda: ownership.acquire_for_resume(original, plan, force=force))
+        commit_started = False
+        committed_data = original
+        try:
+            commit_started = True
+            data = _translate(
+                lambda: _apply_resume_legacy(
+                    name, force, ownership_checked=True, finalize=False
+                )
+            )
+            committed_data = data
+            verified = _translate(lambda: ownership.verify_resume(data, token))
+            data["ownership_generation"] = verified["generation"]
+            save(find_dt(str(data.get("name") or "")), data)
+            ev.emit(
+                "dt.resume", name=data.get("name"), generation=verified["generation"]
+            )
+        except BaseException:
+            if token.get("newly_acquired"):
+                parked = True
+                if commit_started:
+                    try:
+                        hub.park_local(committed_data)
+                    except (OSError, SystemExit):
+                        parked = False
+                if parked:
+                    try:
+                        hub.release(
+                            str(original.get("name") or ""),
+                            generation=int(token.get("generation") or 0),
+                        )
+                    except SystemExit:
+                        pass
+                else:
+                    ev.emit(
+                        "ownership.rollback.park_failed",
+                        name=original.get("name"),
+                        generation=token.get("generation"),
+                    )
+            raise
+        hub.push_best_effort()
         return ControlResult("session.resume", data, _event("session.resume"))
+
+    def ownership(self, name: str | None) -> ControlResult:
+        from . import ownership
+
+        data = _translate(lambda: self._get_tunnel_readonly(name))
+        facts = _translate(lambda: ownership.snapshot(data))
+        return ControlResult("ownership.get", facts, _event("ownership.get"))
+
+    def plan_resume(self, name: str | None) -> ControlResult:
+        from . import ownership
+
+        data = _translate(lambda: self._get_tunnel_readonly(name))
+        plan = _translate(lambda: ownership.plan_resume(data))
+        return ControlResult(
+            "session.resume.plan", plan, _event("session.resume.plan")
+        )
+
+    def handoff(self, name: str, *, reason: str = "") -> ControlResult:
+        from . import hub
+
+        data = self.get_tunnel(name).data
+        result = _translate(
+            lambda: hub.request_handoff(str(data.get("name") or ""), reason=reason)
+        )
+        return ControlResult(
+            "ownership.handoff", result, _event("ownership.handoff")
+        )
 
     def model(self, name: str, model: str, sides: list[str]) -> ControlResult:
         data = self.get_tunnel(name).data

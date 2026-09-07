@@ -104,6 +104,8 @@ This CLI only owns `~/.dual-tmux/` (`DUAL_TMUX_HOME` overrides). It does not wri
 ├── config.toml               # client + server + workspace
 ├── tunnels/dt-<name>.json    # 1:1 op/run binding
 ├── entries/run_<name>.cmd    # reconnect command for run_*
+├── ownership-evidence/       # local semantic activity and writer evidence
+├── instance-id               # stable installation identity (not a Client name)
 ├── events.jsonl              # CLI event / operation log
 ├── skills/                   # trigger skills copied from the installed package
 └── ops/op_<name>/AGENTS.md   # launch dir for trigger OpenCode
@@ -138,9 +140,16 @@ dt resume dt-msg              # imports trigger JSON, then -s; bullet -s on the 
 
 `dt pull` restores the binding only. `dt resume` imports **trigger** JSON from persist into this Client sqlite, then `opencode --auto -s <id>` in `op_*`. A remote bullet replays `runtime.cmd`, waits for the jump to stay connected, then runs `-s` at the target sqlite. A local-mode bullet imports its JSON into the Client sqlite. See [docs/persist-sync.md](docs/persist-sync.md).
 
-One Client at a time: hub lock `~/<user>/dual-tmux/locks/<dt-name>` (`client@epoch`, TTL 300s). `enter` / `work` / `resume` claim it.
+One Client at a time: the compatible Hub lock stays at `~/<user>/dual-tmux/locks/<dt-name>` (`client@epoch@generation`, TTL 300s). Lease v2 adds `ownership/<dt-name>.json` for installation identity, semantic evidence and handoff state without breaking older Clients.
 
-Idle is **not** the lock TTL. `dt tick` hashes pane tails every minute. Another Client `dt resume` takes over if the last **30 ticks** are frozen. The old Client's local `op_*`/`run_*` are **killed** (not renamed `__parked`). Binding stays on the hub; oc JSON stays in persist. Next `dt resume` recreates the light tmux pair. Leave now: `dt drop dt-msg`. Steal: `--force`.
+Before changing panes, `dt resume` separately checks lease ownership, runtime, attached clients, semantic progress and the number of processes writing each frozen session. A failed or uncertain check is fail-closed and does not kill/detach/reconnect panes or rewrite the binding. `--force` does not bypass an unknown probe or duplicate writer. Inspect the exact decision without making changes:
+
+```sh
+dt ownership dt-msg --json
+dt resume dt-msg --plan
+```
+
+A foreign idle, detached owner receives a handoff request. Its daemon must persist snapshots, park local panes, acknowledge and release—in that order—before the claimant acquires the next generation and resumes. Attached, working, stalled or stale/unknown evidence is rejected. To leave explicitly, use `dt drop dt-msg`.
 
 To **branch** (two live tunnels, not steal the lock):
 
@@ -304,7 +313,8 @@ Freeze also records **work points** (`op_point` / `run_point`: kind, cwd, ssh, d
 | `dt model <name> [--run|--op] <id>` | quit that oc, restart with new model, freeze |
 | `dt ls` | col1 DT, col2 IS_DST |
 | `dt make dst <name> [--tool] [--model]` | one-shot DT + both oc + freeze |
-| `dt resume <name> [--force]` | resume DST; `--force` steals hub lock |
+| `dt ownership <name> [--json]` | inspect lease/runtime/attachment/progress/writers and takeover decision |
+| `dt resume <name> [--plan] [--force]` | plan or resume a DST; force never bypasses writer/evidence safety |
 | `dt drop <name>` | kill local op_*/run_* and release lock; hub binding kept |
 | `dt tick` | minute job (install/doctor adds crontab) |
 | `dt cron [--remove]` | install or remove the tick crontab |

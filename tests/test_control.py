@@ -22,6 +22,9 @@ def test_operation_catalog_has_control_metadata():
         "pane.send",
         "session.freeze",
         "session.resume",
+        "session.resume.plan",
+        "ownership.get",
+        "ownership.handoff",
         "agent.model",
         "tunnel.create",
         "tunnel.remove",
@@ -96,7 +99,7 @@ def test_model_rejects_agent_without_capability(tmp_path, monkeypatch):
 
 
 def test_control_wraps_legacy_freeze_resume_and_model(monkeypatch):
-    from dual_tmux import cli
+    from dual_tmux import cli, ownership
 
     data = _tunnel()
     monkeypatch.setattr(
@@ -105,17 +108,24 @@ def test_control_wraps_legacy_freeze_resume_and_model(monkeypatch):
         lambda name, sides, tool: {**data, "call": [name, sides, tool]},
     )
     monkeypatch.setattr(
-        cli, "_apply_resume_legacy", lambda name, force: {**data, "call": [name, force]}
+        cli, "_apply_resume_legacy", lambda name, force, **_kwargs: {**data, "call": [name, force]}
     )
     monkeypatch.setattr(
         ControlService, "get_tunnel", lambda self, name: type("R", (), {"data": data})()
     )
+    monkeypatch.setattr(ControlService, "_get_tunnel_readonly", lambda self, name: data)
     monkeypatch.setattr(
         cli,
         "_apply_model_legacy",
         lambda name, model, sides: {**data, "call": [name, model, sides]},
     )
     service = ControlService()
+    monkeypatch.setattr(ownership, "plan_resume", lambda _data: {"safe": True})
+    monkeypatch.setattr(ownership, "acquire_for_resume", lambda *_a, **_kw: {"generation": 1, "newly_acquired": False})
+    monkeypatch.setattr(ownership, "verify_resume", lambda *_a, **_kw: {"generation": 1, "writers": {}})
+    monkeypatch.setattr("dual_tmux.store.save", lambda *_a, **_kw: None)
+    monkeypatch.setattr("dual_tmux.store.find_dt", lambda *_a, **_kw: None)
+    monkeypatch.setattr("dual_tmux.hub.push_best_effort", lambda *_a, **_kw: None)
     assert service.freeze("msg", ["trigger"], "auto").data["call"] == [
         "msg",
         ["trigger"],
@@ -135,6 +145,7 @@ def test_remove_and_force_recovery_require_confirmation(monkeypatch):
     monkeypatch.setattr(
         ControlService, "get_tunnel", lambda self, name: type("R", (), {"data": data})()
     )
+    monkeypatch.setattr(ControlService, "_get_tunnel_readonly", lambda self, name: data)
     with pytest.raises(ControlError) as caught:
         service.remove_tunnel("msg", confirm="wrong")
     assert caught.value.code == "confirmation_required"
@@ -172,3 +183,34 @@ def test_switch_mode_requires_explicit_confirmation():
             mode="local", client="tm_test", workspace="/tmp", confirm=""
         )
     assert caught.value.code == "confirmation_required"
+
+
+def test_resume_commit_failure_releases_new_generation_without_save(monkeypatch):
+    from dual_tmux import cli, hub, ownership
+
+    data = _tunnel()
+    service = ControlService()
+    monkeypatch.setattr(
+        ControlService, "get_tunnel", lambda self, name: type("R", (), {"data": data})()
+    )
+    monkeypatch.setattr(ControlService, "_get_tunnel_readonly", lambda self, name: data)
+    monkeypatch.setattr(ownership, "plan_resume", lambda _data: {"safe": True})
+    monkeypatch.setattr(
+        ownership, "acquire_for_resume",
+        lambda *_a, **_kw: {"generation": 12, "newly_acquired": True},
+    )
+    monkeypatch.setattr(
+        cli, "_apply_resume_legacy",
+        lambda *_a, **_kw: (_ for _ in ()).throw(SystemExit("commit failed")),
+    )
+    released = []
+    monkeypatch.setattr(hub, "park_local", lambda _data: [])
+    monkeypatch.setattr(
+        hub, "release", lambda name, **kw: released.append((name, kw["generation"]))
+    )
+    monkeypatch.setattr(
+        "dual_tmux.store.save", lambda *_a: pytest.fail("must not save partial binding")
+    )
+    with pytest.raises(ControlError, match="commit failed"):
+        service.resume("dt-msg")
+    assert released == [("dt-msg", 12)]

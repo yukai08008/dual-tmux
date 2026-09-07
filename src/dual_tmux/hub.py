@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -7,6 +8,8 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -62,7 +65,8 @@ def _ensure_remote(cfg: AppConfig) -> None:
     dest = ssh_argv(cfg) + [
         (
             f"mkdir -p {remote_root(cfg)}/tunnels {remote_root(cfg)}/entries "
-            f"{remote_root(cfg)}/locks {remote_root(cfg)}/activity"
+            f"{remote_root(cfg)}/locks {remote_root(cfg)}/activity "
+            f"{remote_root(cfg)}/ownership"
         )
     ]
     result = _run(dest)
@@ -247,7 +251,10 @@ def remove_remote(name: str, run: str = "", cfg: AppConfig | None = None) -> Non
     if not cfg.hub_enabled:
         return
     root = remote_root(cfg)
-    parts = [f"rm -f {root}/tunnels/{name}.json {root}/locks/{name}"]
+    parts = [(
+        f"rm -f {root}/tunnels/{name}.json {root}/locks/{name} "
+        f"{root}/ownership/{name}.json"
+    )]
     if run:
         parts.append(f"rm -f {root}/entries/{run}.cmd")
     result = _run(ssh_argv(cfg) + ["; ".join(parts)])
@@ -262,15 +269,30 @@ def _lock_remote(
     cfg: AppConfig | None = None,
     ttl: int = LOCK_TTL,
     owner: str = "",
+    expected_generation: int = 0,
 ) -> tuple[str, str, int, int]:
     cfg = cfg or load_config()
+    instance = existing_instance_id() if action == "read" else instance_id()
+    evidence = {}
+    if action == "claim":
+        try:
+            from .activity import read_evidence
+
+            evidence = read_evidence(name)
+        except (OSError, ValueError):
+            evidence = {}
+    encoded_evidence = base64.b64encode(
+        json.dumps(evidence, separators=(",", ":")).encode("utf-8")
+    ).decode("ascii")
     script = r"""
 set -e
-ROOT="$1"; NAME="$2"; ME="$3"; TTL="$4"; ACTION="$5"; FORCE="$6"
-mkdir -p "$ROOT/locks"
+ROOT="$1"; NAME="$2"; ME="$3"; TTL="$4"; ACTION="$5"; FORCE="$6"; INSTANCE="$7"; EVIDENCE="$8"; EXPECTED="$9"
+mkdir -p "$ROOT/locks" "$ROOT/ownership"
 f="$ROOT/locks/$NAME"
+side="$ROOT/ownership/$NAME.json"
 now=$(date +%s)
 holder=""; age=99999; generation=0
+side_instance=""; side_generation=0
 exec 9>>"$f"
 if ! flock -n 9; then
   value=$(cat "$f" 2>/dev/null || true)
@@ -283,22 +305,71 @@ if [ -f "$f" ]; then
   holder=$(cut -d@ -f1 "$f")
   ts=$(cut -d@ -f2 "$f")
   generation=$(cut -d@ -f3 "$f")
-  age=$((now - ${ts:-0}))
+  ts=${ts:-0}
+  generation=${generation:-0}
+  age=$((now - ts))
+fi
+if [ -s "$side" ]; then
+  values=$(python3 - "$side" <<'PY'
+import json,sys
+try:
+ with open(sys.argv[1]) as f: x=json.load(f)
+ print(str(x.get('instance_id') or '')+'|'+str(int(x.get('generation') or 0)))
+except Exception: print('|0')
+PY
+)
+  side_instance=$(printf '%s' "$values" | cut -d'|' -f1)
+  side_generation=$(printf '%s' "$values" | cut -d'|' -f2)
 fi
 if [ "$ACTION" = "read" ]; then
   if [ -n "$holder" ] && [ "$age" -le "$TTL" ]; then echo "HELD $holder $age ${generation:-0}"; else echo "FREE"; fi
   exit 0
 fi
 if [ "$ACTION" = "release" ]; then
-  if [ "$holder" = "$ME" ]; then : > "$f"; echo "FREE"; else echo "HELD ${holder:-—} $age ${generation:-0}"; fi
+  if [ "$holder" = "$ME" ] && { [ "$EXPECTED" = "0" ] || { [ "$generation" = "$EXPECTED" ] && { [ -z "$side_instance" ] || [ "$side_instance" = "$INSTANCE" ]; }; }; }; then
+    : > "$f"
+    python3 - "$side" "$NAME" "$generation" "$now" <<'PY'
+import json,os,sys,tempfile
+path,name,generation,now=sys.argv[1:]
+value={"schema":2,"name":name,"holder":"","instance_id":"","generation":int(generation or 0),"renewed_at":int(now),"expires_at":int(now),"evidence":{},"handoff":None}
+os.makedirs(os.path.dirname(path),exist_ok=True)
+fd,tmp=tempfile.mkstemp(prefix='.ownership-',dir=os.path.dirname(path))
+with os.fdopen(fd,'w') as f: json.dump(value,f,separators=(',',':')); f.write('\n')
+os.replace(tmp,path)
+PY
+    echo "FREE"
+  else echo "HELD ${holder:-—} $age ${generation:-0}"; fi
   exit 0
+fi
+if [ "$ACTION" = "claim" ] && [ "$holder" = "$ME" ] && [ "$age" -le "$TTL" ] && [ -n "$side_instance" ] && [ "$side_generation" = "$generation" ] && [ "$side_instance" != "$INSTANCE" ] && [ "$FORCE" != "1" ]; then
+  echo "HELD $holder $age ${generation:-0}"
+  exit 2
+fi
+if [ "$ACTION" = "claim" ] && [ -z "$holder" ] && [ "$side_generation" -gt "$generation" ]; then
+  generation="$side_generation"
 fi
 if [ -n "$holder" ] && [ "$holder" != "$ME" ] && [ "$age" -le "$TTL" ] && [ "$FORCE" != "1" ]; then
   echo "HELD $holder $age ${generation:-0}"
   exit 2
 fi
-if [ "$holder" != "$ME" ]; then generation=$((${generation:-0} + 1)); fi
+if [ "$holder" != "$ME" ] || { [ -n "$side_instance" ] && [ "$side_generation" = "$generation" ] && [ "$side_instance" != "$INSTANCE" ]; }; then generation=$((${generation:-0} + 1)); fi
 echo "$ME@$now@${generation:-1}" > "$f"
+python3 - "$side" "$NAME" "$ME" "$INSTANCE" "${generation:-1}" "$now" "$TTL" "$EVIDENCE" <<'PY'
+import base64,json,os,sys,tempfile
+path,name,holder,instance,generation,now,ttl,evidence=sys.argv[1:]
+try: ev=json.loads(base64.b64decode(evidence).decode()) if evidence else {}
+except Exception: ev={}
+old={}
+try:
+ with open(path) as f: old=json.load(f)
+except Exception: pass
+handoff=old.get('handoff') if old.get('holder')==holder and int(old.get('generation') or 0)==int(generation) else None
+value={"schema":2,"name":name,"holder":holder,"instance_id":instance,"generation":int(generation),"renewed_at":int(now),"expires_at":int(now)+int(ttl),"evidence":ev,"handoff":handoff}
+os.makedirs(os.path.dirname(path),exist_ok=True)
+fd,tmp=tempfile.mkstemp(prefix='.ownership-',dir=os.path.dirname(path))
+with os.fdopen(fd,'w') as f: json.dump(value,f,separators=(',',':')); f.write('\n')
+os.replace(tmp,path)
+PY
 echo "OK $ME 0 ${generation:-1}"
 """
     result = _run(
@@ -313,6 +384,9 @@ echo "OK $ME 0 ${generation:-1}"
             str(ttl),
             action,
             "1" if force else "0",
+            instance,
+            encoded_evidence,
+            str(int(expected_generation or 0)),
         ],
         input=script,
     )
@@ -329,6 +403,39 @@ echo "OK $ME 0 ${generation:-1}"
     return kind, holder, age, generation
 
 
+def instance_id() -> str:
+    """Stable identity for this installation, distinct from the Client name."""
+    from .paths import home_dir
+
+    path = home_dir() / "instance-id"
+    try:
+        value = path.read_text(encoding="utf-8").strip()
+        if value:
+            return value
+    except OSError:
+        pass
+    path.parent.mkdir(parents=True, exist_ok=True)
+    value = f"{os.uname().nodename}:{uuid.uuid4().hex}"
+    try:
+        fd, raw = tempfile.mkstemp(prefix=".instance-", dir=path.parent)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(value + "\n")
+        os.chmod(raw, 0o600)
+        os.replace(raw, path)
+    except OSError:
+        return value
+    return value
+
+
+def existing_instance_id() -> str:
+    from .paths import home_dir
+
+    try:
+        return (home_dir() / "instance-id").read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
 def read_lock(name: str) -> tuple[str, int]:
     if not enabled():
         return "", 0
@@ -336,6 +443,185 @@ def read_lock(name: str) -> tuple[str, int]:
     if kind == "HELD":
         return holder, age
     return "", 0
+
+
+def read_ownership(name: str, cfg: AppConfig | None = None) -> dict:
+    """Read Lease v2 while treating the legacy lock as the authority."""
+    cfg = cfg or load_config()
+    now = int(time.time())
+    if not cfg.hub_enabled:
+        return {
+            "schema": 2,
+            "name": name,
+            "state": "owned",
+            "holder": cfg.client,
+            "instance_id": existing_instance_id(),
+            "generation": 1,
+            "renewed_at": now,
+            "expires_at": 0,
+            "age_seconds": 0,
+            "evidence": {},
+            "handoff": None,
+            "source": "local",
+            "conflict": False,
+        }
+    script = r"""
+set -e
+ROOT="$1"; NAME="$2"
+lock="$ROOT/locks/$NAME"; side="$ROOT/ownership/$NAME.json"
+if [ -e "$lock" ]; then exec 9<"$lock"; flock -s 9; fi
+printf 'V1 '; if [ -e "$lock" ]; then base64 <"$lock" | tr -d '\n'; fi; printf '\n'
+printf 'V2 '; if [ -e "$side" ]; then base64 <"$side" | tr -d '\n'; fi; printf '\n'
+"""
+    result = _run(
+        ssh_argv(cfg) + ["bash", "-s", "--", remote_root(cfg), name], input=script
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "ownership read failed").strip()
+        raise SystemExit(f"[err] hub ownership: {detail.splitlines()[-1]}")
+    values: dict[str, bytes] = {}
+    for line in (result.stdout or "").splitlines():
+        key, _, value = line.partition(" ")
+        if key in {"V1", "V2"}:
+            try:
+                values[key] = base64.b64decode(value)
+            except ValueError:
+                values[key] = b""
+    raw = values.get("V1", b"").decode("utf-8", "replace").strip()
+    parts = raw.split("@") if raw else []
+    holder = parts[0] if parts else ""
+    stamp = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+    generation = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+    age = max(0, now - stamp) if stamp else 0
+    active = bool(holder and stamp and age <= LOCK_TTL)
+    try:
+        sidecar = json.loads(values.get("V2", b"") or b"{}")
+    except (json.JSONDecodeError, TypeError):
+        sidecar = {}
+    aligned = bool(
+        sidecar
+        and sidecar.get("holder") == holder
+        and int(sidecar.get("generation") or 0) == generation
+    )
+    side_instance = str(sidecar.get("instance_id") or "") if aligned else ""
+    local_instance = existing_instance_id()
+    mine = bool(
+        holder == cfg.client
+        and (not aligned or not side_instance or side_instance == local_instance)
+    )
+    return {
+        "schema": 2,
+        "name": name,
+        "state": "owned" if active and mine else ("foreign" if active else ("expired" if holder else "free")),
+        "holder": holder if active else "",
+        "instance_id": side_instance,
+        "generation": generation,
+        "renewed_at": stamp,
+        "expires_at": stamp + LOCK_TTL if stamp else 0,
+        "age_seconds": age,
+        "evidence": sidecar.get("evidence") if aligned and isinstance(sidecar.get("evidence"), dict) else {},
+        "handoff": sidecar.get("handoff") if aligned and isinstance(sidecar.get("handoff"), dict) else None,
+        "source": "v2" if aligned else "v1",
+        "conflict": bool(sidecar and not aligned),
+    }
+
+
+def _handoff_remote(
+    name: str,
+    action: str,
+    *,
+    request_id: str,
+    generation: int,
+    reason: str = "",
+    cfg: AppConfig | None = None,
+) -> dict:
+    cfg = cfg or load_config()
+    payload = base64.b64encode(reason.encode("utf-8")).decode("ascii")
+    script = r"""
+set -e
+ROOT="$1"; NAME="$2"; ACTION="$3"; REQUEST="$4"; CLAIMANT="$5"; INSTANCE="$6"; GENERATION="$7"; REASON="$8"
+lock="$ROOT/locks/$NAME"; side="$ROOT/ownership/$NAME.json"
+mkdir -p "$ROOT/locks" "$ROOT/ownership"; exec 9>>"$lock"; flock -x 9
+python3 - "$lock" "$side" "$NAME" "$ACTION" "$REQUEST" "$CLAIMANT" "$INSTANCE" "$GENERATION" "$REASON" <<'PY'
+import base64,json,os,sys,tempfile,time
+lock,path,name,action,request,claimant,instance,generation,reason=sys.argv[1:]
+parts=open(lock).read().strip().split('@') if os.path.exists(lock) else []
+holder=parts[0] if parts else ''; current=int(parts[2]) if len(parts)>2 and parts[2].isdigit() else 0
+try:
+ with open(path) as f: data=json.load(f)
+except Exception: data={}
+if current != int(generation) or data.get('holder') != holder or int(data.get('generation') or 0) != current:
+ print(json.dumps({'ok':False,'code':'generation_conflict','generation':current})); raise SystemExit(3)
+handoff=data.get('handoff') if isinstance(data.get('handoff'),dict) else None
+now=int(time.time())
+if action=='request':
+ if handoff and handoff.get('request_id') != request and handoff.get('status')=='pending':
+  print(json.dumps({'ok':False,'code':'handoff_pending','handoff':handoff})); raise SystemExit(4)
+ detail=base64.b64decode(reason).decode('utf-8','replace') if reason else ''
+ handoff={'request_id':request,'status':'pending','claimant':claimant,'claimant_instance_id':instance,'requested_at':now,'reason':detail}
+elif not handoff or handoff.get('request_id') != request:
+ print(json.dumps({'ok':False,'code':'request_not_found'})); raise SystemExit(5)
+elif action in ('ack','reject'):
+ if claimant != holder or (data.get('instance_id') and data.get('instance_id') != instance):
+  print(json.dumps({'ok':False,'code':'not_owner'})); raise SystemExit(7)
+ handoff['status']='acked' if action=='ack' else 'rejected'; handoff['decided_at']=now
+ handoff['reason']=base64.b64decode(reason).decode('utf-8','replace') if reason else ''
+else:
+ print(json.dumps({'ok':False,'code':'invalid_action'})); raise SystemExit(6)
+data['handoff']=handoff
+fd,tmp=tempfile.mkstemp(prefix='.ownership-',dir=os.path.dirname(path))
+with os.fdopen(fd,'w') as f: json.dump(data,f,separators=(',',':')); f.write('\n')
+os.replace(tmp,path); print(json.dumps({'ok':True,'handoff':handoff,'generation':current}))
+PY
+"""
+    result = _run(
+        ssh_argv(cfg)
+        + [
+            "bash", "-s", "--", remote_root(cfg), name, action, request_id,
+            cfg.client, instance_id(), str(generation), payload,
+        ],
+        input=script,
+    )
+    lines = (result.stdout or "").strip().splitlines()
+    try:
+        value = json.loads(lines[-1]) if lines else {}
+    except json.JSONDecodeError:
+        value = {}
+    if not value:
+        detail = (result.stderr or "handoff failed").strip().splitlines()
+        raise SystemExit(f"[err] hub handoff: {detail[-1] if detail else 'failed'}")
+    return value
+
+
+def request_handoff(name: str, *, reason: str = "") -> dict:
+    lease = read_ownership(name)
+    if lease["state"] != "foreign":
+        return {"ok": False, "code": "not_foreign", "lease": lease}
+    pending = lease.get("handoff") or {}
+    cfg = load_config()
+    if (
+        pending.get("status") == "pending"
+        and pending.get("claimant") == cfg.client
+        and pending.get("claimant_instance_id") == instance_id()
+    ):
+        return {
+            "ok": True,
+            "handoff": pending,
+            "generation": int(lease.get("generation") or 0),
+            "idempotent": True,
+        }
+    request_id = uuid.uuid4().hex
+    return _handoff_remote(
+        name, "request", request_id=request_id,
+        generation=int(lease["generation"]), reason=reason,
+    )
+
+
+def decide_handoff(name: str, request_id: str, generation: int, *, accept: bool, reason: str = "") -> dict:
+    return _handoff_remote(
+        name, "ack" if accept else "reject", request_id=request_id,
+        generation=generation, reason=reason,
+    )
 
 
 def holder_activity(holder: str, cfg: AppConfig | None = None) -> str:
@@ -382,10 +668,16 @@ def claim(name: str, force: bool = False) -> str:
     return holder or load_config().client
 
 
-def release(name: str) -> None:
+def release(name: str, *, generation: int = 0) -> None:
     if not enabled():
         return
-    _lock_remote("release", name)
+    kind, holder, _age, current = _lock_remote(
+        "release", name, expected_generation=generation
+    )
+    if generation and kind == "HELD":
+        raise SystemExit(
+            f"[err] ownership release fenced: holder={holder or 'unknown'} generation={current}"
+        )
     ev.emit("hub.release", name=name)
 
 
@@ -431,11 +723,9 @@ def park_local(data: dict) -> list[str]:
 
 
 def require_active(data: dict, force: bool = False) -> None:
-    try:
-        claim(data["name"], force=force)
-    except SystemExit:
-        drop_local(data)
-        raise
+    # Acquiring ownership is a preflight.  A rejection must never mutate local
+    # panes: they may contain the user's only live view of the session.
+    claim(data["name"], force=force)
 
 
 def enforce_local() -> None:
