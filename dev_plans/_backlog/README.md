@@ -11,4 +11,4 @@
 | BL-AGENT-001 | [项目级 Agent 套件与飞书智能入口](20260902-project-agent-feishu-entry.md) | BACKLOG |
 | BL-TRIGGER-001 | [trigger 有能力判断 bullet 状态（卡死检测）](20260902-trigger-bullet-status-detection.md) | BACKLOG |
 | BL-RUNTIME-001 | [Session Ownership 与安全接管](20260902-session-ownership-safe-takeover.md) | API CODE_COMPLETE → v0.4.51；Web → v0.4.52 |
-| BL-RUNTIME-002 | [Codex/Claude Client-local session store 跨机器复制](20260907-native-session-store-sync.md) | ACTIVE → v0.4.53 |
+| BL-RUNTIME-002 | [Codex/Claude Client-local session store 跨机器复制](20260907-native-session-store-sync.md) | DELIVERED → v0.4.53 |
