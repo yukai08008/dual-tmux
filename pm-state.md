@@ -7,7 +7,7 @@
 ### v0.4.51 (ACTIVE) — Session Ownership API
 
 - 三件套：`dev_plans/v0.4.49-v0.4.51/`。
-- **feature/v0.4.51-session-ownership** (CODE_COMPLETE): Lease v2 sidecar、semantic activity、三客户端 writer probe、ownership snapshot、handoff daemon、resume plan/transaction 与 CLI/ControlService 合同已实现；277 tests、Ruff/compileall/build、tom7r 隔离 generation/handoff E2E 与真实隧道只读 plan 均通过。Codex/Claude Client-local store 跨机器 handoff 现明确 fail closed，待后续复制协议；当前分支待 PR review/merge。
+- **feature/v0.4.51-session-ownership** (MERGE_PENDING): PR #28；Lease v2 sidecar、semantic activity、三客户端 writer probe、ownership snapshot、handoff daemon、resume plan/transaction 与 CLI/ControlService 合同已实现；277 tests、Ruff/compileall/build、tom7r 隔离 generation/handoff E2E 与真实隧道只读 plan 均通过。Codex/Claude Client-local store 跨机器 handoff 现明确 fail closed，待后续复制协议。
 - 父版本：正式 Release `v0.4.49`；0.4.50 旧 Web 草案因缺少 API 前提保持 `REBASE_REQUIRED`。
 
 ### v0.4.49 (RELEASED) — 运行时修复与 Session 快照收敛
@@ -110,7 +110,7 @@
 
 ## 当前焦点
 
-- 将 v0.4.51 Session Ownership API 创建 PR、复核并合并；完成前不启动 v0.4.52 Web。
+- 复核并合并 PR #28；远端 SHA 与 `v0.4.51-final` 校验后再启动 v0.4.52 Web。
 
 ## Backlog
 
