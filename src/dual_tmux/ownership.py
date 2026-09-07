@@ -88,6 +88,27 @@ def probe_writers(data: dict, side: str) -> dict[str, Any]:
             pids = None
     else:
         pids = _local_session_pids(sid)
+    if pids == [] and tool == "opencode":
+        from . import oc as oc_ops
+
+        pane = str(data.get("run" if side == "bullet" else "op") or "")
+        pane_info = tmux_ops.pane_info(pane)
+        if remote:
+            from .cli import _ssh_argv
+
+            runtime = data.get("runtime") or {}
+            session = oc_ops.active_remote(
+                _ssh_argv(data), str(runtime.get("container") or "")
+            )
+        else:
+            session = oc_ops.from_pane(
+                str(pane_info.get("pid") or ""),
+                str(pane_info.get("cwd") or ""),
+                fallback=pane_info.get("cmd") == "opencode",
+            )
+        if session and session.session_id == sid:
+            raw_pid = pane_info.get("pid") or "0"
+            pids = [int(raw_pid)] if str(raw_pid).isdigit() else [0]
     if pids is None:
         return {
             "status": "unknown",
