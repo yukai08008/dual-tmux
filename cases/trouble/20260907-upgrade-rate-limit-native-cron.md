@@ -16,3 +16,11 @@
 
 - API 请求遇到网络/HTTP 错误时，解析不受 API rate-limit 约束的 GitHub `/releases/latest` 最终重定向，构造同仓库、同 tag 的 wheel URL。
 - `dt tick` 发现当前 owner 有本地 native side 时运行 native persist sync；失败写审计事件，下一轮会重试。cron 保留为冗余。
+
+## 验证结果
+
+- PR #33 merge `1fd7576`，Release `v0.4.53.post1`。
+- 全量 `292 passed`，focused Ruff、compileall 与 sdist/wheel build 通过。
+- 本机从发布 wheel 安装到 0.4.53.post1；随后执行 `dt upgrade` 正确解析 latest 并报告当前已是 0.4.53.post1。
+- 配置与 10 个 tunnel 文件哈希从 0.4.51 → 0.4.53 → 0.4.53.post1 全程不变。
+- daemon 重启后 PID 96883，mailbox worker running，飞书 WS 正确保持 tom7r owner / 本机 standby。
