@@ -396,16 +396,15 @@ def recover_now(
     runner: Runner = subprocess.run,
 ) -> dict[str, Any]:
     """Recover unhealthy sides under the ownership gate, then verify health."""
-    from .cli import _apply_resume_legacy
-
-    hub.require_active(data, force=force)
     before = probe_tunnel(data, runner=runner)
     if before["healthy"]:
         return before
     # The legacy resume path reconnects the recorded transport first and then
     # imports a missing remote OpenCode session.  Importing before reconnect
     # would turn an ordinary outage into a hard failure.
-    result = _apply_resume_legacy(data.get("name"), force=force)
+    from .control import get_control_service
+
+    result = get_control_service().resume(data.get("name"), force=force).data
     deadline = time.monotonic() + 20
     after = probe_tunnel(result, runner=runner)
     while not after["healthy"] and time.monotonic() < deadline:
