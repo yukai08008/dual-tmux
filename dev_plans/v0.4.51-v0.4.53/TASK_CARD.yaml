@@ -1,0 +1,43 @@
+version: v0.4.53
+parent_final: v0.4.51-final
+title: Codex / Claude Native Session Runtime
+type: api
+prd: dev_plans/v0.4.51-v0.4.53/PRD.md
+test_cases: dev_plans/v0.4.51-v0.4.53/TEST_CASES.md
+invariants:
+  - "运行时数据不在 git 追踪中"
+  - "认证、全局配置、skills 和其他 session 不进入 payload"
+  - "OpenCode persist 不回归"
+deliverables:
+  - module: src/dual_tmux/native_persist.py
+    change: 精确 UUID 快照、血缘、原子导入与 generation fence
+    public_api: [locate_session, export_session, inspect_session, import_session]
+  - module: src/dual_tmux/hotfix.py
+    change: native persist 本地/Hub 树和同步 worker
+  - module: src/dual_tmux/ownership.py
+    change: resume plan native snapshot facts 与安全 handoff
+feature_branches:
+  - name: feature/v0.4.53-native-session-runtime
+    title: Native session store protocol and ownership integration
+    deps: [v0.4.51-final]
+    files: [src/dual_tmux/native_persist.py, src/dual_tmux/ownership.py, src/dual_tmux/control.py, src/dual_tmux/daemon.py]
+    acceptance:
+      - 精确 UUID export/import 且不包含其他 session
+      - append-only 更新可恢复且分叉 fail closed
+      - 上传/导入/fence 失败不释放 owner
+      - exact UUID resume 后 writer=1
+acceptance_count: 4
+total_estimated_loc: ~500
+risk_register:
+  - {id: R1, risk: secret leakage, mitigation: single-JSONL allowlist, severity: high}
+  - {id: R2, risk: divergent overwrite, mitigation: prefix ancestry fail-closed, severity: high}
+  - {id: R3, risk: partial transfer, mitigation: sealed manifest and SHA-256, severity: high}
+git_workflow:
+  branch_creation: from v0.4.51-final/main freeze record
+  feature_order: native protocol, ownership integration, quality gates
+  merge_policy: --no-ff via audited PR
+  before_merge_checks: [pytest all PASS, Ruff PASS, compileall PASS, build PASS]
+  final_tag: v0.4.53-final
+notes:
+  - API 奇数版默认不公开发布；跨机验证若需要安装包，按安全能力例外处理。
+签名: Agent-PM-0.4.53

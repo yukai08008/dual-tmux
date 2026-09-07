@@ -91,10 +91,11 @@ def sync_persist_identity(cfg: AppConfig) -> Step:
 def ensure_local_trees(cfg: AppConfig) -> Step:
     (sessions_home() / "tmux" / cfg.client).mkdir(parents=True, exist_ok=True)
     (sessions_home() / "opencode" / cfg.client).mkdir(parents=True, exist_ok=True)
+    (sessions_home() / "native" / cfg.client).mkdir(parents=True, exist_ok=True)
     return Step(
         "local-trees",
         True,
-        f"{persist_source_dir('tmux', cfg.client)} + {persist_source_dir('opencode', cfg.client)}",
+        f"{persist_source_dir('tmux', cfg.client)} + {persist_source_dir('opencode', cfg.client)} + {persist_source_dir('native', cfg.client)}",
         False,
     )
 
@@ -117,21 +118,31 @@ def _ssh_argv(cfg: AppConfig) -> list[str]:
 def ensure_hub_trees(cfg: AppConfig) -> Step:
     rel_tmux = persist_rsync_rel(cfg.user, "tmux")
     rel_oc = persist_rsync_rel(cfg.user, "opencode")
-    cmd = f"mkdir -p ~/{rel_tmux} ~/{rel_oc}"
+    rel_native = persist_rsync_rel(cfg.user, "native")
+    cmd = f"mkdir -p ~/{rel_tmux} ~/{rel_oc} ~/{rel_native}"
     try:
         result = subprocess.run(
-            _ssh_argv(cfg) + [cmd], capture_output=True, text=True, timeout=12, check=False
+            _ssh_argv(cfg) + [cmd],
+            capture_output=True,
+            text=True,
+            timeout=12,
+            check=False,
         )
     except subprocess.TimeoutExpired:
         return Step("hub-trees", False, "ssh mkdir timed out", False)
     if result.returncode != 0:
-        err = (result.stderr or result.stdout or "ssh mkdir failed").strip().splitlines()
+        err = (
+            (result.stderr or result.stdout or "ssh mkdir failed").strip().splitlines()
+        )
         return Step("hub-trees", False, err[-1] if err else "ssh mkdir failed", False)
-    return Step("hub-trees", True, f"~/{rel_tmux} ~/{rel_oc}", True)
+    return Step("hub-trees", True, f"~/{rel_tmux} ~/{rel_oc} ~/{rel_native}", True)
 
 
 def _cron_has(marker: str) -> bool:
-    return any(marker in row and not row.strip().startswith("#") for row in crontab_text().splitlines())
+    return any(
+        marker in row and not row.strip().startswith("#")
+        for row in crontab_text().splitlines()
+    )
 
 
 def _install_cron_line(line: str, marker: str) -> bool:
@@ -141,7 +152,12 @@ def _install_cron_line(line: str, marker: str) -> bool:
     text = f"{body}\n{line}\n" if body else f"{line}\n"
     try:
         result = subprocess.run(
-            ["crontab", "-"], input=text, capture_output=True, text=True, timeout=8, check=False
+            ["crontab", "-"],
+            input=text,
+            capture_output=True,
+            text=True,
+            timeout=8,
+            check=False,
         )
     except subprocess.TimeoutExpired:
         raise SystemExit("[err] crontab timed out")
@@ -158,7 +174,9 @@ def persist_bin(kind: str) -> Path:
 def persist_script(kind: str, host: str, user: str) -> str:
     extra = ""
     if kind == "opencode":
-        extra = "command -v opencode >/dev/null && command -v sqlite3 >/dev/null || true"
+        extra = (
+            "command -v opencode >/dev/null && command -v sqlite3 >/dev/null || true"
+        )
     exclude = "--exclude='save/'"
     if kind == "tmux":
         exclude += " --exclude='restore/'"
@@ -178,10 +196,10 @@ def persist_script(kind: str, host: str, user: str) -> str:
         'mkdir -p "$LOCAL" "$(dirname "$LOCK")"',
         'if ! mkdir "$LOCK" >/dev/null 2>&1; then',
         '    [ "$WAIT" = "--wait" ] || exit 0',
-        '    i=0',
+        "    i=0",
         '    while [ "$i" -lt 30 ] && [ -d "$LOCK" ]; do sleep 1; i=$((i+1)); done',
         '    mkdir "$LOCK" >/dev/null 2>&1 || exit 1',
-        'fi',
+        "fi",
         "trap 'rmdir \"$LOCK\" 2>/dev/null' EXIT",
     ]
     if extra:
@@ -206,7 +224,7 @@ def persist_script(kind: str, host: str, user: str) -> str:
 
 def sync_persist(kind: str, cfg: AppConfig, timeout: int = 180) -> Path:
     """Run an installed persist sync and wait for an overlapping cron run."""
-    if kind not in {"tmux", "opencode"}:
+    if kind not in {"tmux", "opencode", "native"}:
         raise ValueError(f"unsupported persist kind: {kind}")
     path = persist_bin(kind)
     if not path.is_file():
@@ -222,18 +240,18 @@ def sync_persist(kind: str, cfg: AppConfig, timeout: int = 180) -> Path:
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
-        raise SystemExit(f"[err] persist {kind} sync timed out after {timeout}s") from exc
+        raise SystemExit(
+            f"[err] persist {kind} sync timed out after {timeout}s"
+        ) from exc
     if result.returncode != 0:
         err = (result.stderr or result.stdout or "sync failed").strip().splitlines()
-        raise SystemExit(
-            f"[err] persist {kind} sync: {err[-1] if err else 'failed'}"
-        )
+        raise SystemExit(f"[err] persist {kind} sync: {err[-1] if err else 'failed'}")
     return path
 
 
 def install_persist_sync(cfg: AppConfig) -> Step:
     changed = False
-    for kind in ("tmux", "opencode"):
+    for kind in ("tmux", "opencode", "native"):
         path = persist_bin(kind)
         body = persist_script(kind, cfg.server, cfg.user)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -248,12 +266,23 @@ def install_persist_sync(cfg: AppConfig) -> Step:
                 changed = True
         except SystemExit as exc:
             return Step("persist-cron", False, str(exc), changed)
-    return Step("persist-cron", True, f"{persist_bin('tmux')} + {persist_bin('opencode')}", changed)
+    return Step(
+        "persist-cron",
+        True,
+        f"{persist_bin('tmux')} + {persist_bin('opencode')} + {persist_bin('native')}",
+        changed,
+    )
 
 
 def uninstall_persist_sync() -> Step:
     before = crontab_text()
-    rows = [row for row in before.splitlines() if "dt-persist-tmux" not in row and "dt-persist-opencode" not in row]
+    rows = [
+        row
+        for row in before.splitlines()
+        if not any(
+            f"dt-persist-{kind}" in row for kind in ("tmux", "opencode", "native")
+        )
+    ]
     after = ("\n".join(rows) + "\n") if rows else ""
     if after == before:
         return Step("persist-cron", True, "disabled in local-only mode", False)
@@ -269,7 +298,9 @@ def uninstall_persist_sync() -> Step:
     except subprocess.TimeoutExpired:
         return Step("persist-cron", False, "crontab update timed out", False)
     if result.returncode != 0:
-        return Step("persist-cron", False, (result.stderr or "crontab failed").strip(), False)
+        return Step(
+            "persist-cron", False, (result.stderr or "crontab failed").strip(), False
+        )
     return Step("persist-cron", True, "removed remote persist sync", True)
 
 
@@ -291,7 +322,11 @@ def install_feishu_daemon() -> Step:
         installation = {}
     if not installation or not installation.get("active", True):
         return Step("feishu-daemon", True, "no active PersonalAgent", False)
-    path = daemon_service.launchd_path() if __import__("platform").system() == "Darwin" else daemon_service.systemd_path()
+    path = (
+        daemon_service.launchd_path()
+        if __import__("platform").system() == "Darwin"
+        else daemon_service.systemd_path()
+    )
     changed = not path.is_file()
     try:
         installed = daemon_service.install()

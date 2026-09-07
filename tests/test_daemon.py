@@ -71,7 +71,9 @@ def test_interactive_reply_falls_back_to_plain_text_when_card_is_rejected():
     assert len(api.requests) == 2
 
 
-def test_manager_starts_only_for_installation_and_stops_on_unbind(monkeypatch, tmp_path):
+def test_manager_starts_only_for_installation_and_stops_on_unbind(
+    monkeypatch, tmp_path
+):
     monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
     made = []
 
@@ -252,9 +254,7 @@ def test_local_lease_allows_one_owner_and_increments_generation(tmp_path):
     second.release()
 
 
-def test_standby_status_does_not_overwrite_active_global_status(
-    monkeypatch, tmp_path
-):
+def test_standby_status_does_not_overwrite_active_global_status(monkeypatch, tmp_path):
     monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
     CredentialVault().save("cli_auto", "secret")
     active_manager = ConnectorManager(
@@ -315,17 +315,28 @@ def _handoff_setup(monkeypatch, tmp_path):
     save(tunnels_dir() / "dt-a.json", {"name": "dt-a", "op": "op_a", "run": "run_a"})
     monkeypatch.setattr(daemon, "load_config", lambda: cfg)
     monkeypatch.setattr(activity, "activity_evidence", lambda _data: {})
-    monkeypatch.setattr(hub, "read_ownership", lambda *_args: {
-        "state": "owned", "holder": "tm_a", "generation": 3,
-        "handoff": {"status": "pending", "request_id": "req-1"},
-    })
-    monkeypatch.setattr(ownership, "snapshot", lambda _data: {
-        "attached": {"trigger": False, "bullet": False},
-        "progress": {"trigger": "idle", "bullet": "idle"},
-        "writers": {
-            "trigger": {"status": "ok"}, "bullet": {"status": "ok"},
+    monkeypatch.setattr(
+        hub,
+        "read_ownership",
+        lambda *_args: {
+            "state": "owned",
+            "holder": "tm_a",
+            "generation": 3,
+            "handoff": {"status": "pending", "request_id": "req-1"},
         },
-    })
+    )
+    monkeypatch.setattr(
+        ownership,
+        "snapshot",
+        lambda _data: {
+            "attached": {"trigger": False, "bullet": False},
+            "progress": {"trigger": "idle", "bullet": "idle"},
+            "writers": {
+                "trigger": {"status": "ok"},
+                "bullet": {"status": "ok"},
+            },
+        },
+    )
     return hub
 
 
@@ -334,7 +345,12 @@ def test_handoff_orders_persist_park_ack_release(monkeypatch, tmp_path):
 
     hub = _handoff_setup(monkeypatch, tmp_path)
     calls = []
-    monkeypatch.setattr(cli, "_export_local_snapshots", lambda *_a: calls.append("export") or [])
+    monkeypatch.setattr(
+        cli, "_export_local_snapshots", lambda *_a: calls.append("export") or []
+    )
+    monkeypatch.setattr(
+        cli, "_verify_local_snapshot_exports", lambda *_a: calls.append("verify")
+    )
     monkeypatch.setattr(hotfix, "sync_persist", lambda *_a: calls.append("sync"))
     monkeypatch.setattr("dual_tmux.daemon.tmux_ops.has_session", lambda _name: False)
     monkeypatch.setattr(hub, "push", lambda *_a: calls.append("push"))
@@ -343,7 +359,16 @@ def test_handoff_orders_persist_park_ack_release(monkeypatch, tmp_path):
     monkeypatch.setattr(hub, "release", lambda *_a, **_kw: calls.append("release"))
 
     DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
-    assert calls == ["export", "sync", "push", "park", "ack", "release"]
+    assert calls == [
+        "export",
+        "sync",
+        "sync",
+        "verify",
+        "push",
+        "park",
+        "ack",
+        "release",
+    ]
 
 
 def test_handoff_persist_failure_never_parks_or_releases(monkeypatch, tmp_path):
@@ -351,8 +376,32 @@ def test_handoff_persist_failure_never_parks_or_releases(monkeypatch, tmp_path):
 
     hub = _handoff_setup(monkeypatch, tmp_path)
     calls = []
-    monkeypatch.setattr(cli, "_export_local_snapshots", lambda *_a: (_ for _ in ()).throw(SystemExit("persist failed")))
+    monkeypatch.setattr(
+        cli,
+        "_export_local_snapshots",
+        lambda *_a: (_ for _ in ()).throw(SystemExit("persist failed")),
+    )
     monkeypatch.setattr(hotfix, "sync_persist", lambda *_a: None)
+    monkeypatch.setattr(hub, "park_local", lambda *_a: calls.append("park"))
+    monkeypatch.setattr(hub, "decide_handoff", lambda *_a, **_kw: calls.append("ack"))
+    monkeypatch.setattr(hub, "release", lambda *_a, **_kw: calls.append("release"))
+
+    DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
+    assert calls == []
+
+
+def test_handoff_native_upload_failure_never_parks_or_releases(monkeypatch, tmp_path):
+    from dual_tmux import cli, hotfix
+
+    hub = _handoff_setup(monkeypatch, tmp_path)
+    calls = []
+    monkeypatch.setattr(cli, "_export_local_snapshots", lambda *_a: [])
+
+    def sync(kind, _cfg):
+        if kind == "native":
+            raise SystemExit("native upload failed")
+
+    monkeypatch.setattr(hotfix, "sync_persist", sync)
     monkeypatch.setattr(hub, "park_local", lambda *_a: calls.append("park"))
     monkeypatch.setattr(hub, "decide_handoff", lambda *_a, **_kw: calls.append("ack"))
     monkeypatch.setattr(hub, "release", lambda *_a, **_kw: calls.append("release"))

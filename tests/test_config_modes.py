@@ -126,7 +126,11 @@ def test_pull_syncs_persist_snapshots(monkeypatch, tmp_path):
 
     cmd_pull(Namespace())
 
-    assert calls == [("opencode", "hub-a"), ("tmux", "hub-a")]
+    assert calls == [
+        ("opencode", "hub-a"),
+        ("tmux", "hub-a"),
+        ("native", "hub-a"),
+    ]
 
 
 def test_local_health_has_no_ssh_check(monkeypatch, tmp_path):

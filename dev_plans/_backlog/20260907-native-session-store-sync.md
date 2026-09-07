@@ -4,11 +4,11 @@
 
 v0.4.51 已能识别 OpenCode、Codex、Claude 的精确 session writer，并对 lease、attached、progress 与重复 writer 做统一判断。但 Codex 的 `~/.codex/sessions` 和 Claude 的 `~/.claude/projects` 仍属于 Client-local store；只同步 session ID 不足以保证另一台 Client 可以 resume。
 
-## 当前安全行为
+## v0.4.53 推进状态
 
-- 同一机器上的三客户端 freeze/resume 继续可用。
-- 远端 bullet 留在同一 SSH/container store 时可 handoff。
-- trigger 或 local bullet 使用 Codex/Claude 时，跨 Client handoff 返回 `snapshot_persistence_unsupported`，不会启动一个缺数据的新 writer。
+- 已排入 `feature/v0.4.53-native-session-runtime`。
+- 精确 UUID export/import、manifest/hash、append-only 血缘、原子导入、generation fencing 与 Hub native persist 正在实现。
+- v0.4.51 的拒绝门只在 v0.4.53 完整质量门通过后移除；混合旧 owner 会明确拒绝 handoff，不会无数据接管。
 
 ## 后续范围
 

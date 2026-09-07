@@ -1,5 +1,6 @@
 import pytest
 
+from dual_tmux.config import AppConfig
 from dual_tmux.control import ControlError, ControlService, operation_catalog
 from dual_tmux.store import save, tunnels_dir
 
@@ -108,7 +109,9 @@ def test_control_wraps_legacy_freeze_resume_and_model(monkeypatch):
         lambda name, sides, tool: {**data, "call": [name, sides, tool]},
     )
     monkeypatch.setattr(
-        cli, "_apply_resume_legacy", lambda name, force, **_kwargs: {**data, "call": [name, force]}
+        cli,
+        "_apply_resume_legacy",
+        lambda name, force, **_kwargs: {**data, "call": [name, force]},
     )
     monkeypatch.setattr(
         ControlService, "get_tunnel", lambda self, name: type("R", (), {"data": data})()
@@ -121,8 +124,14 @@ def test_control_wraps_legacy_freeze_resume_and_model(monkeypatch):
     )
     service = ControlService()
     monkeypatch.setattr(ownership, "plan_resume", lambda _data: {"safe": True})
-    monkeypatch.setattr(ownership, "acquire_for_resume", lambda *_a, **_kw: {"generation": 1, "newly_acquired": False})
-    monkeypatch.setattr(ownership, "verify_resume", lambda *_a, **_kw: {"generation": 1, "writers": {}})
+    monkeypatch.setattr(
+        ownership,
+        "acquire_for_resume",
+        lambda *_a, **_kw: {"generation": 1, "newly_acquired": False},
+    )
+    monkeypatch.setattr(
+        ownership, "verify_resume", lambda *_a, **_kw: {"generation": 1, "writers": {}}
+    )
     monkeypatch.setattr("dual_tmux.store.save", lambda *_a, **_kw: None)
     monkeypatch.setattr("dual_tmux.store.find_dt", lambda *_a, **_kw: None)
     monkeypatch.setattr("dual_tmux.hub.push_best_effort", lambda *_a, **_kw: None)
@@ -196,11 +205,13 @@ def test_resume_commit_failure_releases_new_generation_without_save(monkeypatch)
     monkeypatch.setattr(ControlService, "_get_tunnel_readonly", lambda self, name: data)
     monkeypatch.setattr(ownership, "plan_resume", lambda _data: {"safe": True})
     monkeypatch.setattr(
-        ownership, "acquire_for_resume",
+        ownership,
+        "acquire_for_resume",
         lambda *_a, **_kw: {"generation": 12, "newly_acquired": True},
     )
     monkeypatch.setattr(
-        cli, "_apply_resume_legacy",
+        cli,
+        "_apply_resume_legacy",
         lambda *_a, **_kw: (_ for _ in ()).throw(SystemExit("commit failed")),
     )
     released = []
@@ -214,3 +225,43 @@ def test_resume_commit_failure_releases_new_generation_without_save(monkeypatch)
     with pytest.raises(ControlError, match="commit failed"):
         service.resume("dt-msg")
     assert released == [("dt-msg", 12)]
+
+
+def test_native_pull_failure_releases_new_generation_before_commit(monkeypatch):
+    from dual_tmux import cli, hotfix, hub, ownership
+
+    data = _tunnel()
+    data["trigger"] = {
+        "tool": "codex",
+        "session_id": "00000000-0000-0000-0000-000000000001",
+    }
+    service = ControlService()
+    monkeypatch.setattr(ControlService, "_get_tunnel_readonly", lambda self, name: data)
+    monkeypatch.setattr(ownership, "plan_resume", lambda _data: {"safe": True})
+    monkeypatch.setattr(
+        ownership,
+        "acquire_for_resume",
+        lambda *_a, **_kw: {"generation": 13, "newly_acquired": True},
+    )
+    monkeypatch.setattr(
+        "dual_tmux.config.load_config",
+        lambda: AppConfig(client="tm_a", server="tom7r", user="andy"),
+    )
+    monkeypatch.setattr(
+        hotfix,
+        "sync_persist",
+        lambda *_a: (_ for _ in ()).throw(SystemExit("native pull failed")),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_apply_resume_legacy",
+        lambda *_a, **_kw: pytest.fail("commit must not start"),
+    )
+    released = []
+    monkeypatch.setattr(
+        hub, "release", lambda name, **kw: released.append((name, kw["generation"]))
+    )
+
+    with pytest.raises(ControlError, match="native pull failed"):
+        service.resume("dt-msg")
+    assert released == [("dt-msg", 13)]
