@@ -31,6 +31,7 @@
 | E-01 | 隔离 HOME import | PASS | 原 UUID 可由 native parser 发现 |
 | E-02 | tom7r 往返 | PASS | `andy/sessions/native/tm_e2e_20260907` 上传/下载/导入成功并已清理 |
 | E-03 | 混合 v0.4.51 owner | PASS | 老 owner 按旧协议 reject；新方缺 snapshot 时启动前失败并释放 |
+| E-04 | Claude 跨 cwd UUID 查找 | PASS | 隔离 HOME 中仅放来源 cwd JSONL，在另一 cwd 执行 `--resume UUID` 未报 not-found 并进入请求阶段后主动中止 |
 
 ## 真实客户端基线
 
