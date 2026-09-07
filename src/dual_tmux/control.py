@@ -50,15 +50,24 @@ _OPERATIONS = (
         "control.session.resume",
     ),
     OperationSpec(
-        "session.resume.plan", "resume", "read", ("cli", "web", "feishu"),
+        "session.resume.plan",
+        "resume",
+        "read",
+        ("cli", "web", "feishu"),
         "control.session.resume.plan",
     ),
     OperationSpec(
-        "ownership.get", "detect", "read", ("cli", "web", "feishu"),
+        "ownership.get",
+        "detect",
+        "read",
+        ("cli", "web", "feishu"),
         "control.ownership.get",
     ),
     OperationSpec(
-        "ownership.handoff", "resume", "write", ("cli", "web", "feishu"),
+        "ownership.handoff",
+        "resume",
+        "write",
+        ("cli", "web", "feishu"),
         "control.ownership.handoff",
     ),
     OperationSpec(
@@ -287,14 +296,34 @@ class ControlService:
 
         original = _translate(lambda: self._get_tunnel_readonly(name))
         plan = _translate(lambda: ownership.plan_resume(original))
-        token = _translate(lambda: ownership.acquire_for_resume(original, plan, force=force))
+        token = _translate(
+            lambda: ownership.acquire_for_resume(original, plan, force=force)
+        )
+        native_sides = [
+            role
+            for role in ("trigger", "bullet")
+            if (original.get(role) or {}).get("tool") in {"codex", "claude"}
+            and not (role == "bullet" and (original.get("runtime") or {}).get("server"))
+        ]
         commit_started = False
         committed_data = original
         try:
+            if native_sides:
+                from .config import load_config
+
+                cfg = load_config()
+                if cfg.hub_enabled:
+                    from .hotfix import sync_persist
+
+                    _translate(lambda: sync_persist("native", cfg))
             commit_started = True
             data = _translate(
                 lambda: _apply_resume_legacy(
-                    name, force, ownership_checked=True, finalize=False
+                    name,
+                    force,
+                    ownership_checked=True,
+                    finalize=False,
+                    native_generation=int(token.get("generation") or 0),
                 )
             )
             committed_data = data
@@ -342,9 +371,7 @@ class ControlService:
 
         data = _translate(lambda: self._get_tunnel_readonly(name))
         plan = _translate(lambda: ownership.plan_resume(data))
-        return ControlResult(
-            "session.resume.plan", plan, _event("session.resume.plan")
-        )
+        return ControlResult("session.resume.plan", plan, _event("session.resume.plan"))
 
     def handoff(self, name: str, *, reason: str = "") -> ControlResult:
         from . import hub
@@ -353,9 +380,7 @@ class ControlService:
         result = _translate(
             lambda: hub.request_handoff(str(data.get("name") or ""), reason=reason)
         )
-        return ControlResult(
-            "ownership.handoff", result, _event("ownership.handoff")
-        )
+        return ControlResult("ownership.handoff", result, _event("ownership.handoff"))
 
     def model(self, name: str, model: str, sides: list[str]) -> ControlResult:
         data = self.get_tunnel(name).data

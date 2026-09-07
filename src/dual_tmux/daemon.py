@@ -176,7 +176,9 @@ def _reply_message(api_client, chat_id: str, reply: str | dict) -> None:
     if not response.success() and msg_type != "text":
         response = _create_reply(api_client, chat_id, "text", {"text": fallback})
     if not response.success():
-        raise FeishuError("reply_failed", f"Feishu reply failed: {response.code} {response.msg}")
+        raise FeishuError(
+            "reply_failed", f"Feishu reply failed: {response.code} {response.msg}"
+        )
 
 
 def _result_reply(result: dict) -> dict:
@@ -353,7 +355,9 @@ class ConnectorManager:
         self.owner = "none"
         self.generation = 0
         self.has_lease = False
-        self.lease_owner = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:12]}"
+        self.lease_owner = (
+            f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:12]}"
+        )
         self.local_lease = LocalConnectorLease()
         self.local_lease.owner = self.lease_owner
         self.lease_acquire = lease_acquire or self._claim_default_lease
@@ -438,12 +442,30 @@ class ConnectorManager:
         installed = self.installed()
         if not installed:
             self.stop()
-            return {"connector": "stopped", "owner": "none", "generation": 0, "failures": 0, "next_retry_at": 0}
+            return {
+                "connector": "stopped",
+                "owner": "none",
+                "generation": 0,
+                "failures": 0,
+                "next_retry_at": 0,
+            }
         if not self.owns_lease():
             self.stop(release_lease=False)
-            return {"connector": "standby", "owner": self.owner, "generation": self.generation, "failures": 0, "next_retry_at": 0}
+            return {
+                "connector": "standby",
+                "owner": self.owner,
+                "generation": self.generation,
+                "failures": 0,
+                "next_retry_at": 0,
+            }
         if self.process and self.process.is_alive():
-            return {"connector": "connected", "owner": self.owner, "generation": self.generation, "failures": self.failures, "next_retry_at": 0}
+            return {
+                "connector": "connected",
+                "owner": self.owner,
+                "generation": self.generation,
+                "failures": self.failures,
+                "next_retry_at": 0,
+            }
         if self.process is not None:
             self.process.join(timeout=0)
             self.process = None
@@ -462,7 +484,13 @@ class ConnectorManager:
         os.environ["DT_FEISHU_GENERATION"] = str(self.generation)
         self.process = self.process_factory()
         self.process.start()
-        return {"connector": "starting", "owner": self.owner, "generation": self.generation, "failures": self.failures, "next_retry_at": 0}
+        return {
+            "connector": "starting",
+            "owner": self.owner,
+            "generation": self.generation,
+            "failures": self.failures,
+            "next_retry_at": 0,
+        }
 
     def stop(self, *, release_lease: bool = True) -> None:
         if self.process and self.process.is_alive():
@@ -579,16 +607,23 @@ class DualTmuxDaemon:
                         reasons.append(f"{role}_{facts['writers'][role]['status']}")
                 if reasons:
                     hub.decide_handoff(
-                        name, request_id, generation, accept=False,
+                        name,
+                        request_id,
+                        generation,
+                        accept=False,
                         reason=",".join(reasons),
                     )
-                    log.emit("ownership.handoff.reject", name=name, reason=",".join(reasons))
+                    log.emit(
+                        "ownership.handoff.reject", name=name, reason=",".join(reasons)
+                    )
                     continue
-                from .cli import _export_local_snapshots
+                from .cli import _export_local_snapshots, _verify_local_snapshot_exports
                 from .hotfix import sync_persist
 
                 _export_local_snapshots(data, cfg.client)
                 sync_persist("opencode", cfg)
+                sync_persist("native", cfg)
+                _verify_local_snapshot_exports(data, cfg.client)
                 hub.push(cfg)
                 log.emit("ownership.handoff.persist", name=name, generation=generation)
                 hub.park_local(data)
@@ -599,14 +634,20 @@ class DualTmuxDaemon:
                     raise SystemExit("[err] handoff park did not stop all local panes")
                 log.emit("ownership.handoff.park", name=name, generation=generation)
                 hub.decide_handoff(
-                    name, request_id, generation, accept=True, reason="persisted_and_parked"
+                    name,
+                    request_id,
+                    generation,
+                    accept=True,
+                    reason="persisted_and_parked",
                 )
                 log.emit("ownership.handoff.ack", name=name, generation=generation)
                 hub.release(name, generation=generation)
                 log.emit("ownership.handoff.release", name=name, generation=generation)
             except (OSError, RuntimeError, SystemExit) as exc:
                 log.emit(
-                    "ownership.handoff.fail", name=name, generation=generation,
+                    "ownership.handoff.fail",
+                    name=name,
+                    generation=generation,
                     reason=type(exc).__name__,
                 )
 
@@ -676,7 +717,10 @@ class DualTmuxDaemon:
             if mailbox_thread:
                 mailbox_thread.join(timeout=min(self.mailbox_interval + 1, 6))
             global_state = read_daemon_status()
-            was_owner = self.manager.has_lease or int(global_state.get("pid") or 0) == os.getpid()
+            was_owner = (
+                self.manager.has_lease
+                or int(global_state.get("pid") or 0) == os.getpid()
+            )
             instance_path = _instance_status_path(self.manager.lease_owner)
             self.manager.stop()
             instance_path.unlink(missing_ok=True)

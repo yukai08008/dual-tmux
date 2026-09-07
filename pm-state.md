@@ -1,8 +1,13 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-07 09:35 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-07 14:30 +08:00 | 更新者: Codex PM
 
 ## 状态树
+
+### v0.4.53 (ACTIVE) — Codex / Claude Native Session Runtime
+
+- 三件套：`dev_plans/v0.4.51-v0.4.53/`。
+- **feature/v0.4.53-native-session-runtime** (CODE_COMPLETE): 从 `origin/main` 独立 worktree开发；精确 UUID JSONL snapshot、sealed manifest/hash、append-only ancestry、原子导入/备份、native Hub persist、handoff durable-upload gate、generation fencing 与 resume plan 状态已完成。289 tests、focused Ruff、compileall、build 与 tom7r 隔离往返 E2E 均通过；待 PR 合并与 API 冻结记录。v0.4.52 Ownership Web 顺延为 v0.4.54，待本 API 冻结后重新基线。
 
 ### v0.4.51 (RELEASED) — Session Ownership API
 
@@ -110,7 +115,7 @@
 
 ## 当前焦点
 
-- 建立 v0.4.52 Ownership Web 三件套与功能分支，并把 BL-RUNTIME-002 纳入下一 API 版排序。
+- 提交并合并 v0.4.53 Native Session Runtime，写入 API 冻结记录；随后从冻结 API 建立 v0.4.54 Ownership Web。
 
 ## Backlog
 

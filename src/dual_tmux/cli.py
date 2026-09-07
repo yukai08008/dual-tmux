@@ -336,10 +336,44 @@ def _export_local_snapshots(data: dict, client: str) -> list:
     tenant = oc_ops.persist_tenant(client)
     written = []
     for side in sides:
-        path = oc_ops.export_snapshot(data.get(side) or {}, tenant)
+        info = data.get(side) or {}
+        tool = info.get("tool") or "opencode"
+        if tool in {"codex", "claude"}:
+            from . import native_persist
+
+            path = native_persist.export_session(
+                info,
+                client,
+                source_instance=hub.instance_id(),
+                generation=int(
+                    hub.read_ownership(str(data.get("name") or "")).get("generation")
+                    or 0
+                ),
+                namespace=tenant,
+            )
+        else:
+            path = oc_ops.export_snapshot(info, tenant)
         if path:
             written.append(path)
     return written
+
+
+def _verify_local_snapshot_exports(data: dict, client: str) -> None:
+    """Fail handoff when a native store changed during its durable upload."""
+    from . import native_persist
+
+    remote = bool((data.get("runtime") or {}).get("server"))
+    sides = ("trigger",) if remote else ("trigger", "bullet")
+    namespace = oc_ops.persist_tenant(client)
+    for side in sides:
+        info = data.get(side) or {}
+        if (info.get("tool") or "opencode") in {
+            "codex",
+            "claude",
+        } and not native_persist.verify_export(info, namespace=namespace):
+            raise SystemExit(
+                f"[err] {side} native session changed during handoff upload; retrying without release"
+            )
 
 
 def _pane_shows_agent(tmux_name: str) -> bool:
@@ -347,9 +381,7 @@ def _pane_shows_agent(tmux_name: str) -> bool:
     from . import paneparse
 
     text = tmux_ops.capture_pane(tmux_name, start=-15)
-    return bool(
-        paneparse.RUNNING_RE.search(text) or paneparse.FOOTER_RE.search(text)
-    )
+    return bool(paneparse.RUNNING_RE.search(text) or paneparse.FOOTER_RE.search(text))
 
 
 def _fence_remote_bullet(data: dict, info: dict, tmux_name: str) -> bool:
@@ -516,11 +548,7 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
     )
     candidate = copy.deepcopy(data) if side == "bullet" else data
     observed_directory = point.get("directory") or point.get("cwd") or ""
-    if (
-        side == "bullet"
-        and live_transport
-        and point.get("kind") in {"ssh", "docker"}
-    ):
+    if side == "bullet" and live_transport and point.get("kind") in {"ssh", "docker"}:
         if point.get("kind") == "docker":
             transport_candidate = copy.deepcopy(candidate)
             transport_point = {**point, "container": ""}
@@ -577,6 +605,7 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
         data["runtime"] = copy.deepcopy(candidate.get("runtime") or {})
         data["run_point"] = copy.deepcopy(point)
         write_entry(data["run"], (data.get("runtime") or {}).get("cmd") or "")
+
     actual_local_client = agentclient.detect_name(process_commands)
     client_name = actual_local_client or agentclient.normalize_name(requested_tool)
     location = (
@@ -612,7 +641,14 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
             ):
                 side_info[key] = ""
         if client_name in {"codex", "claude"}:
-            for key in ("model", "session_id", "slug", "agent", "directory", "frozen_at"):
+            for key in (
+                "model",
+                "session_id",
+                "slug",
+                "agent",
+                "directory",
+                "frozen_at",
+            ):
                 side_info[key] = ""
         side_info["parser"] = parser_id_for_side(side_info)
     ev.emit(
@@ -803,7 +839,9 @@ def apply_model(name: str, model: str, sides: list[str]) -> dict:
         raise SystemExit(str(exc)) from exc
 
 
-def _apply_freeze_legacy(name: str, sides: list[str] | None = None, tool: str = "auto") -> dict:
+def _apply_freeze_legacy(
+    name: str, sides: list[str] | None = None, tool: str = "auto"
+) -> dict:
     data = _resolve(name)
     path = find_dt(data["name"])
     if not sides:
@@ -926,6 +964,7 @@ def _apply_resume_legacy(
     *,
     ownership_checked: bool = False,
     finalize: bool = True,
+    native_generation: int = 0,
 ) -> dict:
     """Resume a DST without attaching; shared by the CLI and local web UI."""
     data = _resolve(name)
@@ -942,9 +981,7 @@ def _apply_resume_legacy(
     transports = {"ssh", "docker"}
     if remote_bullet and tmux_ops.pane_command(data["run"]) not in transports:
         tmux_ops.reconnect(data["run"], jump)
-        landed = tmux_ops.wait_stable_command(
-            data["run"], transports, timeout=25
-        )
+        landed = tmux_ops.wait_stable_command(data["run"], transports, timeout=25)
         if landed not in transports:
             raise SystemExit(
                 f"[err] bullet jump did not stay connected (cmd={landed or '—'}); "
@@ -977,9 +1014,7 @@ def _apply_resume_legacy(
                 )
             ui.info(f"stopped stale {role} TUI before snapshot import")
 
-        return oc_ops.ensure_local(
-            info, role=role, prepare_replace=stop_loaded_tui
-        )
+        return oc_ops.ensure_local(info, role=role, prepare_replace=stop_loaded_tui)
 
     if (trigger.get("tool") or "opencode") == "opencode" and ensure_snapshot(
         trigger, data["op"], "trigger"
@@ -991,13 +1026,49 @@ def _apply_resume_legacy(
         and ensure_snapshot(bullet, data["run"], "bullet")
     ):
         ui.ok("imported local bullet persist JSON")
+
+    def generation_check() -> None:
+        expected = int(native_generation or 0)
+        if not expected:
+            return
+        current = hub.read_ownership(str(data.get("name") or ""))
+        if int(current.get("generation") or 0) != expected:
+            raise SystemExit("[err] ownership generation changed during native import")
+
+    def ensure_native(info: dict, tmux_name: str, role: str) -> None:
+        if (info.get("tool") or "opencode") not in {"codex", "claude"}:
+            return
+        from . import agent_sessions, native_persist
+
+        sid = str(info.get("session_id") or "")
+        if remote_bullet and role == "bullet":
+            return
+
+        def stop_loaded_tui() -> None:
+            if _pane_shows_agent(tmux_name):
+                raise SystemExit(
+                    f"[err] cannot replace {role} native session while its Agent TUI is live"
+                )
+
+        changed = native_persist.import_session(
+            info,
+            generation_check=generation_check,
+            prepare_replace=stop_loaded_tui,
+        )
+        if not agent_sessions.session_exists(str(info.get("tool")), sid):
+            raise SystemExit(
+                f"[err] native {role} session {sid} is unavailable after import"
+            )
+        if changed:
+            ui.ok(f"imported {role} {info.get('tool')} session snapshot")
+
+    ensure_native(trigger, data["op"], "trigger")
+    ensure_native(bullet, data["run"], "bullet")
     _start_side(data, data["op"], "trigger", "", True)
     _start_side(data, data["run"], "bullet", "", True)
     wp.stamp(data, "resume_at")
     data["op_point"] = wp.discover(data["op"])
-    data["run_point"] = wp.canonical_runtime_point(
-        data, wp.discover(data["run"])
-    )
+    data["run_point"] = wp.canonical_runtime_point(data, wp.discover(data["run"]))
     if finalize:
         save(find_dt(data["name"]), data)
         ev.emit("dt.resume", name=data["name"])
@@ -1413,7 +1484,7 @@ def cmd_pull(_: argparse.Namespace) -> None:
     ui.ok(f"pulled tunnels+entries ← {dest}")
     cfg = require_config()
     synced: list[str] = []
-    for kind in ("opencode", "tmux"):
+    for kind in ("opencode", "tmux", "native"):
         hotfix_ops.sync_persist(kind, cfg)
         synced.append(kind)
     statusbar.refresh([load(p) for p in iter_dt_files()])
@@ -1584,7 +1655,9 @@ def cmd_daemon(args: argparse.Namespace) -> None:
         ui.ok(f"daemon installed  {daemon_service.install()}")
         return
     if args.remove:
-        ui.ok("daemon removed" if daemon_service.uninstall() else "daemon not installed")
+        ui.ok(
+            "daemon removed" if daemon_service.uninstall() else "daemon not installed"
+        )
         return
     if args.status:
         print(json.dumps(read_daemon_status(), ensure_ascii=False, indent=2))
@@ -1631,7 +1704,11 @@ def cmd_feishu(args: argparse.Namespace) -> None:
         elif args.feishu_cmd == "poll":
             result = AppRegistrationService().poll()
         elif args.feishu_cmd == "unbind":
-            result = uninstall() if not args.identity else {"removed": unbind_operator(args.identity)}
+            result = (
+                uninstall()
+                if not args.identity
+                else {"removed": unbind_operator(args.identity)}
+            )
         elif args.feishu_cmd == "dispatch":
             identity = OperatorIdentity(
                 open_id=args.open_id,
@@ -1907,10 +1984,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_daemon = sub.add_parser("daemon", help="run the persistent health/Feishu service")
     daemon_mode = p_daemon.add_mutually_exclusive_group()
-    daemon_mode.add_argument("--install", action="store_true", help="install and start the user service")
-    daemon_mode.add_argument("--remove", action="store_true", help="stop and remove the user service")
-    daemon_mode.add_argument("--status", action="store_true", help="show daemon/connector state")
-    daemon_mode.add_argument("--once", action="store_true", help="run one supervisor iteration")
+    daemon_mode.add_argument(
+        "--install", action="store_true", help="install and start the user service"
+    )
+    daemon_mode.add_argument(
+        "--remove", action="store_true", help="stop and remove the user service"
+    )
+    daemon_mode.add_argument(
+        "--status", action="store_true", help="show daemon/connector state"
+    )
+    daemon_mode.add_argument(
+        "--once", action="store_true", help="run one supervisor iteration"
+    )
     p_feishu = sub.add_parser(
         "feishu", help="configure secure Feishu pairing and command dispatch"
     )
@@ -1949,28 +2034,32 @@ def main() -> None:
         cmd_enter(argparse.Namespace(name=None))
         return
     readonly_resume_plan = command == "resume" and bool(getattr(args, "plan", False))
-    if command not in {
-        "config",
-        "doctor",
-        "hotfix",
-        "upgrade",
-        "ls",
-        "show",
-        "inspect",
-        "log",
-        "tick",
-        "health",
-        "recover",
-        "ownership",
-        "cron",
-        "mem",
-        "note",
-        "notes",
-        "web",
-        "skill",
-        "feishu",
-        "daemon",
-    } and not readonly_resume_plan:
+    if (
+        command
+        not in {
+            "config",
+            "doctor",
+            "hotfix",
+            "upgrade",
+            "ls",
+            "show",
+            "inspect",
+            "log",
+            "tick",
+            "health",
+            "recover",
+            "ownership",
+            "cron",
+            "mem",
+            "note",
+            "notes",
+            "web",
+            "skill",
+            "feishu",
+            "daemon",
+        }
+        and not readonly_resume_plan
+    ):
         if not config_path().is_file():
             prompt_init()
         ensure_ready()

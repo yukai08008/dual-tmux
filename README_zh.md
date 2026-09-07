@@ -119,6 +119,7 @@ workspace = "/workspace"  # 默认跳板目录；初始化不问
 |----|------|--------|
 | tmux persist | `~/sessions/tmux/tm_*/` | 窗口 / 进程 / 屏幕 |
 | OpenCode persist | `~/sessions/opencode/tm_*/` | 对话 JSON |
+| Codex/Claude 原生 persist | `~/sessions/native/tm_*/<tool>/<uuid>/` | 单个冻结 JSONL + 校验 manifest |
 | **dt 枢纽** | Server `~/<user>/dual-tmux/` | 只存 DT/DST 绑定 |
 
 Hub 模式的同步是 **自动的**：`new` / `freeze` / `bind` / `enter` / `work` / `resume` 会后台推送；每分钟 `dt tick` 会按 `updated_at` 合并本机与中心的 `tunnels/` + `entries/`，所以另一台 Client 新建的隧道会自动出现。`dt push` / `dt pull` 用于要求立即单向同步。纯本地模式不会执行网络同步和分布式锁操作。不拷 `config.toml`、`ops/`、`events.jsonl`。
@@ -149,6 +150,14 @@ dt ownership dt-msg --json
 dt resume dt-msg --plan
 ```
 
+Codex 与 Claude 跨 Client 接续时，只传输 `dt freeze` 记录的 UUID
+所对应的 JSONL。manifest 会记录每文件 SHA-256、来源 Client/实例、lease
+generation、冻结工作目录和 Agent 客户端版本。导入先 staging 和完整校验，再原子
+commit：内容相同则幂等；append-only 的较新历史会在备份本地旧文件后导入；历史
+分叉或传输截断则拒绝。认证、全局配置、skills 和其他 session 永不复制。原 owner
+只有在上传成功后才会 park/release，接收方在 commit 前后都会复核 generation。
+纯本地模式也能使用本地 snapshot 恢复，不依赖 Hub。
+
 只有原 owner 处于 idle、detached 且证据新鲜时才发起 handoff；原 Client daemon 必须依次完成 persist → park → ack → release，申请端才能取得下一代 generation 并恢复。attached、working、stalled、未知或过期证据都会拒绝自动接管。主动放手仍使用 `dt drop dt-msg`。
 
 要 **分叉**（两条隧道同时活，不是抢锁）：
@@ -175,6 +184,8 @@ trigger oc 从 `ops/op_*` 启动，必读 `AGENTS.md`，里面指向包内的 `d
 | tmux persist（Server） | `~/<user>/sessions/tmux/<tm_来源>/` | 同一棵树，按人隔离 |
 | OpenCode persist（Client） | `~/sessions/opencode/<tm_来源>/` | 与 tmux 同一套 `tm_*` 源名 |
 | OpenCode persist（Server） | `~/<user>/sessions/opencode/<tm_来源>/` | 同一棵树，按人隔离 |
+| 原生 persist（Client） | `~/sessions/native/<tm_来源>/<codex\|claude>/<uuid>/` | 只存精确冻结会话 |
+| 原生 persist（Server） | `~/<user>/sessions/native/<tm_来源>/<codex\|claude>/<uuid>/` | 同一棵树，按人隔离 |
 | OpenCode 活库 | `~/.local/share/opencode/opencode.db` | 禁止 rsync 整库 |
 | OpenCode 配置 | `~/.config/opencode/` | 模型/凭据，本 CLI 不管 |
 | tmux 活会话 | 进程内存 + `/tmp/tmux-*` socket | 不是本 CLI 的文件 |
