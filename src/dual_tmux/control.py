@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from typing import Any
@@ -255,6 +256,11 @@ class ControlService:
         data = _translate(lambda: _resolve(name))
         return ControlResult("tunnel.get", data, _event("tunnel.get"))
 
+    def get_tunnel_readonly(self, name: str | None) -> ControlResult:
+        """Return a local binding without Hub synchronization side effects."""
+        data = _translate(lambda: self._get_tunnel_readonly(name))
+        return ControlResult("tunnel.get", data, _event("tunnel.get"))
+
     @staticmethod
     def _get_tunnel_readonly(name: str | None) -> dict:
         """Resolve only the local binding; never pull or create directories."""
@@ -373,10 +379,67 @@ class ControlService:
         plan = _translate(lambda: ownership.plan_resume(data))
         return ControlResult("session.resume.plan", plan, _event("session.resume.plan"))
 
-    def handoff(self, name: str, *, reason: str = "") -> ControlResult:
-        from . import hub
+    def cached_ownership(self, name: str | None) -> ControlResult:
+        """Web-safe ownership facts; never probes tmux, processes, SSH or Hub."""
+        from . import ownership
 
-        data = self.get_tunnel(name).data
+        data = _translate(lambda: self._get_tunnel_readonly(name))
+        cached = ownership.read_cache(str(data.get("name") or ""))
+        return ControlResult("ownership.get", cached, _event("ownership.get"))
+
+    def cached_resume_plan(self, name: str | None) -> ControlResult:
+        """Web equivalent of ``dt resume --plan`` using cached evidence."""
+        from . import ownership
+
+        data = _translate(lambda: self._get_tunnel_readonly(name))
+        cached = ownership.read_cache(str(data.get("name") or ""))
+        if not cached.get("available"):
+            plan = {
+                "schema": ownership.SCHEMA,
+                "name": str(data.get("name") or ""),
+                "safe": False,
+                "action": "stop",
+                "reason": "ownership_cache_missing",
+                "steps": [],
+                "ownership": None,
+            }
+        else:
+            plan = ownership.plan_from_facts(data, cached["facts"])
+            if cached.get("freshness") != "fresh":
+                plan.update(safe=False, action="stop", reason="ownership_cache_stale", steps=[])
+            else:
+                facts = cached["facts"]
+                lease = facts.get("lease") or {}
+                sampled = int((lease.get("evidence") or {}).get("sampled_at") or 0)
+                if (
+                    lease.get("state") == "foreign"
+                    and (not sampled or int(time.time()) - sampled > ownership.EVIDENCE_TTL)
+                ):
+                    plan.update(
+                        safe=False,
+                        action="stop",
+                        reason="owner_evidence_stale",
+                        steps=[],
+                    )
+        plan["cache"] = {key: cached.get(key) for key in ("cached_at", "age_seconds", "freshness")}
+        return ControlResult("session.resume.plan", plan, _event("session.resume.plan"))
+
+    def handoff(self, name: str, *, reason: str = "") -> ControlResult:
+        from . import hub, ownership
+
+        data = _translate(lambda: self._get_tunnel_readonly(name))
+        plan = _translate(lambda: ownership.plan_resume(data))
+        if not plan.get("safe") or plan.get("action") != "request_handoff":
+            raise ControlError(
+                "handoff_preflight_rejected",
+                f"handoff preflight rejected: {plan.get('reason') or 'unsafe'}",
+                status=409,
+                detail={
+                    "safe": bool(plan.get("safe")),
+                    "action": plan.get("action") or "stop",
+                    "reason": plan.get("reason") or "unsafe",
+                },
+            )
         result = _translate(
             lambda: hub.request_handoff(str(data.get("name") or ""), reason=reason)
         )
