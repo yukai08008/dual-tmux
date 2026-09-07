@@ -1,13 +1,13 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-07 09:23 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-07 09:35 +08:00 | 更新者: Codex PM
 
 ## 状态树
 
-### v0.4.51 (RELEASED — API 冻结，不创建公开 Release) — Session Ownership API
+### v0.4.51 (RELEASED) — Session Ownership API
 
 - 三件套：`dev_plans/v0.4.49-v0.4.51/`。
-- **feature/v0.4.51-session-ownership** (MERGED): PR #28 已合并至 `main`（`f2f8f31`）；Lease v2 sidecar、semantic activity、三客户端 writer probe、ownership snapshot、handoff daemon、resume plan/transaction 与 CLI/ControlService 合同已实现。277 tests、Ruff/compileall/build、tom7r 隔离 generation/handoff E2E 与真实隧道只读 plan 均通过。Codex/Claude Client-local store 跨机器 handoff 现明确 fail closed，待后续复制协议。
+- **feature/v0.4.51-session-ownership** (MERGED): PR #28 已合并至 `main`（`f2f8f31`），PR #29 记录 API 冻结状态（`5fea850`）；`v0.4.51-final` 与安全能力例外公开 Release `v0.4.51` 已发布。Lease v2 sidecar、semantic activity、三客户端 writer probe、ownership snapshot、handoff daemon、resume plan/transaction 与 CLI/ControlService 合同已实现。277 tests、Ruff/compileall/build、tom7r 隔离 generation/handoff E2E 与真实隧道只读 plan 均通过。本机已从 0.4.49 无损升级，config/tunnel 哈希不变，launchd daemon 已重启并生成真实 v2 sidecar/evidence。Codex/Claude Client-local store 跨机器 handoff 现明确 fail closed，待后续复制协议。
 - 父版本：正式 Release `v0.4.49`；0.4.50 旧 Web 草案因缺少 API 前提保持 `REBASE_REQUIRED`。
 
 ### v0.4.49 (RELEASED) — 运行时修复与 Session 快照收敛
@@ -110,7 +110,7 @@
 
 ## 当前焦点
 
-- 校验并打 `v0.4.51-final` API 冻结标签；随后建立 v0.4.52 Ownership Web 三件套与功能分支。
+- 建立 v0.4.52 Ownership Web 三件套与功能分支，并把 BL-RUNTIME-002 纳入下一 API 版排序。
 
 ## Backlog
 
