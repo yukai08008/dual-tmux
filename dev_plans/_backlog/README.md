@@ -10,3 +10,4 @@
 | BL-WEB-004 | [轮询时间线与核心文本提取](20260901-poll-timeline-core-extraction.md) | BACKLOG |
 | BL-AGENT-001 | [项目级 Agent 套件与飞书智能入口](20260902-project-agent-feishu-entry.md) | BACKLOG |
 | BL-TRIGGER-001 | [trigger 有能力判断 bullet 状态（卡死检测）](20260902-trigger-bullet-status-detection.md) | BACKLOG |
+| BL-RUNTIME-001 | [Session Ownership 与安全接管](20260902-session-ownership-safe-takeover.md) | PLANNED → v0.4.49/v0.4.50 |

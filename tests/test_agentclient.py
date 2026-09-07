@@ -261,6 +261,7 @@ def test_freeze_remote_bullet_collects_inside_docker(monkeypatch):
     monkeypatch.setattr(cli.wp, "discover", lambda _name: _point("docker"))
     monkeypatch.setattr(cli.wp, "walk_commands", lambda _pid: [])
     monkeypatch.setattr(cli.wp, "apply_runtime", lambda *_args: None)
+    monkeypatch.setattr(cli.wp, "remote_docker_exec_containers", lambda *_args: [])
     monkeypatch.setattr(cli.tmux_ops, "pane_info", lambda _name: {"pid": "1", "cmd": "ssh", "cwd": "/workspace"})
     monkeypatch.setattr(cli, "_ssh_argv", lambda _data: ["ssh", "box"])
 
@@ -301,3 +302,157 @@ def test_freeze_disconnected_shell_does_not_bind_latest_or_mutate_runtime(monkey
     assert cli._freeze_one(data, "bullet", "run_test", "auto", False) is False
     assert data["bullet"]["session_id"] == ""
     assert data["runtime"] == {"server": "tom7r", "directory": "/workspace", "cmd": "ssh tom7r"}
+
+
+def test_freeze_remote_probe_failure_does_not_commit_candidate_runtime(monkeypatch):
+    from dual_tmux import cli
+    from dual_tmux.oc import empty_side
+
+    original = {
+        "server": "tom7r",
+        "container": "old_box",
+        "directory": "/old",
+        "cmd": "ssh tom7r",
+    }
+    data = {
+        "name": "dt-test",
+        "op": "op_test",
+        "run": "run_test",
+        "trigger": empty_side(),
+        "bullet": empty_side(),
+        "runtime": dict(original),
+        "run_point": {"kind": "ssh", "ssh": "tom7r"},
+    }
+    point = {
+        **_point("docker"),
+        "ssh": "root@10.88.0.20",
+        "container": "cp_gateway_24629",
+        "directory": "/workspace",
+        "hops": [{"command": "docker exec -it cp_gateway_24629 bash"}],
+    }
+    monkeypatch.setattr(cli.wp, "discover", lambda _name: point)
+    monkeypatch.setattr(cli.wp, "walk_commands", lambda _pid: ["ssh root@10.88.0.20"])
+    monkeypatch.setattr(
+        cli.wp, "remote_docker_exec_containers", lambda *_args: ["cp_gateway_24629"]
+    )
+    monkeypatch.setattr(
+        cli.tmux_ops,
+        "pane_info",
+        lambda _name: {"pid": "1", "cmd": "ssh", "cwd": "/Users/andy"},
+    )
+    monkeypatch.setattr(
+        "dual_tmux.agentclient.collect",
+        lambda *args, **kwargs: {
+            **agentclient.empty(),
+            "name": "opencode",
+            "location": "docker",
+            "error": "probe failed",
+        },
+    )
+    monkeypatch.setattr(cli.oc_ops, "from_pane", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli.oc_ops, "active_remote", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli.ev, "emit", lambda *args, **kwargs: None)
+
+    assert not cli._freeze_one(data, "bullet", "run_test", "auto", False)
+    assert data["runtime"] == original
+    assert data["run_point"] == {"kind": "ssh", "ssh": "tom7r"}
+
+
+def test_freeze_commits_verified_live_runtime_and_session(monkeypatch):
+    from dual_tmux import cli
+    from dual_tmux.oc import OcSession, empty_side
+
+    data = {
+        "name": "dt-test",
+        "op": "op_test",
+        "run": "run_test",
+        "trigger": empty_side(),
+        "bullet": empty_side(),
+        "runtime": {"server": "tom7r", "container": "old_box", "directory": "/old"},
+    }
+    point = {
+        **_point("docker"),
+        "ssh": "root@10.88.0.20",
+        "container": "old_box",
+        "directory": "/workspace",
+        "cwd": "/workspace",
+        "hops": [{"command": "docker exec -it cp_gateway_24629 bash"}],
+    }
+    monkeypatch.setattr(cli.wp, "discover", lambda _name: point)
+    monkeypatch.setattr(cli.wp, "walk_commands", lambda _pid: ["ssh root@10.88.0.20"])
+    monkeypatch.setattr(
+        cli.wp, "remote_docker_exec_containers", lambda *_args: ["cp_gateway_24629"]
+    )
+    monkeypatch.setattr(
+        cli.tmux_ops,
+        "pane_info",
+        lambda _name: {"pid": "1", "cmd": "ssh", "cwd": "/Users/andy"},
+    )
+    monkeypatch.setattr(
+        "dual_tmux.agentclient.collect",
+        lambda *args, **kwargs: {
+            **agentclient.empty(),
+            "name": "opencode",
+            "version": "1.18.29",
+            "location": "docker",
+        },
+    )
+    monkeypatch.setattr(cli.oc_ops, "from_pane", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        cli.oc_ops,
+        "active_remote",
+        lambda ssh, container: OcSession(
+            "ses_remote", "quiet-fox", directory="/workspace"
+        ),
+    )
+    monkeypatch.setattr(cli, "write_entry", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli.ev, "emit", lambda *args, **kwargs: None)
+
+    assert cli._freeze_one(data, "bullet", "run_test", "auto", False)
+    assert data["runtime"]["server"] == "root@10.88.0.20"
+    assert data["runtime"]["container"] == "cp_gateway_24629"
+    assert data["runtime"]["directory"] == "/workspace"
+    assert "root@10.88.0.20" in data["runtime"]["cmd"]
+    assert data["bullet"]["session_id"] == "ses_remote"
+    assert data["run_point"]["ssh"] == "root@10.88.0.20"
+    assert data["run_point"]["hops"] == []
+
+
+def test_partial_freeze_is_saved_but_returns_failure(monkeypatch):
+    from dual_tmux import cli
+    from dual_tmux.oc import empty_side
+
+    data = {
+        "name": "dt-test",
+        "op": "op_test",
+        "run": "run_test",
+        "trigger": empty_side(),
+        "bullet": empty_side(),
+    }
+    saved = []
+    spans = []
+
+    class Span:
+        def ok(self, **fields):
+            spans.append(("ok", fields))
+
+        def fail(self, error, **fields):
+            spans.append(("fail", error, fields))
+
+    monkeypatch.setattr(cli, "_resolve", lambda _name: data)
+    monkeypatch.setattr(cli, "find_dt", lambda _name: "/tmp/dt-test.json")
+    monkeypatch.setattr(
+        cli,
+        "freeze_sides",
+        lambda *_args, **_kwargs: {"trigger": True, "bullet": False},
+    )
+    monkeypatch.setattr(cli.wp, "stamp", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cli, "save", lambda _path, value: saved.append(value.copy()))
+    monkeypatch.setattr(cli.ev, "timed", lambda *_args, **_kwargs: Span())
+    monkeypatch.setattr(cli.hub, "push_best_effort", lambda **_kwargs: None)
+
+    with pytest.raises(SystemExit, match="freeze failed for bullet"):
+        cli._apply_freeze_legacy("dt-test")
+
+    assert saved
+    assert spans[0][0] == "fail"

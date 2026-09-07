@@ -34,8 +34,8 @@ trigger, via the persist tree:
 ```
 old Client:  dt tick exports changed sessions  →  ~/sessions/opencode/<tenant>/
              persist cron rsyncs               →  hub ~/<user>/sessions/opencode/<tenant>/
-new Client:  persist pull + dt pull            →  local snapshot + tunnel binding
-             dt resume                         →  import JSON, then `opencode --auto -s <id>`
+new Client:  dt pull                           →  tunnel binding + all persist snapshots
+             dt resume                         →  compare, backup/import/verify, reload TUI
 ```
 
 Properties of the export (implemented in `oc.export_snapshot`, driven by
@@ -48,7 +48,17 @@ Properties of the export (implemented in `oc.export_snapshot`, driven by
   the bound session before replacing the previous snapshot.
 - Written into the tenant directory the persist cron actually syncs
   (`~/.config/session-persist/name`, falling back to the dt `client` id).
-- Resume picks the newest snapshot across all `tm_*` sources by mtime.
+- `dt pull` synchronously pulls OpenCode/tmux persist trees after tunnel metadata;
+  SSH/rsync failures are reported instead of silently treated as success.
+- Resume picks the newest verified snapshot across all `tm_*` sources by the
+  payload's `info.time.updated`, never by file mtime.
+- A same-ID local session is still compared. If persisted data is newer, dt
+  verifies that it contains the local tail, exports a recovery backup under
+  `~/.dual-tmux/backups/opencode/`, imports it, and verifies the new tail.
+- A loaded stale trigger TUI is cleanly stopped before import and restarted
+  afterward, so the UI cannot keep an in-memory view of the old conversation.
+- Equal-revision divergent snapshots or non-ancestral local/remote histories
+  fail closed with `snapshot_conflict`; a newer local revision is not downgraded.
 - Failures are logged as `persist.export.fail` events and never break a tick.
 
 ## The Hub carries bindings and snapshots, not bullet data

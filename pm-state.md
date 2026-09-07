@@ -1,10 +1,10 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-02 +08:00 | 更新者: OpenCode PM
+> 最近更新: 2026-09-07 +08:00 | 更新者: Codex PM
 
 ## 状态树
 
-### v0.4.49 (ACTIVE) — Hotfix 合集（开发线）
+### v0.4.49 (MERGE_PENDING) — 运行时修复与 Session 快照收敛
 
 - 三件套已建立：`dev_plans/v0.4.48-v0.4.49/`（PRD + TASK_CARD + TEST_CASES）。
 - **hotfix/v0.4.49-tmux-sync-status** (MERGED): PR #18 已合并（`e8ebdfd`），随 v0.4.48.post3 发布并完成本机真实 upgrade；op_*/run_* 会话 status-right 显示同步 chip——persist 锁期间黄色 spinner `同步中`（daemon 每 2s 推进帧）、成功绿色 `已同步 HH:MM`、失败红色；tick 每分钟保底刷新；用户自定义 status-right 的会话不触碰。213 tests、ruff、真实 lock→spinner→变绿验证通过。
@@ -15,7 +15,20 @@
   - **issue-bullet-multiple-instances** (CLOSED): m7 容器 4 个 opencode 进程抢同一 bullet session（已现场清理 3 个孤儿 + 1 条孤儿 ssh 跳点），是 09-02 上午 bullet 卡死 queue 事故的根因。
 - **hotfix/v0.4.49-trigger-snapshot-export** (MERGED): PR #24 已合并，随 v0.4.48.post6 发布并真实升级；tick 每分钟对本 Client 持有的隧道自动导出 trigger（本地模式含 bullet）会话快照到 persist 租户目录——time_updated 新鲜度门控、原子写、id 校验，失败记 `persist.export.fail` 不拖垮 tick。真实 tick 已自动导出 4 个隧道快照并经 persist cron 上 Hub 验证一致。原则落地：单一活动隧道/会话，任何机器 resume 都拿到最新数据。
   - **issue-trigger-persist-export-missing** (CLOSED): 本机无外部 persist 导出器运行，Hub 快照停留 8/30。租户名（tm_andy_ouc）与 dt client（tm_ouc）不一致经评估不强制改名（保护 tmux-resurrect 路径），导出写入 name 文件指向的租户。
+- **feature/v0.4.49-session-ownership** (CODE_COMPLETE): 本分支实际完成 snapshot freshness 收敛、trigger workdir 和 freeze runtime authority；259 tests、focused Ruff、compileall、构建及隔离安装通过，待 PR 合并与 v0.4.49 Release。
+  - **issue-lockscreen-lease-false-active** (FOUND, DEFERRED): 保留到 `BL-RUNTIME-001`，不计入 v0.4.49 发布范围。
+  - **issue-resume-reject-drops-local-pane** (FOUND, DEFERRED): 保留到 `BL-RUNTIME-001`，不计入 v0.4.49 发布范围。
+  - **issue-duplicate-session-writer** (CLOSED by post5): 远端同 session 多进程已由 bullet fencing 修复。
+  - **issue-trigger-snapshot-stale-on-cross-client-resume** (CLOSED on feature): `dt pull` 已同步 tunnel + OpenCode/tmux persist 并显式传播传输失败；resolver 按 payload revision 选择快照，同 ID 本地会话也执行 freshness/祖先关系判断，新快照导入前备份并退出 stale TUI，导入后验证 tail；分叉返回 `snapshot_conflict`，本地较新不降级。`dt-company_intro_v2` 真实恢复由 8 月 30 日 revision 更新到 OUC 的 1052 条消息，tail=`msg_06c8ac05f001QkTggK2hk9TFi0`，本地 DB 已验证包含“它回了：你好。需要继续 intro_v2 哪一块？”。
+  - **issue-enter-trigger-workdir-home** (CLOSED, `hotfix/v0.4.49-enter-workdir`): 已回合并 `feature/v0.4.49-session-ownership`。`cmd_enter()` 现于 discover/attach 前创建并校准 trigger tmux；新 pane 固定使用 ops cwd，已有错误 cwd 只在前台为空闲 shell 时清行并纠正，Agent/其他程序不注入命令。全量 pytest 通过；`dt-cp-gate` 实测 pane 与 `op_point.cwd` 均已收敛到 `/Users/andy/.dual-tmux/ops/op_cp_gate`。
+  - **issue-freeze-runtime-authority-corruption** (CLOSED, merged into `feature/v0.4.49-session-ownership`): live SSH 进程现覆盖混合 scrollback，远端交互式 `docker exec` 进程用于解析当前容器；runtime/run_point 只在 Agent session 验证成功后原子提交，partial freeze 返回非零并记录 `freeze.fail`。`dt-cp-gate` 已实测绑定 `root@10.88.0.20 → cp_gateway_24629:/workspace` 的 OpenCode 1.18.29 session `ses_f8a384577ffeb75HokVSq3nf13`，`IS_DST=yes`，错误 hops 已清除。
 - 后续 hotfix 待用户口述，每条一个 `hotfix/v0.4.49-*` 分支（L3）。
+
+### v0.4.50 (PLANNED, REBASE_REQUIRED) — Ownership 与安全接管
+
+- 三件套草案：`dev_plans/v0.4.49-v0.4.50/`。
+- 原计划依赖 v0.4.49 ownership API，但该 API 未实现，现有 v0.4.50 草案不可直接启动。
+- 下一轮需按奇偶版本规则重新基线：先排入后续奇数 API 版完成 Lease v2/handoff/transactional resume，再由后续偶数 Web 版消费；不得在 Web 中重新猜测状态。
 
 ### v0.4.48 (RELEASED) — 飞书扫码 Web 与 tom7r 事件桥
 
@@ -91,9 +104,16 @@
 
 ## 当前焦点
 
-- 推进 `v0.4.49` hotfix 合集：逐条接收用户口述问题，每条独立 `hotfix/v0.4.49-*` 分支修复并验证。
+- 合并 `release/v0.4.49`，发布 GitHub Release，并完成本机 `dt upgrade` 与无损验证。
 
 ## Backlog
+
+### Runtime：Session Ownership 与安全接管（BL-RUNTIME-001，PLANNED）
+
+- v0.4.49 API：lease/runtime/attached/progress 四维分离；owner handoff；resume 两阶段事务；同 session writer 单活。
+- v0.4.49 snapshot：内建 export/manifest；比较 revision 与尾消息 hash；同 ID 旧副本必须更新；多源冲突 fail closed。
+- v0.4.50 Web：四维事实面板、接管预检与时间线、精确拒绝原因和高风险 force 确认。
+- 详见 `dev_plans/_backlog/20260902-session-ownership-safe-takeover.md`。
 
 ### Trigger：判断 bullet 状态与卡死检测（BL-TRIGGER-001）
 

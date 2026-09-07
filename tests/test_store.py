@@ -147,6 +147,15 @@ def test_ops_launch(monkeypatch, tmp_path):
     trigger_skill = (skills_dir() / "tmux-trigger" / "SKILL.md").read_text()
     assert "Container rebuild is trigger work" in trigger_skill
     assert "Architecture and flow → bullet mermaid" in trigger_skill
+    assert "Quiet-round cap" in trigger_skill
+    assert "are **not** progress" in trigger_skill
+    assert "After **8** quiet rounds" in trigger_skill
+    assert "tmux capture-pane -t <run_*> -p -S -80" in trigger_skill
+    assert "Models (development)" in trigger_skill
+    assert "gpt-5.6-sol" in trigger_skill
+    assert "dt model <dt> --run" in trigger_skill
+    assert "Dead client (stacked `--auto` + snapshot git)" in trigger_skill
+    assert "Pause and report only if that recovery fails" in trigger_skill
 
 
 def test_remove_dt(monkeypatch, tmp_path):
@@ -184,6 +193,50 @@ def test_parse_hops():
     assert point["container"] == "andy_messenger_24642_20260820174023"
     assert point["ssh"] == "tom7r"
     assert point["cwd"] == "/workspace"
+
+
+def test_live_ssh_process_overrides_docker_only_scrollback(monkeypatch):
+    from dual_tmux import workpoint
+
+    hops = [
+        {
+            "from_host": "root@m1",
+            "from_path": "~",
+            "command": "docker exec -it cp_gateway_24629 bash",
+            "to_host": "root@container",
+            "to_path": "/workspace",
+        }
+    ]
+    point = workpoint._from_hops(hops)
+    assert point["container"] == "cp_gateway_24629"
+    assert point["ssh"] == ""
+    monkeypatch.setattr(
+        workpoint,
+        "walk_commands",
+        lambda _pid: ["-zsh", "ssh root@10.88.0.20"],
+    )
+
+    workpoint._from_processes("1", point)
+
+    assert point["ssh"] == "root@10.88.0.20"
+    assert point["resume_cmd"] == "ssh root@10.88.0.20"
+    assert point["kind"] == "docker"
+
+
+def test_remote_docker_exec_containers_uses_interactive_processes_only():
+    from dual_tmux.workpoint import remote_docker_exec_containers
+
+    class Result:
+        returncode = 0
+        stdout = """? docker exec background_box sh -lc pwd
+pts/0 docker exec -it cp_gateway_24629 bash
+pts/1 /usr/bin/docker exec --user root --workdir /workspace work_box sh
+pts/2 bash -lc echo docker exec fake_box
+"""
+
+    assert remote_docker_exec_containers(
+        ["ssh", "root@10.88.0.20"], runner=lambda *args, **kwargs: Result()
+    ) == ["cp_gateway_24629", "work_box"]
 
 
 def test_workpoint_empty():

@@ -10,7 +10,7 @@ This launch directory is `~/.dual-tmux/ops/<op_*>/`. You are the **trigger**.
 
 - DT = local tmux pair `op_*` (this pane) + `run_*` (jump to Server).
 - DST = that pair plus frozen OpenCode session ids on both sides.
-- Work is dispatched with `tmux send-keys -t <run_*>`, then you detach and poll. See `tmux-trigger`.
+- Work is dispatched with `tmux send-keys -t <run_*>`, then you detach and poll on token/tool/body evidence, not spinner; 8 quiet rounds then recover stacked `--auto`/snapshot-git before reporting. Development models on bullet: `gpt-5.6-sol` → `grok-4.6` → `gpt-5.6-terra` or `gpt-5.5`. Switch with `dt model --run`. See `tmux-trigger`.
 
 ```sh
 dt inspect                 # this tunnel
