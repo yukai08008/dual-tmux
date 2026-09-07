@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 import platform
@@ -417,7 +418,8 @@ def cmd_enter(args: argparse.Namespace) -> None:
         return
     data = _resolve(args.name)
     hub.require_active(data, force=bool(getattr(args, "force", False)))
-    opsdir.prepare(data)
+    launch = opsdir.prepare(data)
+    tmux_ops.ensure_session_cwd(data["op"], str(launch))
     ev.emit("dt.enter", name=data["name"], oc=bool(getattr(args, "oc", False)))
     wp.stamp(data, "enter_at")
     if getattr(args, "oc", False) or getattr(args, "resume", False):
@@ -512,25 +514,83 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
         or command.startswith("docker exec ")
         for command in process_commands
     )
+    candidate = copy.deepcopy(data) if side == "bullet" else data
+    observed_directory = point.get("directory") or point.get("cwd") or ""
     if (
         side == "bullet"
         and live_transport
         and point.get("kind") in {"ssh", "docker"}
     ):
-        wp.apply_runtime(data, point)
-        point = wp.canonical_runtime_point(data, point)
-    if side == "bullet":
-        data["run_point"] = point
+        if point.get("kind") == "docker":
+            transport_candidate = copy.deepcopy(candidate)
+            transport_point = {**point, "container": ""}
+            wp.apply_runtime(transport_candidate, transport_point)
+            live_containers = wp.remote_docker_exec_containers(
+                _ssh_argv(transport_candidate)
+            )
+            if len(live_containers) == 1:
+                resolved = live_containers[0]
+                point = {
+                    **point,
+                    "container": resolved,
+                    "hops": (
+                        []
+                        if resolved != point.get("container")
+                        else point.get("hops", [])
+                    ),
+                }
+            elif point.get("container") in live_containers:
+                point = {**point, "container": point["container"]}
+        wp.apply_runtime(candidate, point)
+        point = wp.canonical_runtime_point(candidate, point)
+
+    def commit_verified_bullet_runtime(session_directory: str = "") -> None:
+        """Commit a candidate runtime only after its live session is proven."""
+        nonlocal point
+        if side != "bullet":
+            return
+        if point.get("kind") == "local":
+            verified_point = dict(point)
+            if session_directory:
+                verified_point["cwd"] = session_directory
+                verified_point["directory"] = session_directory
+            wp.capture_runtime(candidate, verified_point)
+            point = verified_point
+        elif live_transport:
+            runtime_candidate = candidate.setdefault("runtime", {})
+            verified_directory = (
+                session_directory
+                or observed_directory
+                or runtime_candidate.get("directory")
+                or "/workspace"
+            )
+            runtime_candidate["directory"] = verified_directory
+            runtime_candidate["cmd"] = build_cmd(
+                runtime_candidate.get("server") or point.get("ssh") or "",
+                runtime_candidate.get("container") or point.get("container") or "",
+                verified_directory,
+                int(runtime_candidate.get("ssh_port") or 22),
+            )
+            point = wp.canonical_runtime_point(candidate, point)
+        else:
+            return
+        data["runtime"] = copy.deepcopy(candidate.get("runtime") or {})
+        data["run_point"] = copy.deepcopy(point)
+        write_entry(data["run"], (data.get("runtime") or {}).get("cmd") or "")
     actual_local_client = agentclient.detect_name(process_commands)
     client_name = actual_local_client or agentclient.normalize_name(requested_tool)
-    location = "local" if actual_local_client else point.get("kind") or "local"
+    location = (
+        "local"
+        if actual_local_client or not live_transport
+        else point.get("kind") or "local"
+    )
     if location not in {"ssh", "docker"}:
         location = "local"
-    runtime = data.get("runtime") or {}
+    runtime = candidate.get("runtime") or {}
     client_meta = agentclient.collect(
         client_name,
         location=location,
-        ssh_argv=_ssh_argv(data) if location in {"ssh", "docker"} else None,
+        ssh_argv=_ssh_argv(candidate) if location in {"ssh", "docker"} else None,
         host=runtime.get("server") or point.get("ssh") or "",
         container=point.get("container") or runtime.get("container") or "",
     )
@@ -570,10 +630,11 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
         if location in {"ssh", "docker"}:
             session = agent_sessions.discover_remote(
                 client_name,
-                _ssh_argv(data),
+                _ssh_argv(candidate),
                 container=point.get("container") or runtime.get("container") or "",
                 cwd=(
-                    point.get("directory")
+                    observed_directory
+                    or point.get("directory")
                     or point.get("cwd")
                     or runtime.get("directory")
                     or ""
@@ -586,15 +647,12 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
                 commands=process_commands,
                 cwd=point.get("cwd") or info.get("cwd") or "",
             )
-        if side == "bullet":
-            if point.get("kind") == "local" or live_transport:
-                wp.capture_runtime(data, point)
-            write_entry(data["run"], (data.get("runtime") or {}).get("cmd") or "")
         if not session:
             ui.warn(
                 f"no provable {side} {client_name} session on {tmux_name}; not binding historical session"
             )
             return False
+        commit_verified_bullet_runtime(session.directory)
         _bind_oc(data, side, session, client_name)
         data[side]["agent_client"] = client_meta
         ev.emit(
@@ -643,7 +701,8 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
         and point["kind"] in {"ssh", "docker"}
     ):
         session = oc_ops.active_remote(
-            _ssh_argv(data), point.get("container") or runtime.get("container") or ""
+            _ssh_argv(candidate),
+            point.get("container") or runtime.get("container") or "",
         )
     if not session:
         error = (
@@ -662,10 +721,7 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
         )
         ui.warn(f"{error}. dt {'enter' if side == 'trigger' else 'work'} --oc first")
         return False
-    if side == "bullet":
-        if point.get("kind") == "local" or live_transport:
-            wp.capture_runtime(data, point)
-        write_entry(data["run"], (data.get("runtime") or {}).get("cmd") or "")
+    commit_verified_bullet_runtime(session.directory)
     _bind_oc(data, side, session, client_name or "opencode")
     data[side]["agent_client"] = client_meta
     ev.emit(
@@ -689,11 +745,13 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
 
 def freeze_sides(
     data: dict, sides: list[str], tool: str = "auto", wait: bool = False
-) -> None:
+) -> dict[str, bool]:
+    results: dict[str, bool] = {}
     if "trigger" in sides:
-        _freeze_one(data, "trigger", data["op"], tool, wait)
+        results["trigger"] = _freeze_one(data, "trigger", data["op"], tool, wait)
     if "bullet" in sides:
-        _freeze_one(data, "bullet", data["run"], tool, wait)
+        results["bullet"] = _freeze_one(data, "bullet", data["run"], tool, wait)
+    return results
 
 
 def _apply_model_legacy(name: str, model: str, sides: list[str]) -> dict:
@@ -751,16 +809,25 @@ def _apply_freeze_legacy(name: str, sides: list[str] | None = None, tool: str = 
     if not sides:
         sides = ["trigger", "bullet"]
     span = ev.timed("freeze", name=data["name"], sides=",".join(sides))
-    freeze_sides(data, sides, tool or "auto")
+    results = freeze_sides(data, sides, tool or "auto")
     wp.stamp(data, "freeze_at")
     save(path, data)
     dst = oc_ops.is_dst(data)
-    span.ok(
-        is_dst=dst,
-        trigger=(data.get("trigger") or {}).get("session_id") or "",
-        bullet=(data.get("bullet") or {}).get("session_id") or "",
-    )
+    fields = {
+        "is_dst": dst,
+        "trigger": (data.get("trigger") or {}).get("session_id") or "",
+        "bullet": (data.get("bullet") or {}).get("session_id") or "",
+    }
+    failed = [side for side, ok in results.items() if not ok]
+    if failed:
+        span.fail("failed sides: " + ",".join(failed), **fields)
+    else:
+        span.ok(**fields)
     hub.push_best_effort(wait=True)
+    if failed:
+        raise SystemExit(
+            f"[err] freeze failed for {', '.join(failed)}; successful sides were kept"
+        )
     return load(path)
 
 
@@ -879,16 +946,42 @@ def _apply_resume_legacy(name: str | None, force: bool = False) -> dict:
     if remote_bullet:
         from .recovery import ensure_remote_session
 
-        if ensure_remote_session(data):
+        if _pane_shows_agent(data["run"]):
+            ui.skip("remote bullet TUI is live; persist recovery not needed")
+        elif ensure_remote_session(data):
             ui.ok("imported remote bullet persist JSON")
     trigger = _side(data, "trigger")
     bullet = _side(data, "bullet")
-    if (trigger.get("tool") or "opencode") == "opencode" and oc_ops.ensure_local(trigger):
+
+    def ensure_snapshot(info: dict, tmux_name: str, role: str) -> bool:
+        def stop_loaded_tui() -> None:
+            current = tmux_ops.pane_command(tmux_name)
+            if current != "opencode":
+                if _pane_shows_agent(tmux_name):
+                    raise SystemExit(
+                        f"[err] cannot safely reload newer {role} snapshot: "
+                        f"{tmux_name} shows an agent but pane command is {current or 'unknown'}"
+                    )
+                return
+            if not tmux_ops.quit_opencode(tmux_name):
+                raise SystemExit(
+                    f"[err] cannot reload newer {role} snapshot while "
+                    f"{tmux_name} is still running opencode"
+                )
+            ui.info(f"stopped stale {role} TUI before snapshot import")
+
+        return oc_ops.ensure_local(
+            info, role=role, prepare_replace=stop_loaded_tui
+        )
+
+    if (trigger.get("tool") or "opencode") == "opencode" and ensure_snapshot(
+        trigger, data["op"], "trigger"
+    ):
         ui.ok("imported trigger persist JSON")
     if (
         not remote_bullet
         and (bullet.get("tool") or "opencode") == "opencode"
-        and oc_ops.ensure_local(bullet, role="bullet")
+        and ensure_snapshot(bullet, data["run"], "bullet")
     ):
         ui.ok("imported local bullet persist JSON")
     _start_side(data, data["op"], "trigger", "", True)
@@ -1274,9 +1367,15 @@ def cmd_push(_: argparse.Namespace) -> None:
 
 def cmd_pull(_: argparse.Namespace) -> None:
     dest = hub.pull()
-    statusbar.refresh([load(p) for p in iter_dt_files()])
     ui.ok(f"pulled tunnels+entries ← {dest}")
-    ui.info(f"this Client stays {require_config().client}")
+    cfg = require_config()
+    synced: list[str] = []
+    for kind in ("opencode", "tmux"):
+        hotfix_ops.sync_persist(kind, cfg)
+        synced.append(kind)
+    statusbar.refresh([load(p) for p in iter_dt_files()])
+    ui.ok(f"pulled persist snapshots  {', '.join(synced)}")
+    ui.info(f"this Client stays {cfg.client}")
 
 
 def cmd_log(args: argparse.Namespace) -> None:

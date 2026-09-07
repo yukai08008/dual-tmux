@@ -1,56 +1,93 @@
 version: v0.4.49
-parent_final: v0.4.48.post2
-title: Hotfix 合集（开发线）
+parent_final: v0.4.48.post6
+title: 运行时修复与 Session 快照收敛
 type: api
 prd: dev_plans/v0.4.48-v0.4.49/PRD.md
 test_cases: dev_plans/v0.4.48-v0.4.49/TEST_CASES.md
 
 invariants:
-  - "一个 deployment 只有一个总 PersonalAgent"
-  - "secret/token 仅以 AEAD 密文落盘"
-  - "local/Hub WS 单活租约 + generation fencing"
   - "运行时数据不在 git 追踪中"
-  - "升级不降级，config/tunnel 哈希不变"
-  - "每个 hotfix commit message 标注 hotfix 并附测试验证"
+  - "升级前后 config/tunnel 哈希不变"
+  - "snapshot 分叉、探测失败和不确定 runtime 均 fail closed"
+  - "本地较新 conversation 不被旧 snapshot 降级"
+  - "已有 Agent/前台程序不接收隐式 cd"
+  - "partial freeze 返回非零并记录 freeze.fail"
 
 deliverables:
-  - module: src/dual_tmux/statusbar.py
-    change: tmux 会话级 status-right 同步状态 chip；hub-sync.json 状态落盘
-  - module: src/dual_tmux/hub.py
-    change: sync/push best-effort 写 hub 同步状态
+  - module: src/dual_tmux/oc.py
+    change: snapshot revision/tail resolver、备份导入、祖先校验与冲突拒绝
+  - module: src/dual_tmux/hotfix.py
+    change: persist transport 等待、失败传播与 snapshot 发布约束
   - module: src/dual_tmux/cli.py
-    change: tick/push/pull 后刷新状态栏
+    change: pull/resume snapshot 收敛、enter workdir 与事务化 freeze 提交
+  - module: src/dual_tmux/tmux.py
+    change: trigger tmux 专属 cwd 建立和空闲 shell 安全纠正
+  - module: src/dual_tmux/workpoint.py
+    change: live SSH 与交互式 docker 进程权威识别
+  - module: src/dual_tmux/skills/tmux-trigger/SKILL.md
+    change: 进展证据、模型梯级与失联 Client 恢复约定
 
 feature_branches:
-  - name: hotfix/v0.4.49-tmux-sync-status
-    title: tmux 状态栏同步状态提示
-    deps: []
-    files: [src/dual_tmux/statusbar.py, src/dual_tmux/hub.py, src/dual_tmux/cli.py, tests/test_statusbar.py]
+  - name: feature/v0.4.49-session-ownership
+    title: Snapshot convergence groundwork
+    deps: [v0.4.48.post6]
+    files: [src/dual_tmux/oc.py, src/dual_tmux/hotfix.py, src/dual_tmux/cli.py, tests]
     acceptance:
-      - "tick 每分钟刷新 op_*/run_* status-right 显示 已同步/同步失败/local"
-      - "用户自定义 status-right 的会话不被覆盖"
-      - "非 dt 会话不受影响"
-    estimated_loc: ~260
+      - "payload revision 优先于文件 mtime"
+      - "同 ID 旧本地副本执行备份导入和尾消息验证"
+      - "本地较新不降级；同 revision 分叉返回 snapshot_conflict"
+      - "dt pull 同步 persist 并传播 SSH/rsync 失败"
+  - name: hotfix/v0.4.49-enter-workdir
+    title: Trigger workpoint convergence
+    deps: [feature/v0.4.49-session-ownership]
+    files: [src/dual_tmux/cli.py, src/dual_tmux/tmux.py, tests/test_enter_workdir.py]
+    acceptance:
+      - "新建 trigger tmux 使用专属 ops cwd"
+      - "只纠正空闲 shell，不干扰前台 Agent"
+  - name: hotfix/v0.4.49-freeze-runtime-authority
+    title: Freeze runtime evidence and atomic commit
+    deps: [hotfix/v0.4.49-enter-workdir]
+    files: [src/dual_tmux/workpoint.py, src/dual_tmux/cli.py, tests/test_agentclient.py, tests/test_store.py]
+    acceptance:
+      - "live SSH 覆盖陈旧 scrollback，docker token 不成为 server"
+      - "远端 session 验证成功后才提交 runtime/run_point"
+      - "partial freeze 保存成功 side 但整体返回失败"
+
+acceptance_count: 9
+total_estimated_loc: ~700
 
 risk_register:
   - id: R1
-    risk: hotfix 引入已验证路径回归
-    mitigation: 独立分支 + 相关测试 + 合并前全量 pytest
-    severity: medium
+    risk: snapshot 冲突或降级损坏 conversation
+    mitigation: revision/tail/祖先校验和 fail closed
+    severity: critical
   - id: R2
-    risk: 并行 hotfix 文件冲突
-    mitigation: 按序合并，rebase 最新 main
-    severity: low
+    risk: runtime 误判覆盖权威入口
+    mitigation: live process evidence + remote session verification
+    severity: high
+  - id: R3
+    risk: 奇数 API 版被公开发布
+    mitigation: 用户明确要求；Release notes 标注范围，未实现 Ownership API 留在 backlog
+    severity: medium
 
 git_workflow:
-  branch_creation: from main @ v0.4.48.post2
-  merge_policy: PR 合并（pm-maintainer，保留审计记录）
+  branch_creation: from v0.4.48.post6
+  merge_policy: PR 合并（pm-maintainer）
   before_merge_checks:
-    - "相关 pytest 全 PASS"
-    - "commit message 标注 hotfix"
-  final_tag: 待定（合集闭环后决定 post 发布或并入 v0.4.50）
+    - "pytest 全量 PASS"
+    - "focused Ruff 与 compileall PASS"
+    - "wheel/sdist 构建和隔离安装 PASS"
+    - "真实 snapshot/workdir/freeze E2E PASS"
+    - "git ls-files data/ 为空"
+  final_tag: v0.4.49
+
+deployment_checklist:
+  - "GitHub Release 上传 wheel + sdist"
+  - "dt upgrade 发现并安装 v0.4.49"
+  - "CLI 与 metadata 均为 0.4.49"
+  - "config/tunnel 哈希升级前后不变"
 
 notes:
-  - 奇数版默认不单独发布；若含紧急修复可破例走 post hotfix 发布并标注原因。
+  - "Lease v2、handoff、semantic activity、通用 transactional resume 与 dt ownership 未在本版实现，不计入验收。"
 
 签名: Agent-PM-0.4.49
