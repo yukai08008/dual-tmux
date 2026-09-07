@@ -1281,6 +1281,7 @@ def cmd_tick(_: argparse.Namespace) -> None:
     cfg = require_config()
     hub.enforce_local()
     n = 0
+    native_seen = False
     seen: list[dict] = []
     for path in iter_dt_files():
         data = load(path)
@@ -1309,12 +1310,23 @@ def cmd_tick(_: argparse.Namespace) -> None:
         recovery.observe(data)
         try:
             written = _export_local_snapshots(data, cfg.client)
+            remote_bullet = bool((data.get("runtime") or {}).get("server"))
+            native_seen = native_seen or any(
+                (data.get(role) or {}).get("tool") in {"codex", "claude"}
+                for role in (("trigger",) if remote_bullet else ("trigger", "bullet"))
+            )
             for snap in written:
                 ev.emit("persist.export", name=name, slug=snap.stem)
         except SystemExit as exc:
             ev.emit("persist.export.fail", name=name, error=str(exc))
         n += 1
     hub.sync_best_effort(wait=True)
+    if native_seen and cfg.hub_enabled:
+        try:
+            hotfix_ops.sync_persist("native", cfg)
+            ev.emit("persist.native.sync")
+        except SystemExit as exc:
+            ev.emit("persist.native.sync.fail", error=str(exc))
     statusbar.refresh(seen, hub_enabled=cfg.hub_enabled)
     try:
         sync_client(cfg)

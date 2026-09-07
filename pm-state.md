@@ -8,6 +8,7 @@
 
 - 三件套：`dev_plans/v0.4.51-v0.4.53/`。
 - **feature/v0.4.53-native-session-runtime** (MERGED): PR #31 已合并至 `main`（merge `e7e64f7`）。精确 UUID JSONL snapshot、sealed manifest/hash、append-only ancestry、原子导入/备份、native Hub persist、handoff durable-upload gate、generation fencing 与 resume plan 状态已完成。289 tests、focused Ruff、compileall、build、tom7r 隔离往返 E2E 与 Claude 跨 cwd UUID 发现探针通过；按跨机器安全能力例外发布 `v0.4.53`。v0.4.52 Ownership Web 顺延为 v0.4.54，从本 API freeze 重新基线。
+- **hotfix/v0.4.53-upgrade-native-tick** (FIXING): 真实发布后复现 GitHub API 403 导致 `dt upgrade` fallback 误判无更新，以及 macOS crontab 写超时导致 native cron 未落地。post1 增加 GitHub latest redirect fallback，并在 native revision 变化时由 `dt tick` 直接同步，cron 降为冗余。
 
 ### v0.4.51 (RELEASED) — Session Ownership API
 

@@ -10,6 +10,7 @@ import urllib.request
 from dataclasses import dataclass
 
 LATEST_RELEASE_API = "https://api.github.com/repos/yukai08008/dual-tmux/releases/latest"
+LATEST_RELEASE_PAGE = "https://github.com/yukai08008/dual-tmux/releases/latest"
 RELEASE_PATH = "/yukai08008/dual-tmux/releases/download/"
 WHEEL = re.compile(r"^dual_tmux-(?P<version>.+)-py3-none-any\.whl$")
 VERSION = re.compile(r"^(?P<base>\d+\.\d+\.\d+)(?:\.post(?P<post>\d+))?$")
@@ -53,17 +54,48 @@ def discover_latest(opener=urllib.request.urlopen) -> ReleaseAsset:
     raise RuntimeError("latest dual-tmux release has no universal wheel")
 
 
+def discover_latest_redirect(opener=urllib.request.urlopen) -> ReleaseAsset:
+    """Resolve latest without the rate-limited GitHub API."""
+    request = urllib.request.Request(
+        LATEST_RELEASE_PAGE,
+        headers={"User-Agent": "dual-tmux-upgrade"},
+        method="HEAD",
+    )
+    with opener(request, timeout=15) as response:
+        final = urllib.parse.urlparse(response.geturl())
+    prefix = "/yukai08008/dual-tmux/releases/tag/"
+    if (
+        final.scheme != "https"
+        or final.netloc != "github.com"
+        or not final.path.startswith(prefix)
+    ):
+        raise RuntimeError("GitHub latest redirect is invalid")
+    tag = urllib.parse.unquote(final.path.removeprefix(prefix)).strip("/")
+    version = tag.removeprefix("v")
+    if tag != f"v{version}" or not VERSION.fullmatch(version):
+        raise RuntimeError("GitHub latest redirect has an invalid version")
+    name = f"dual_tmux-{version}-py3-none-any.whl"
+    return ReleaseAsset(
+        version,
+        tag,
+        f"https://github.com/yukai08008/dual-tmux/releases/download/{tag}/{name}",
+    )
+
+
 def install_latest(current: str, runner=subprocess.run) -> ReleaseAsset:
-    asset = discover_latest()
+    try:
+        asset = discover_latest()
+    except OSError:
+        asset = discover_latest_redirect()
     current_match = VERSION.fullmatch(current)
     latest_match = VERSION.fullmatch(asset.version)
     if current_match and latest_match:
-        current_key = tuple(int(part) for part in current_match.group("base").split(".")) + (
-            int(current_match.group("post") or 0),
-        )
-        latest_key = tuple(int(part) for part in latest_match.group("base").split(".")) + (
-            int(latest_match.group("post") or 0),
-        )
+        current_key = tuple(
+            int(part) for part in current_match.group("base").split(".")
+        ) + (int(current_match.group("post") or 0),)
+        latest_key = tuple(
+            int(part) for part in latest_match.group("base").split(".")
+        ) + (int(latest_match.group("post") or 0),)
         if latest_key <= current_key:
             return asset
     elif asset.version == current:
