@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 from pathlib import Path
@@ -100,3 +101,43 @@ def test_merge_snapshot_handles_missing_entry_and_equal_time_deterministically(t
     assert (local_tunnels / "dt-tie.json").read_bytes() == (hub_tunnels / "dt-tie.json").read_bytes()
     assert not (local_entries / "run_missing.cmd").exists()
     assert not (hub_entries / "run_missing.cmd").exists()
+
+
+def test_read_ownership_synthesizes_v1_without_sidecar(monkeypatch):
+    class Result:
+        returncode = 0
+        stderr = ""
+        stdout = "V1 " + base64.b64encode(b"tm_old@1000@7\n").decode() + "\nV2 \n"
+
+    cfg = AppConfig(client="tm_new", server="tom7r", user="andy")
+    monkeypatch.setattr(hub, "_run", lambda *_args, **_kwargs: Result())
+    monkeypatch.setattr(hub.time, "time", lambda: 1100)
+    value = hub.read_ownership("dt-a", cfg)
+    assert value["state"] == "foreign"
+    assert value["holder"] == "tm_old"
+    assert value["generation"] == 7
+    assert value["source"] == "v1"
+    assert value["conflict"] is False
+
+
+def test_stale_sidecar_never_overrides_v1(monkeypatch):
+    sidecar = {"holder": "tm_wrong", "generation": 2, "instance_id": "bad", "evidence": {"unsafe": True}}
+
+    class Result:
+        returncode = 0
+        stderr = ""
+        stdout = "\n".join([
+            "V1 " + base64.b64encode(b"tm_owner@1000@9\n").decode(),
+            "V2 " + base64.b64encode(json.dumps(sidecar).encode()).decode(),
+        ])
+
+    cfg = AppConfig(client="tm_owner", server="tom7r", user="andy")
+    monkeypatch.setattr(hub, "_run", lambda *_args, **_kwargs: Result())
+    monkeypatch.setattr(hub.time, "time", lambda: 1100)
+    value = hub.read_ownership("dt-a", cfg)
+    assert value["state"] == "owned"
+    assert value["generation"] == 9
+    assert value["instance_id"] == ""
+    assert value["evidence"] == {}
+    assert value["source"] == "v1"
+    assert value["conflict"] is True
