@@ -17,7 +17,6 @@ from dual_tmux.web import (
     _open_browser,
     _opencode_auto,
     _pane_name,
-    _resume_tunnel,
     _save_web_state,
     _switch_trigger_auto,
     _tunnels,
@@ -366,7 +365,9 @@ def test_admin_tabs_and_search(tmp_path, monkeypatch):
     assert "restoreTabs" in page
     assert "TABS_KEY" in page
     assert "/api/resume" in page
-    assert "ensureResumed" in page
+    assert "ensureResumed" not in page
+    assert "Ownership 与安全接管" in page
+    assert "/api/resume/plan" in page
     assert "refreshRows" in page
     assert "setInterval(refreshRows, 5000)" in page
     assert "fetch('/api/tunnels')" in page
@@ -473,40 +474,6 @@ def test_web_state_keeps_closed_tunnel_history(tmp_path, monkeypatch):
     assert (tmp_path / "web-state.json").is_file()
 
 
-def test_web_auto_resume_only_for_offline_dst(tmp_path, monkeypatch):
-    from dual_tmux import cli, web
-
-    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
-    data = {
-        "name": "dt-msg",
-        "op": "op_msg",
-        "run": "run_msg",
-        "trigger": {"tool": "opencode", "model": "m", "session_id": "op-1"},
-        "bullet": {"tool": "opencode", "model": "m", "session_id": "run-1"},
-    }
-    save(tunnels_dir() / "dt-msg.json", data)
-    live = {"value": False}
-    monkeypatch.setattr(web.tmux_ops, "has_session", lambda _: live["value"])
-    calls = []
-
-    def fake_resume(name, force=False):
-        calls.append((name, force))
-        live["value"] = True
-        return data
-
-    monkeypatch.setattr(cli, "apply_resume", fake_resume)
-    result = _resume_tunnel("dt-msg")
-    assert result == {"ok": True, "resumed": True, "op_live": True, "run_live": True}
-    assert calls == [("dt-msg", False)]
-    assert _resume_tunnel("dt-msg")["resumed"] is False
-
-    data["bullet"] = {}
-    save(tunnels_dir() / "dt-msg.json", data)
-    live["value"] = False
-    with pytest.raises(SystemExit, match="requires a DST"):
-        _resume_tunnel("dt-msg")
-
-
 def test_web_switches_bound_trigger_to_auto(tmp_path, monkeypatch):
     from dual_tmux import web
 
@@ -556,3 +523,76 @@ def test_web_trigger_auto_requires_frozen_session(tmp_path, monkeypatch):
     monkeypatch.setattr("dual_tmux.web.tmux_ops.has_session", lambda _: True)
     with pytest.raises(SystemExit, match="no frozen session id"):
         _switch_trigger_auto("dt-msg")
+
+
+def test_web_ownership_plan_reads_cache_without_live_probe(tmp_path, monkeypatch):
+    from dual_tmux import ownership
+
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
+    save(
+        tunnels_dir() / "dt-msg.json",
+        {
+            "name": "dt-msg",
+            "op": "op_msg",
+            "run": "run_msg",
+            "trigger": {"tool": "codex", "session_id": "trigger-1"},
+            "bullet": {"tool": "claude", "session_id": "bullet-1"},
+        },
+    )
+    facts = {
+        "schema": 1,
+        "name": "dt-msg",
+        "takeover": {"safe": True, "action": "resume", "reason": "already_owned"},
+    }
+    ownership.write_cache(facts)
+    monkeypatch.setattr(
+        ownership, "snapshot", lambda *_a, **_kw: pytest.fail("Web GET must not probe")
+    )
+    server = WebHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        root = f"http://127.0.0.1:{server.server_port}"
+        payload = json.load(urlopen(root + "/api/resume/plan?t=dt-msg", timeout=3))
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+    assert payload["data"]["safe"] is True
+    assert payload["data"]["cache"]["freshness"] == "fresh"
+
+
+def test_tunnels_page_has_explicit_takeover_and_no_automatic_resume():
+    page = tunnels_page()
+    assert "Ownership 与安全接管" in page
+    assert "btn-force-resume" in page
+    assert "if (st.name) { tick(); refreshOwnership(st); }" in page
+    assert "if (st.name) { ensureResumed(st);" not in page
+
+
+def test_web_force_resume_requires_exact_name(monkeypatch):
+    service = type(
+        "Service",
+        (),
+        {"resume": lambda *_a, **_kw: pytest.fail("must not execute without confirmation")},
+    )()
+    monkeypatch.setattr("dual_tmux.web.get_control_service", lambda: service)
+    server = WebHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    body = urlencode({"t": "dt-msg", "force": "1", "confirm": "wrong"}).encode()
+    request = Request(
+        f"http://127.0.0.1:{server.server_port}/api/resume",
+        data=body,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    try:
+        with pytest.raises(HTTPError) as caught:
+            urlopen(request, timeout=3)
+        payload = json.loads(caught.value.read())
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+    assert caught.value.code == 409
+    assert payload["error"]["code"] == "confirmation_required"

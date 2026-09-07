@@ -574,14 +574,20 @@ class DualTmuxDaemon:
             cfg = load_config()
         except (OSError, SystemExit):
             return
-        if not cfg.hub_enabled:
-            return
         for path in iter_dt_files():
             data = load(path)
             name = str(data.get("name") or path.stem)
             try:
+                activity.activity_evidence(data)
                 lease = hub.read_ownership(name, cfg)
-            except SystemExit:
+                facts = ownership.snapshot(data, lease=lease)
+            except (OSError, SystemExit, ValueError):
+                continue
+            try:
+                ownership.write_cache(facts)
+            except (OSError, ValueError):
+                pass
+            if not cfg.hub_enabled:
                 continue
             handoff = lease.get("handoff") or {}
             if (
@@ -593,8 +599,6 @@ class DualTmuxDaemon:
             request_id = str(handoff.get("request_id") or "")
             generation = int(lease.get("generation") or 0)
             try:
-                activity.activity_evidence(data)
-                facts = ownership.snapshot(data)
                 reasons = []
                 for role in ("trigger", "bullet"):
                     if not ownership.persistence_supported(data, role):
@@ -660,6 +664,12 @@ class DualTmuxDaemon:
                 log.emit("feishu.bridge.worker.reject", reason=type(exc).__name__)
             self.stop_event.wait(self.mailbox_interval)
 
+    def _ownership_worker(self) -> None:
+        """Collect potentially slow Hub/runtime facts away from connector supervision."""
+        while not self.stop_event.is_set():
+            self._ownership_step(force=True)
+            self.stop_event.wait(max(1.0, self.ownership_interval))
+
     def _write_status(self, connector: dict) -> None:
         previous = read_daemon_status()
         candidates = previous.pop("candidates", [])
@@ -692,6 +702,7 @@ class DualTmuxDaemon:
             signal.signal(signal.SIGINT, stop)
         log.emit("dt.daemon.start", pid=os.getpid())
         mailbox_thread = None
+        ownership_thread = None
         if not once:
             mailbox_thread = threading.Thread(
                 target=self._mailbox_worker,
@@ -699,6 +710,12 @@ class DualTmuxDaemon:
                 name="dt-feishu-mailbox",
             )
             mailbox_thread.start()
+            ownership_thread = threading.Thread(
+                target=self._ownership_worker,
+                daemon=True,
+                name="dt-ownership-cache",
+            )
+            ownership_thread.start()
         else:
             try:
                 (self.mailbox_sync or self._sync_mailbox_once)()
@@ -708,7 +725,8 @@ class DualTmuxDaemon:
             while not self.stop_event.is_set():
                 self._write_status(self.manager.step())
                 self._statusbar_step()
-                self._ownership_step(force=once)
+                if once:
+                    self._ownership_step(force=True)
                 if once:
                     return
                 self.stop_event.wait(self.interval)
@@ -716,6 +734,8 @@ class DualTmuxDaemon:
             self.stop_event.set()
             if mailbox_thread:
                 mailbox_thread.join(timeout=min(self.mailbox_interval + 1, 6))
+            if ownership_thread:
+                ownership_thread.join(timeout=2)
             global_state = read_daemon_status()
             was_owner = (
                 self.manager.has_lease

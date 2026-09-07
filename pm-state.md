@@ -1,8 +1,13 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-07 16:20 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-07 18:30 +08:00 | 更新者: Codex PM
 
 ## 状态树
+
+### v0.4.54 (CODE_COMPLETE) — Ownership 与安全接管 Web
+
+- 三件套与验收报告：`dev_plans/v0.4.53-v0.4.54/`。
+- **feature/v0.4.54-ownership-web** (CODE_COMPLETE): 从 `origin/main@325f81e`（含 v0.4.53.post1）建立。后台 daemon/tick 原子 Ownership cache、cache-only Web GET、四维 Lease/trigger/bullet/native snapshot 面板、显式 handoff/resume、force 全名确认与提交时实时重验已完成；页面生命周期 auto-resume 已移除。299 tests、聚焦 Ruff、compileall、build、隔离安装与 Browser E2E 全绿，待 PR/合并、`v0.4.54-final` 与 Release。
 
 ### v0.4.53 (RELEASED) — Codex / Claude Native Session Runtime
 
@@ -116,7 +121,7 @@
 
 ## 当前焦点
 
-- 从 `v0.4.53-final` 建立 v0.4.54 Ownership Web 三件套与功能分支。
+- 将 v0.4.54 从 CODE_COMPLETE 推进至 PR 合并、`v0.4.54-final`、Release 和本机无损升级验证。
 
 ## Backlog
 
