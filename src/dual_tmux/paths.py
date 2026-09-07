@@ -34,3 +34,7 @@ def ops_root() -> Path:
 
 def activity_path() -> Path:
     return home_dir() / "activity.log"
+
+
+def ownership_cache_dir() -> Path:
+    return home_dir() / "ownership-cache"

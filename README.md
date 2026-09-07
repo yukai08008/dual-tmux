@@ -150,6 +150,8 @@ dt ownership dt-msg --json
 dt resume dt-msg --plan
 ```
 
+The v0.4.54 Web Ownership panel exposes the same frozen decision model for OpenCode, Codex and Claude. Background daemon/tick work writes an atomic local cache; browser GET requests read that cache only, so loading or refreshing the page does not probe SSH or automatically resume a tunnel. Lease and per-side runtime/attached/progress/writer/native-snapshot facts remain separate. Local-only mode is first-class and is shown without a fictitious Hub lease. Handoff and Resume require explicit actions; Force requires the exact tunnel name and cannot bypass unknown/duplicate writers, stale evidence, or native snapshot conflicts. See [Web Ownership and safe takeover](docs/web.md#ownership-and-safe-takeover-v0454).
+
 For Codex and Claude, cross-Client resume transfers only the JSONL whose UUID
 was recorded by `dt freeze`. The snapshot contains per-file SHA-256, source
 Client/instance, lease generation, frozen workdir and Agent client version.

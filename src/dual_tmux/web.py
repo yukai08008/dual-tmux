@@ -28,7 +28,7 @@ from .store import find_dt, iter_dt_files, load, normalize_dt
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8787
-_RESUME_LOCK = threading.Lock()
+_LIFECYCLE_LOCK = threading.Lock()
 _WEB_STATE_LOCK = threading.Lock()
 
 
@@ -233,36 +233,9 @@ def _pane_name(data: dict, side: str) -> str:
     return data.get("run") or ""
 
 
-def _resume_tunnel(name: str) -> dict:
-    """Resume an offline DST for the web UI without attaching a terminal."""
-    with _RESUME_LOCK:
-        data = load(find_dt(name))
-        if not oc_ops.is_dst(data):
-            raise SystemExit("[err] automatic resume requires a DST")
-        op = data.get("op") or ""
-        run = data.get("run") or ""
-        needed = not (
-            op and run and tmux_ops.has_session(op) and tmux_ops.has_session(run)
-        )
-        if needed:
-            # Keep this small seam patchable for local Web tests; the CLI wrapper
-            # delegates to the same ControlService used by the HTTP handlers.
-            from .cli import apply_resume
-
-            data = apply_resume(name, force=False)
-            op = data.get("op") or ""
-            run = data.get("run") or ""
-        return {
-            "ok": True,
-            "resumed": needed,
-            "op_live": bool(op) and tmux_ops.has_session(op),
-            "run_live": bool(run) and tmux_ops.has_session(run),
-        }
-
-
 def _switch_trigger_auto(name: str) -> dict:
     """Restart a tunnel's bound trigger session in OpenCode auto mode."""
-    with _RESUME_LOCK:
+    with _LIFECYCLE_LOCK:
         data = load(find_dt(name))
         op = data.get("op") or ""
         trigger = data.get("trigger") or {}
@@ -298,7 +271,7 @@ def _mtime_iso(path: Path) -> str:
         ts = path.stat().st_mtime
     except OSError:
         return ""
-    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.fromtimestamp(ts).astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _sync_info(data: dict) -> dict:
@@ -451,6 +424,16 @@ h2 {{ margin:0 0 8px; font-size:13px; }}
 .sync .k {{ flex:0 0 88px; color:var(--muted); }}
 .sync .v {{ flex:1; font-family:ui-monospace,Menlo,monospace; }}
 .sync .chg {{ color:#059669; font-size:11px; }}
+.ownership {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:10px; }}
+.own-block {{ border:1px solid var(--line); border-radius:7px; padding:10px; background:#f8fafc; min-width:0; }}
+.own-block h3 {{ margin:0 0 7px; font-size:12px; }}
+.own-line {{ display:flex; gap:8px; padding:3px 0; align-items:flex-start; }}
+.own-line .k {{ color:var(--muted); flex:0 0 82px; }}
+.own-line .v {{ min-width:0; overflow-wrap:anywhere; font-family:ui-monospace,Menlo,monospace; }}
+.own-good {{ color:var(--ok); }} .own-bad {{ color:#dc2626; }} .own-warn {{ color:#b45309; }}
+.takeover-actions {{ display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; align-items:center; }}
+.takeover-actions .danger {{ background:#dc2626; }}
+.takeover-actions button:disabled {{ opacity:.45; cursor:not-allowed; }}
 .syncbar {{ display:flex; gap:16px; align-items:center; flex-wrap:wrap; }}
 .sess {{ display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-radius:8px; background:#f3f4f6; border:1px solid var(--line); font-family:ui-monospace,Menlo,monospace; }}
 .sess .spin {{ width:10px; height:10px; border:2px solid #e5e7eb; border-top-color:#f59e0b; border-radius:50%; }}
@@ -607,10 +590,12 @@ def guide_page() -> str:
         (
             "首次配置",
             "可纯本地启动，也可立即配置同步 Hub。",
-            "dt config --init --local --client tm_laptop\n"
-            "# 以后接入或更换 Hub\n"
-            "dt config --server myserver --user andy\n"
-            "dt doctor",
+            (
+                "dt config --init --local --client tm_laptop\n"
+                "# 以后接入或更换 Hub\n"
+                "dt config --server myserver --user andy\n"
+                "dt doctor"
+            ),
         ),
         (
             "创建完整 DST",
@@ -988,11 +973,21 @@ def tunnels_page(selected: str = "") -> str:
           <span id="client-op">trigger client —</span> · <span id="client-run">bullet client —</span>
         </div>
         <div class="sync" id="healthbox" style="margin-top:8px">health —</div>
+        <div class="card" style="margin-top:10px">
+          <h2>Ownership 与安全接管</h2>
+          <div id="ownershipbox" class="ownership"><div class="own-block">等待 daemon/tick 采集状态…</div></div>
+          <div class="takeover-actions">
+            <button type="button" class="ghost" id="btn-plan">刷新预检</button>
+            <button type="button" class="ghost" id="btn-handoff" disabled>请求 Handoff</button>
+            <button type="button" id="btn-resume" disabled>执行安全 Resume</button>
+            <button type="button" class="danger" id="btn-force-resume" disabled>高风险 Force Resume</button>
+          </div>
+          <div class="meta" id="ownershiphint" style="margin-top:8px">页面读取后台缓存；刷新不会探测 SSH，也不会启动会话。</div>
+        </div>
         <div class="models" id="lifecycle">
           <div class="field"><label>freeze 范围</label><select id="freeze-side"><option value="both">trigger + bullet</option><option value="trigger">trigger</option><option value="bullet">bullet</option></select></div>
           <div class="field"><label>远端客户端</label><select id="freeze-tool"><option value="auto">自动识别</option><option value="opencode">OpenCode</option><option value="codex">Codex</option><option value="claude">Claude Code</option></select></div>
           <button type="button" class="ghost" id="btn-freeze">Freeze</button>
-          <button type="button" class="ghost" id="btn-resume">Resume</button>
           <button type="button" class="ghost" id="btn-reconnect">重连入口</button>
           <button type="button" class="ghost" id="btn-drop">Drop</button>
           <button type="button" class="ghost" id="btn-health">立即健康检查</button>
@@ -1053,6 +1048,8 @@ const meta = document.getElementById('meta');
 const clientOp = document.getElementById('client-op');
 const clientRun = document.getElementById('client-run');
 const healthBox = document.getElementById('healthbox');
+const ownershipBox = document.getElementById('ownershipbox');
+const ownershipHint = document.getElementById('ownershiphint');
 const logEl = document.getElementById('log');
 const box = document.getElementById('box');
 const opout = document.getElementById('opout');
@@ -1262,7 +1259,7 @@ function activate(st) {{
   touchVisit(st);
   renderTabs();
   applyState(st);
-  if (st.name) {{ ensureResumed(st); tick(); }}
+  if (st.name) {{ tick(); refreshOwnership(st); }}
 }}
 function addTab(name) {{
   const st = name ? stateFromHistory(name) : emptyState('');
@@ -1484,21 +1481,60 @@ function renderSync(s) {{
     '<div class="row" style="margin-top:6px"><span class="k">oc 快照</span><span class="v">'+(s.oc_slug || '—')+' '+(s.oc_mtime || '')+(lastSync.oc_mtime && s.oc_mtime && lastSync.oc_mtime !== s.oc_mtime ? ' <span class="chg">更新</span>' : '')+'</span></div>';
   lastSync = s;
 }}
-async function ensureResumed(st) {{
-  const row=rows.find(item=>item.name===st.name);
-  if (!row || !row.dst || !row.auto_recover || (row.op_live && row.run_live)) return;
-  if (Date.now()-(st.resumeTriedAt||0) < 30000) return;
-  st.resumeTriedAt=Date.now();
-  logFor(st,'resume','本机会话离线，正在自动 resume '+st.name);
-  try {{
-    const result=await postForm('/api/resume',{{t:st.name}});
-    row.op_live=!!result.op_live; row.run_live=!!result.run_live;
-    logFor(st,result.op_live&&result.run_live?'done':'err',result.resumed?'自动 resume 完成':'会话已经在线');
-    if (activeTab===st) tick();
-  }} catch(err) {{
-    logFor(st,'err','自动 resume 失败 · '+String(err.message||err));
+const reasonText = {{
+  already_owned:'当前 Client 已持有，可恢复', free:'当前无人持有，可安全 claim', expired:'Lease 已过期，可安全 claim',
+  foreign_idle_detached:'其他 Client 持有，但两侧均 idle 且 detached，可请求 handoff',
+  ownership_cache_missing:'尚无 Ownership 缓存；请确认 dt daemon 正在运行或执行 dt tick',
+  ownership_cache_stale:'Ownership 缓存已过期；禁止依据旧证据接管', owner_evidence_stale:'Owner 证据已过期',
+  not_a_frozen_dst:'隧道尚未 freeze 出 trigger/bullet 会话 ID',
+  trigger_writer_probe_failed:'trigger writer 探测未知，禁止接管', bullet_writer_probe_failed:'bullet writer 探测未知，禁止接管',
+  trigger_duplicate_writer:'trigger 存在重复 writer，禁止接管', bullet_duplicate_writer:'bullet 存在重复 writer，禁止接管',
+  trigger_native_snapshot_conflict:'trigger native snapshot 冲突，禁止接管', bullet_native_snapshot_conflict:'bullet native snapshot 冲突，禁止接管'
+}};
+function ownValue(value) {{
+  if (value === null || value === undefined || value === '') return '—';
+  if (value === true) return 'yes'; if (value === false) return 'no';
+  return String(value);
+}}
+function ownLine(key,value,klass='') {{ return '<div class="own-line"><span class="k">'+esc(key)+'</span><span class="v '+klass+'">'+esc(ownValue(value))+'</span></div>'; }}
+function renderOwnership(plan) {{
+  const facts=plan.ownership||null, cache=plan.cache||{{}};
+  const safe=!!plan.safe, reason=plan.reason||'facts_unavailable';
+  ownershipHint.textContent=(reasonText[reason]||reason)+' · cache '+ownValue(cache.freshness)+' · age '+ownValue(cache.age_seconds)+'s';
+  document.getElementById('btn-resume').disabled=!safe;
+  document.getElementById('btn-force-resume').disabled=!(safe&&plan.action==='claim');
+  document.getElementById('btn-handoff').disabled=!(safe&&plan.action==='request_handoff');
+  if (!facts) {{
+    ownershipBox.innerHTML='<div class="own-block">'+ownLine('预检','STOP','own-bad')+ownLine('原因',reasonText[reason]||reason)+ownLine('缓存',cache.freshness||'missing')+'</div>';
+    return;
   }}
-  renderTabs();
+  const lease=facts.lease||{{}}, writers=facts.writers||{{}}, native=facts.native_snapshots||{{}}, snap=facts.snapshot||{{}};
+  const local=lease.source==='local';
+  const leaseTitle=local?'本地单机（无 Hub lease）':'Lease';
+  let blocks='<div class="own-block"><h3>'+leaseTitle+'</h3>'+ownLine('state',lease.state)+ownLine('holder',lease.holder)+ownLine('instance',lease.instance_id)+ownLine('generation',lease.generation)+ownLine('TTL/age',local?'n/a':ownValue(lease.expires_at)+' / '+ownValue(lease.age_seconds)+'s')+ownLine('evidence',snap.freshness)+(lease.handoff?ownLine('handoff',(lease.handoff.status||'')+' · '+(lease.handoff.request_id||'')):'')+'</div>';
+  ['trigger','bullet'].forEach(role=>{{
+    const writer=writers[role]||{{}}, ns=native[role]||{{}};
+    const bad=writer.status==='duplicate'||writer.status==='unknown';
+    blocks+='<div class="own-block"><h3>'+role+'</h3>'+ownLine('runtime',(facts.runtime||{{}})[role])+ownLine('attached',(facts.attached||{{}})[role])+ownLine('progress',(facts.progress||{{}})[role])+ownLine('writer',ownValue(writer.status)+' · count '+ownValue(writer.count),bad?'own-bad':'own-good')+ownLine('PIDs',(writer.pids||[]).join(', ')||'—')+ownLine('snapshot',ownValue(ns.status)+' · '+ownValue(ns.tool))+ownLine('session',ns.session_id||'—')+'</div>';
+  }});
+  blocks+='<div class="own-block"><h3>接管结论</h3>'+ownLine('safe',safe,safe?'own-good':'own-bad')+ownLine('action',plan.action)+ownLine('reason',reasonText[reason]||reason)+ownLine('steps',(plan.steps||[]).join(' → ')||'stop')+'</div>';
+  ownershipBox.innerHTML=blocks;
+}}
+async function refreshOwnership(st=activeTab) {{
+  if(!st||!st.name) return;
+  const expected=st.name;
+  try {{
+    const r=await fetch('/api/resume/plan?t='+encodeURIComponent(expected));
+    const payload=await r.json();
+    if(activeTab!==st||st.name!==expected) return;
+    if(!r.ok) throw new Error((payload.error&&payload.error.message)||'预检失败');
+    renderOwnership(payload.data||payload);
+  }} catch(err) {{
+    ownershipHint.textContent='Ownership 读取失败 · '+String(err.message||err);
+    document.getElementById('btn-resume').disabled=true;
+    document.getElementById('btn-force-resume').disabled=true;
+    document.getElementById('btn-handoff').disabled=true;
+  }}
 }}
 function snap(el, next) {{
   if (next === el.textContent) return;
@@ -1515,11 +1551,11 @@ async function tick() {{
   const liveRow=rows.find(item=>item.name===st.name);
   if (liveRow) {{
     liveRow.op_live=!!j.op_live; liveRow.run_live=!!j.run_live;
-    if (liveRow.dst && (!j.op_live || !j.run_live)) ensureResumed(st);
   }}
   snap(opout, j.op_text || '');
   snap(runout, j.run_text || '');
   if (j.sync) renderSync(j.sync);
+  refreshOwnership(st);
   autoOp.hidden = !st.name || j.trigger_tool !== 'opencode' || j.op_auto !== false || !j.op_live;
   document.getElementById('btn-model-op').disabled = j.trigger_tool !== 'opencode';
   document.getElementById('btn-model-run').disabled = j.bullet_tool !== 'opencode';
@@ -1741,7 +1777,12 @@ async function postForm(url, fields) {{
   const body = new URLSearchParams(fields);
   const r = await fetch(url, {{ method: 'POST', headers: {{ 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' }}, body }});
   const text = await r.text();
-  if (!r.ok) throw new Error(text);
+  if (!r.ok) {{
+    try {{
+      const payload=JSON.parse(text), err=payload.error||{{}}, detail=err.detail||{{}};
+      throw new Error([err.code,detail.reason,err.message].filter(Boolean).join(' · ')||text);
+    }} catch(parsed) {{ if(parsed instanceof SyntaxError) throw new Error(text); throw parsed; }}
+  }}
   try {{ return JSON.parse(text); }} catch {{ return {{ ok:true }}; }}
 }}
 function syncRowModels(j) {{
@@ -1789,6 +1830,30 @@ autoOp.addEventListener('click', async () => {{
     logLine('err','auto 转换失败 · '+String(err.message||err));
   }} finally {{ autoOp.disabled=false; }}
 }});
+document.getElementById('btn-plan').addEventListener('click',()=>refreshOwnership(activeTab));
+document.getElementById('btn-handoff').addEventListener('click',async()=>{{
+  const st=activeTab; if(!st||!st.name) return;
+  try {{
+    const j=await postForm('/api/ownership/handoff',{{t:st.name,reason:'web-safe-takeover'}});
+    const handoff=(j.data&&j.data.handoff)||{{}};
+    logLine('done','Handoff '+(handoff.status||'requested')+' · '+(handoff.request_id||''));
+    await refreshOwnership(st);
+  }} catch(err) {{ logLine('err','Handoff 失败 · '+String(err.message||err)); }}
+}});
+async function executeResume(force) {{
+  const st=activeTab; if(!st||!st.name) return;
+  if(force) {{
+    const typed=prompt('高风险操作：输入隧道全名确认 Force Resume。安全门（未知探测、重复 writer、native conflict、旧证据）仍不可绕过：','');
+    if(typed!==st.name) {{ logLine('err','Force Resume 已取消：确认名称不匹配'); return; }}
+  }}
+  try {{
+    const j=await postForm('/api/resume',{{t:st.name,force:force?'1':'0',confirm:force?st.name:''}});
+    logLine('done',(force?'Force Resume':'Resume')+' 完成 · generation '+ownValue((j.data||{{}}).ownership_generation));
+    await refreshRows(); await tick(); await refreshOwnership(st);
+  }} catch(err) {{ logLine('err',(force?'Force Resume':'Resume')+' 失败 · '+String(err.message||err)); await refreshOwnership(st); }}
+}}
+document.getElementById('btn-resume').addEventListener('click',()=>executeResume(false));
+document.getElementById('btn-force-resume').addEventListener('click',()=>executeResume(true));
 document.getElementById('btn-freeze').addEventListener('click', async () => {{
   const st = activeTab;
   if (!st || !st.name) return;
@@ -1815,7 +1880,6 @@ async function tunnelAction(buttonId, url, fields, done) {{
     }} catch(err) {{ logLine('err',String(err.message||err)); }}
   }});
 }}
-tunnelAction('btn-resume','/api/resume',st=>({{t:st.name}}),'resume 完成');
 tunnelAction('btn-reconnect','/api/tunnel/reconnect',st=>({{t:st.name}}),'入口已重连');
 tunnelAction('btn-drop','/api/tunnel/drop',st=>confirm('Drop 本机 tmux，但保留绑定？')?{{t:st.name,confirm:st.name}}:null,'本机 pane 已 drop');
 tunnelAction('btn-health','/api/health/probe',st=>({{t:st.name}}),'健康检查完成');
@@ -2036,7 +2100,7 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/tunnel":
             name = (qs.get("t") or [""])[0]
             try:
-                data = get_control_service().get_tunnel(name).data
+                data = get_control_service().get_tunnel_readonly(name).data
             except ControlError as exc:
                 self._send(
                     exc.status,
@@ -2068,6 +2132,8 @@ class Handler(BaseHTTPRequestHandler):
                 ).as_dict(),
                 "trigger_model": (data.get("trigger") or {}).get("model") or "",
                 "bullet_model": (data.get("bullet") or {}).get("model") or "",
+                "trigger_tool": (data.get("trigger") or {}).get("tool") or "opencode",
+                "bullet_tool": (data.get("bullet") or {}).get("tool") or "opencode",
                 "trigger_client": (data.get("trigger") or {}).get("agent_client") or {},
                 "bullet_client": (data.get("bullet") or {}).get("agent_client") or {},
                 "auto_recover": bool(data.get("auto_recover")),
@@ -2075,6 +2141,26 @@ class Handler(BaseHTTPRequestHandler):
                 "sync": _sync_info(data),
             }
             self._send(200, json.dumps(payload), "application/json; charset=utf-8")
+            return
+        if parsed.path in {"/api/ownership", "/api/resume/plan"}:
+            name = (qs.get("t") or [""])[0]
+            try:
+                service = get_control_service()
+                result = (
+                    service.cached_ownership(name)
+                    if parsed.path == "/api/ownership"
+                    else service.cached_resume_plan(name)
+                )
+            except ControlError as exc:
+                self._send(
+                    exc.status,
+                    json.dumps(exc.as_dict()),
+                    "application/json; charset=utf-8",
+                )
+                return
+            self._send(
+                200, json.dumps(result.as_dict()), "application/json; charset=utf-8"
+            )
             return
         if parsed.path == "/api/models":
             q = ((qs.get("q") or [""])[0] or "").lower()
@@ -2345,12 +2431,40 @@ class Handler(BaseHTTPRequestHandler):
         name = (form.get("t") or [""])[0]
         if parsed.path == "/api/resume":
             try:
-                result = _resume_tunnel(name)
-            except (SystemExit, ControlError) as exc:
-                status = exc.status if isinstance(exc, ControlError) else 409
-                self._send(status, str(exc), "text/plain; charset=utf-8")
+                force = (form.get("force") or ["0"])[0] == "1"
+                if force and (form.get("confirm") or [""])[0] != name:
+                    raise ControlError(
+                        "confirmation_required",
+                        "force resume requires the exact tunnel name",
+                        status=409,
+                    )
+                result = get_control_service().resume(name, force=force)
+            except ControlError as exc:
+                self._send(
+                    exc.status,
+                    json.dumps(exc.as_dict()),
+                    "application/json; charset=utf-8",
+                )
                 return
-            self._send(200, json.dumps(result), "application/json; charset=utf-8")
+            self._send(
+                200, json.dumps(result.as_dict()), "application/json; charset=utf-8"
+            )
+            return
+        if parsed.path == "/api/ownership/handoff":
+            try:
+                result = get_control_service().handoff(
+                    name, reason=(form.get("reason") or [""])[0]
+                )
+            except ControlError as exc:
+                self._send(
+                    exc.status,
+                    json.dumps(exc.as_dict()),
+                    "application/json; charset=utf-8",
+                )
+                return
+            self._send(
+                200, json.dumps(result.as_dict()), "application/json; charset=utf-8"
+            )
             return
         if parsed.path == "/api/trigger-auto":
             try:
@@ -2558,7 +2672,7 @@ class Handler(BaseHTTPRequestHandler):
 def _open_browser(url: str) -> None:
     try:
         webbrowser.open(url, new=2)
-    except Exception:
+    except (OSError, webbrowser.Error):
         # The URL is already printed; headless and restricted environments may not have a browser.
         pass
 

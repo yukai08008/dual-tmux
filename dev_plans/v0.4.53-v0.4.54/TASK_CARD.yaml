@@ -1,0 +1,77 @@
+version: v0.4.54
+parent_final: v0.4.53-final
+implementation_base: v0.4.53.post1
+title: Ownership 与安全接管 Web
+type: web
+prd: dev_plans/v0.4.53-v0.4.54/PRD.md
+test_cases: dev_plans/v0.4.53-v0.4.54/TEST_CASES.md
+
+invariants:
+  - "Web GET 不触发 Hub pull、SSH、tmux 或 writer 探测"
+  - "页面加载、刷新和切换 tab 零副作用"
+  - "实时提交重验，缓存不是接管授权"
+  - "unknown/duplicate writer、native conflict、stale cache 不可 force 绕过"
+  - "运行时数据不在 git 追踪中"
+  - "前端 e2e 覆盖新功能"
+
+deliverables:
+  - module: src/dual_tmux/ownership.py
+    change: 原子 Ownership cache 与 frozen plan 投影
+    public_api: [write_cache, read_cache, plan_from_facts]
+  - module: src/dual_tmux/daemon.py
+    change: 后台定期采集 local/Hub Ownership facts
+  - module: src/dual_tmux/control.py
+    change: Web-safe cached ownership/plan 与显式接管边界
+    public_api: [cached_ownership, cached_resume_plan]
+  - module: src/dual_tmux/web.py
+    change: 四维事实面板、handoff/resume/force 交互与精确原因
+  - module: docs/web.md
+    change: Ownership 面板与安全接管运维说明
+
+feature_branches:
+  - name: feature/v0.4.54-ownership-web
+    title: Ownership Web 完整交付
+    deps: [v0.4.53-final]
+    files: [src/dual_tmux/ownership.py, src/dual_tmux/daemon.py, src/dual_tmux/control.py, src/dual_tmux/web.py, tests, docs/web.md]
+    acceptance:
+      - "Lease 与两侧 runtime/attached/progress/writer/native snapshot 独立展示"
+      - "Web plan 仅从 freshness-gated cache 生成"
+      - "页面生命周期不自动 resume"
+      - "handoff 状态和精确拒绝原因可见"
+      - "force 全名确认且不可绕过硬安全门"
+      - "OpenCode/Codex/Claude 与 local-only 展示正确"
+    estimated_loc: ~650
+
+acceptance_count: 6
+total_estimated_loc: ~650
+
+risk_register:
+  - id: R1
+    risk: stale cache authorizes unsafe takeover
+    mitigation: freshness gate plus commit-time live preflight
+    severity: critical
+  - id: R2
+    risk: browser polling causes network probe storm
+    mitigation: cache-only GET endpoints
+    severity: high
+
+git_workflow:
+  branch_creation: from origin/main containing v0.4.53.post1
+  feature_order: ownership-cache, web-panel, takeover-actions, e2e
+  merge_policy: --no-ff via PR (pm-maintainer)
+  before_merge_checks:
+    - "pytest tests/ -v 全 PASS"
+    - "focused Ruff + compileall + build PASS"
+    - "Browser E2E PASS"
+    - "GET 零 SSH/零副作用合同测试 PASS"
+    - "git ls-files data/ | wc -l == 0"
+  final_tag: v0.4.54-final
+
+deployment_checklist:
+  - "wheel/sdist 构建与隔离安装成功"
+  - "Web 首页与 cached ownership API 返回 200"
+  - "真实 local-only 与 Hub tunnel 面板验证"
+  - "安全 resume/handoff generation 收敛"
+  - "升级前后 config/tunnel/session binding 哈希一致"
+
+签名: Agent-PM-0.4.54

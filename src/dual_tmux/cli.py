@@ -11,7 +11,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import __version__, activity, hub, opsdir, skillmgr, statusbar, ui
+from . import __version__, activity, hub, opsdir, ownership, skillmgr, statusbar, ui
 from . import cron as cron_ops
 from . import hotfix as hotfix_ops
 from . import log as ev
@@ -541,9 +541,8 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
     )
     process_commands = [pane_cmd, *wp.walk_commands(info.get("pid") or "")]
     live_transport = pane_cmd in {"ssh", "docker"} or any(
-        command.startswith("ssh ")
+        command.startswith(("ssh ", "docker exec "))
         or " ssh " in f" {command} "
-        or command.startswith("docker exec ")
         for command in process_commands
     )
     candidate = copy.deepcopy(data) if side == "bullet" else data
@@ -1307,6 +1306,10 @@ def cmd_tick(_: argparse.Namespace) -> None:
             hub.claim(name)
         except SystemExit:
             continue
+        try:
+            ownership.write_cache(ownership.snapshot(data))
+        except (OSError, SystemExit, ValueError):
+            pass
         recovery.observe(data)
         try:
             written = _export_local_snapshots(data, cfg.client)
@@ -1418,7 +1421,7 @@ def cmd_doctor(_: argparse.Namespace) -> None:
     cfg = None
     try:
         cfg = load_config()
-    except Exception:
+    except (OSError, SystemExit, ValueError):
         cfg = None
     if cfg and cfg.client.startswith("tm_"):
         _run_hotfix(cfg, ssh=True)
@@ -1620,7 +1623,7 @@ def cmd_skill(args: argparse.Namespace) -> None:
         ui.ok(f"taught {', '.join(args.skills)} → {data['run']}")
         return
     if action == "used":
-        ok = True if args.ok else False if args.fail else True
+        ok = not args.fail
         skillmgr.log_use(args.dt, args.name, ok, args.detail or "")
         ui.ok(f"logged {args.name}  ok={ok}")
         return
