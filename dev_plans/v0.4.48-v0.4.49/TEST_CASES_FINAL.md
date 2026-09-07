@@ -11,7 +11,7 @@
 | Snapshot convergence | 8 | 8 | 0 |
 | Trigger workdir | 5 | 5 | 0 |
 | Freeze runtime authority | 6 | 6 | 0 |
-| 发布后验证 | 4 | 待发布后回填 | 0 |
+| 发布后验证 | 4 | 4 | 0 |
 
 ## 结果
 
@@ -36,4 +36,13 @@
 
 ## 发布后验证
 
-D-01～D-04 在 GitHub Release 与本机真实升级完成后回填；若任一失败，Release 不宣布完成并走 hotfix/回滚。
+| ID | 结果 | 证据 |
+|---|---|---|
+| D-01 | PASS | GitHub Release `v0.4.49` 指向 merge commit `cd93eb9`；wheel/sdist 已上传，远端 digest 与构建产物一致 |
+| D-02 | PASS | 本机 `dt upgrade` 从 0.4.48.post6 发现并安装 GitHub Release wheel 0.4.49 |
+| D-03 | PASS | 升级前后 `~/.dual-tmux/config.toml` 与全部 tunnel JSON SHA-256 完全一致 |
+| D-04 | PASS | launchd daemon 单实例运行；mailbox worker=`running`；cron 完整；真实 `dt tick` 完成 7 个活动隧道、Hub sync 与飞书 mailbox sync |
+
+## 发布结论
+
+v0.4.49 实际范围全部通过，允许正式使用。未实现的 Session Ownership API 不属于本 Release，继续留在 `BL-RUNTIME-001`。
