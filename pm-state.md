@@ -1,10 +1,10 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-07 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-07 08:51 +08:00 | 更新者: Codex PM
 
 ## 状态树
 
-### v0.4.49 (MERGE_PENDING) — 运行时修复与 Session 快照收敛
+### v0.4.49 (RELEASED) — 运行时修复与 Session 快照收敛
 
 - 三件套已建立：`dev_plans/v0.4.48-v0.4.49/`（PRD + TASK_CARD + TEST_CASES）。
 - **hotfix/v0.4.49-tmux-sync-status** (MERGED): PR #18 已合并（`e8ebdfd`），随 v0.4.48.post3 发布并完成本机真实 upgrade；op_*/run_* 会话 status-right 显示同步 chip——persist 锁期间黄色 spinner `同步中`（daemon 每 2s 推进帧）、成功绿色 `已同步 HH:MM`、失败红色；tick 每分钟保底刷新；用户自定义 status-right 的会话不触碰。213 tests、ruff、真实 lock→spinner→变绿验证通过。
@@ -15,7 +15,7 @@
   - **issue-bullet-multiple-instances** (CLOSED): m7 容器 4 个 opencode 进程抢同一 bullet session（已现场清理 3 个孤儿 + 1 条孤儿 ssh 跳点），是 09-02 上午 bullet 卡死 queue 事故的根因。
 - **hotfix/v0.4.49-trigger-snapshot-export** (MERGED): PR #24 已合并，随 v0.4.48.post6 发布并真实升级；tick 每分钟对本 Client 持有的隧道自动导出 trigger（本地模式含 bullet）会话快照到 persist 租户目录——time_updated 新鲜度门控、原子写、id 校验，失败记 `persist.export.fail` 不拖垮 tick。真实 tick 已自动导出 4 个隧道快照并经 persist cron 上 Hub 验证一致。原则落地：单一活动隧道/会话，任何机器 resume 都拿到最新数据。
   - **issue-trigger-persist-export-missing** (CLOSED): 本机无外部 persist 导出器运行，Hub 快照停留 8/30。租户名（tm_andy_ouc）与 dt client（tm_ouc）不一致经评估不强制改名（保护 tmux-resurrect 路径），导出写入 name 文件指向的租户。
-- **feature/v0.4.49-session-ownership** (CODE_COMPLETE): 本分支实际完成 snapshot freshness 收敛、trigger workdir 和 freeze runtime authority；259 tests、focused Ruff、compileall、构建及隔离安装通过，待 PR 合并与 v0.4.49 Release。
+- **feature/v0.4.49-session-ownership** (MERGED): PR #26 已合并至 `main`（`cd93eb9`）；本分支实际完成 snapshot freshness 收敛、trigger workdir 和 freeze runtime authority。GitHub Release `v0.4.49` 已发布，本机从 0.4.48.post6 真实升级成功，config/tunnel 哈希不变，daemon、cron、Hub sync 与飞书 mailbox sync 全绿。
   - **issue-lockscreen-lease-false-active** (FOUND, DEFERRED): 保留到 `BL-RUNTIME-001`，不计入 v0.4.49 发布范围。
   - **issue-resume-reject-drops-local-pane** (FOUND, DEFERRED): 保留到 `BL-RUNTIME-001`，不计入 v0.4.49 发布范围。
   - **issue-duplicate-session-writer** (CLOSED by post5): 远端同 session 多进程已由 bullet fencing 修复。
@@ -104,7 +104,7 @@
 
 ## 当前焦点
 
-- 合并 `release/v0.4.49`，发布 GitHub Release，并完成本机 `dt upgrade` 与无损验证。
+- v0.4.49 已封板发布。下一轮先重新规划 `BL-RUNTIME-001` 的奇数 API 版本，再建立对应偶数 Web 版本；现有 v0.4.50 草案保持 `REBASE_REQUIRED`，不得直接开工。
 
 ## Backlog
 
