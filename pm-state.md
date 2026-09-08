@@ -1,13 +1,13 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-08 18:25 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-08 18:38 +08:00 | 更新者: Codex PM
 
 ## 状态树
 
-### v0.4.55 (ACTIVE) — Trigger 独热接管 API
+### v0.4.55 (RELEASED) — Trigger 独热接管 API
 
 - 三件套：`dev_plans/v0.4.54-v0.4.55/`。
-- **feature/v0.4.55-exclusive-trigger** (MERGE_PENDING): 健康 handoff 已保持 `persist → commit → park → atomic transfer`，并新增 Hub 服务模式故障仲裁：m7 为唯一 Ownership 权威，活动端 1 秒 watchdog / 4 秒 Lease v2，legacy 保持 300 秒兼容且可安全迁移；故障接管使用 `reservation → 服务端 writer 清场并二次确认 → generation 原子转让 → restore`，清场失败 fail-closed，旧 generation 恢复后 self-fence；Web/ControlService send 也在写 tmux 前统一验证 ownership。真实 tom7r 故障到新 Trigger INPUT_ACK 连续 5 次 6.410–8.019 秒，后续整组为 7.116/6.811 秒；完整健康 `ControlService.resume` 最近 5.752/6.963/7.608 秒，旧 attach 返回 shell。当前默认 336 passed + 2 opt-in，聚焦 Ruff/build/data/diff 门禁全绿；经用户授权作为奇数 API 版安全能力例外发布。
+- **feature/v0.4.55-exclusive-trigger** (MERGED): PR #37 合并至 `main`（merge `c0832a0`）。健康 handoff 保持 `persist → commit → park → atomic transfer`，并新增 Hub 服务模式故障仲裁：m7 为唯一 Ownership 权威，活动端 1 秒 watchdog / 4 秒 Lease v2，legacy 保持 300 秒兼容且可安全迁移；故障接管使用 `reservation → 服务端 writer 清场并二次确认 → generation 原子转让 → restore`，清场失败 fail-closed，旧 generation 恢复后 self-fence；Web/ControlService send 也在写 tmux 前统一验证 ownership。真实 tom7r 故障到新 Trigger INPUT_ACK 连续 5 次 6.410–8.019 秒；完整健康 `ControlService.resume` 最近 5.752/6.963/7.608 秒，旧 attach 返回 shell。默认 336 passed + 2 opt-in，聚焦 Ruff/build/data/diff 门禁全绿；`v0.4.55-final`、`v0.4.55` 与 GitHub Release 已发布，隔离安装及 API/redirect 两条 upgrade discovery 均验证为 0.4.55。本版经用户授权作为奇数 API 版安全能力例外发布。
 
 ### v0.4.54 (RELEASED) — Ownership 与安全接管 Web
 
@@ -126,7 +126,7 @@
 
 ## 当前焦点
 
-- **feature/v0.4.55-exclusive-trigger** 门禁与验收已通过，现进入 MERGE_PENDING；创建 PR、合并并发布 v0.4.55。
+- v0.4.55 已合并、发布并完成升级发现验证；下一步让所有参与独热接管的 Client 升级至 v0.4.55，再进入 v0.4.56 Web 体验演进。
 
 ## Backlog
 
