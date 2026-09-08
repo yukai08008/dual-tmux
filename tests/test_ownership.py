@@ -176,7 +176,7 @@ def test_unsafe_plan_never_claims(monkeypatch):
     assert called == []
 
 
-def test_pending_handoff_falls_back_to_lock_transfer_and_tick_fence(monkeypatch):
+def test_cooperative_handoff_claims_without_fixed_tick_sleep(monkeypatch):
     states = iter(
         [
             {
@@ -185,12 +185,13 @@ def test_pending_handoff_falls_back_to_lock_transfer_and_tick_fence(monkeypatch)
                 "generation": 8,
                 "handoff": {"request_id": "req-1", "status": "pending"},
             },
+            {"state": "free", "holder": "", "generation": 8},
             {"state": "owned", "holder": "tm_here", "generation": 9},
         ]
     )
     claims = []
     sleeps = []
-    clock = iter([0, 0, ownership.HANDOFF_ACK_GRACE + 1])
+    clock = iter([0, 0, 0.25, 0.5])
     monkeypatch.setattr(
         ownership.hub,
         "request_handoff",
@@ -216,9 +217,51 @@ def test_pending_handoff_falls_back_to_lock_transfer_and_tick_fence(monkeypatch)
 
     token = ownership.acquire_for_resume(_data(), plan)
 
-    assert claims == [("dt-a", True)]
-    assert sleeps == [0.5, ownership.OWNER_TICK_GRACE]
+    assert claims == [("dt-a", False)]
+    assert sleeps == [ownership.HANDOFF_POLL_INTERVAL]
     assert token == {"generation": 9, "newly_acquired": True}
+
+
+def test_handoff_timeout_is_fail_closed_and_never_force_claims(monkeypatch):
+    claims = []
+    sleeps = []
+    clock = iter([0, 0, ownership.HANDOFF_TAKEOVER_TIMEOUT + 0.01])
+    monkeypatch.setattr(
+        ownership.hub,
+        "request_handoff",
+        lambda *_a, **_kw: {
+            "ok": True,
+            "handoff": {"request_id": "req-1", "status": "pending"},
+        },
+    )
+    monkeypatch.setattr(
+        ownership.hub,
+        "read_ownership",
+        lambda _name: {
+            "state": "foreign",
+            "holder": "tm_other",
+            "generation": 8,
+            "handoff": {"request_id": "req-1", "status": "pending"},
+        },
+    )
+    monkeypatch.setattr(
+        ownership.hub,
+        "claim",
+        lambda name, force=False: claims.append((name, force)),
+    )
+    monkeypatch.setattr(ownership.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(ownership.time, "sleep", lambda seconds: sleeps.append(seconds))
+    plan = {
+        "safe": True,
+        "action": "request_handoff",
+        "ownership": {"lease": {"state": "foreign"}},
+    }
+
+    with pytest.raises(SystemExit, match="ownership was not changed"):
+        ownership.acquire_for_resume(_data(), plan)
+
+    assert claims == []
+    assert sleeps == [ownership.HANDOFF_POLL_INTERVAL]
 
 
 def test_stale_foreign_evidence_is_never_takeover_safe(monkeypatch):

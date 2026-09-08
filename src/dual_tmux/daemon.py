@@ -514,17 +514,20 @@ class DualTmuxDaemon:
         interval: float = 2.0,
         mailbox_interval: float = 5.0,
         mailbox_sync=None,
-        ownership_interval: float = 15.0,
+        ownership_interval: float = 2.0,
+        ownership_cache_interval: float = 15.0,
     ):
         self.manager = manager or ConnectorManager()
         self.interval = interval
         self.mailbox_interval = mailbox_interval
         self.mailbox_sync = mailbox_sync
         self.ownership_interval = ownership_interval
+        self.ownership_cache_interval = ownership_cache_interval
         self.stop_event = threading.Event()
         self._statusbar_sig: tuple | None = None
         self._statusbar_frame = 0
         self._ownership_last = 0.0
+        self._ownership_cache_last = 0.0
 
     def _statusbar_step(self) -> None:
         """Refresh tmux status-bar sync chips; animates the spinner while busy.
@@ -567,6 +570,12 @@ class DualTmuxDaemon:
         if not force and now - self._ownership_last < self.ownership_interval:
             return
         self._ownership_last = now
+        refresh_cache = (
+            force
+            or now - self._ownership_cache_last >= self.ownership_cache_interval
+        )
+        if refresh_cache:
+            self._ownership_cache_last = now
         from . import activity, hub, ownership
         from .store import iter_dt_files, load
 
@@ -574,20 +583,66 @@ class DualTmuxDaemon:
             cfg = load_config()
         except (OSError, SystemExit):
             return
-        for path in iter_dt_files():
-            data = load(path)
-            name = str(data.get("name") or path.stem)
-            try:
-                activity.activity_evidence(data)
-                lease = hub.read_ownership(name, cfg)
-                facts = ownership.snapshot(data, lease=lease)
-            except (OSError, SystemExit, ValueError):
+        tunnels = [load(path) for path in iter_dt_files()]
+
+        def is_live(data: dict) -> bool:
+            return any(
+                tmux_ops.has_session(str(data.get(key) or ""))
+                for key in ("op", "run")
+            )
+
+        # A live foreground Trigger must never queue behind a long catalog of
+        # parked tunnels.  Only live tunnels join the 2s watchdog; the full
+        # catalog is still refreshed on the slower cache cadence.
+        tunnels.sort(key=is_live, reverse=True)
+        for data in tunnels:
+            name = str(data.get("name") or "")
+            if not name:
+                continue
+            live = is_live(data)
+            if not live and not refresh_cache:
                 continue
             try:
-                ownership.write_cache(facts)
-            except (OSError, ValueError):
-                pass
+                lease = hub.read_ownership(name, cfg)
+            except (OSError, SystemExit, ValueError):
+                continue
             if not cfg.hub_enabled:
+                if refresh_cache:
+                    try:
+                        activity.activity_evidence(data)
+                        ownership.write_cache(
+                            ownership.snapshot(data, lease=lease)
+                        )
+                    except (OSError, SystemExit, ValueError):
+                        pass
+                continue
+            # Generation fencing is also a local UX contract.  If another
+            # Client owns the tunnel, stop both local tmux sessions now so any
+            # foreground `tmux attach` returns to its invoking shell.  This is
+            # the fast watchdog path; the minute tick remains only a fallback.
+            if lease.get("state") == "foreign":
+                try:
+                    parked = hub.park_local(data)
+                    if parked:
+                        log.emit(
+                            "ownership.fence.park",
+                            name=name,
+                            holder=lease.get("holder") or "",
+                            generation=int(lease.get("generation") or 0),
+                        )
+                except (OSError, SystemExit):
+                    log.emit(
+                        "ownership.fence.fail",
+                        name=name,
+                        generation=int(lease.get("generation") or 0),
+                    )
+                if refresh_cache:
+                    try:
+                        ownership.write_cache(
+                            ownership.snapshot(data, lease=lease)
+                        )
+                    except (OSError, SystemExit, ValueError):
+                        pass
                 continue
             handoff = lease.get("handoff") or {}
             if (
@@ -595,10 +650,24 @@ class DualTmuxDaemon:
                 or lease.get("holder") != cfg.client
                 or handoff.get("status") != "pending"
             ):
+                if refresh_cache:
+                    try:
+                        activity.activity_evidence(data)
+                        ownership.write_cache(
+                            ownership.snapshot(data, lease=lease)
+                        )
+                    except (OSError, SystemExit, ValueError):
+                        pass
                 continue
             request_id = str(handoff.get("request_id") or "")
             generation = int(lease.get("generation") or 0)
             try:
+                activity.activity_evidence(data)
+                facts = ownership.snapshot(data, lease=lease)
+                try:
+                    ownership.write_cache(facts)
+                except (OSError, ValueError):
+                    pass
                 reasons = []
                 for role in ("trigger", "bullet"):
                     if not ownership.persistence_supported(data, role):
@@ -667,7 +736,7 @@ class DualTmuxDaemon:
     def _ownership_worker(self) -> None:
         """Collect potentially slow Hub/runtime facts away from connector supervision."""
         while not self.stop_event.is_set():
-            self._ownership_step(force=True)
+            self._ownership_step()
             self.stop_event.wait(max(1.0, self.ownership_interval))
 
     def _write_status(self, connector: dict) -> None:

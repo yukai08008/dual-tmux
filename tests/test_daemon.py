@@ -401,6 +401,44 @@ def test_handoff_detaches_known_attached_idle_owner(monkeypatch, tmp_path):
     assert calls == ["park", "ack", "release"]
 
 
+def test_ownership_watchdog_defaults_to_two_seconds():
+    daemon = DualTmuxDaemon()
+    assert daemon.ownership_interval == 2.0
+    assert daemon.ownership_cache_interval == 15.0
+
+
+def test_foreign_owner_fence_parks_local_tmux(monkeypatch, tmp_path):
+    from dual_tmux import activity, daemon, hub, ownership
+    from dual_tmux.store import save, tunnels_dir
+
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
+    cfg = AppConfig(client="tm_old", server="tom7r", user="andy")
+    save(tunnels_dir() / "dt-a.json", {"name": "dt-a", "op": "op_a", "run": "run_a"})
+    monkeypatch.setattr(daemon, "load_config", lambda: cfg)
+    monkeypatch.setattr(activity, "activity_evidence", lambda _data: {})
+    monkeypatch.setattr(
+        hub,
+        "read_ownership",
+        lambda *_args: {
+            "state": "foreign",
+            "holder": "tm_new",
+            "generation": 4,
+            "handoff": None,
+        },
+    )
+    monkeypatch.setattr(
+        ownership,
+        "snapshot",
+        lambda _data, **_kwargs: {"name": "dt-a", "takeover": {}},
+    )
+    parked = []
+    monkeypatch.setattr(hub, "park_local", lambda data: parked.append(data["name"]) or ["op_a", "run_a"])
+
+    DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
+
+    assert parked == ["dt-a"]
+
+
 def test_handoff_unknown_attachment_never_parks(monkeypatch, tmp_path):
     from dual_tmux import ownership
 
@@ -467,3 +505,26 @@ def test_handoff_native_upload_failure_never_parks_or_releases(monkeypatch, tmp_
 
     DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
     assert calls == []
+
+
+def test_handoff_stale_generation_ack_never_releases(monkeypatch, tmp_path):
+    from dual_tmux import cli, hotfix
+
+    hub = _handoff_setup(monkeypatch, tmp_path)
+    calls = []
+    monkeypatch.setattr(cli, "_export_local_snapshots", lambda *_a: [])
+    monkeypatch.setattr(cli, "_verify_local_snapshot_exports", lambda *_a: None)
+    monkeypatch.setattr(hotfix, "sync_persist", lambda *_a: None)
+    monkeypatch.setattr("dual_tmux.daemon.tmux_ops.has_session", lambda _name: False)
+    monkeypatch.setattr(hub, "push", lambda *_a: None)
+    monkeypatch.setattr(hub, "park_local", lambda *_a: calls.append("park"))
+    monkeypatch.setattr(
+        hub,
+        "decide_handoff",
+        lambda *_a, **_kw: (_ for _ in ()).throw(SystemExit("generation_conflict")),
+    )
+    monkeypatch.setattr(hub, "release", lambda *_a, **_kw: calls.append("release"))
+
+    DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
+
+    assert calls == ["park"]

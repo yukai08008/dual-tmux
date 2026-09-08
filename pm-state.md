@@ -4,6 +4,11 @@
 
 ## 状态树
 
+### v0.4.55 (ACTIVE) — Trigger 独热接管 API
+
+- 三件套：`dev_plans/v0.4.54-v0.4.55/`。
+- **feature/v0.4.55-exclusive-trigger** (DEVELOPING): 基于 `v0.4.54.post3` 建立独立 worktree；目标为健康双端下新 Trigger 10 秒内取得 generation，旧端 `detach-client → kill-session` 并让前台 attach 返回原 shell。已移除 force-claim 后固定等待 65 秒路径，拆分 2 秒轻量 watchdog / 15 秒事实缓存，并加入 fail-closed deadline、foreign-generation 本地 park、fake-clock 与真实 tmux PTY 测试。314 tests、变更范围 Ruff、build、双隔离 HOME + 真实 tmux PTY 集成全绿；待真实异机 Hub 验证，不 merge/push/release。
+
 ### v0.4.54 (RELEASED) — Ownership 与安全接管 Web
 
 - 三件套与验收报告：`dev_plans/v0.4.53-v0.4.54/`。
@@ -121,7 +126,7 @@
 
 ## 当前焦点
 
-- v0.4.54 已封板发布；下一步从 backlog 选择后续奇数 API 版，不在 v0.4.54 继续增加协议。
+- 推进 **feature/v0.4.55-exclusive-trigger**：完成双 Client/Hub 接管验证、全量质量门与风险复核；未经用户明确授权不 merge/push/release。
 
 ## Backlog
 
