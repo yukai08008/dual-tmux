@@ -28,13 +28,53 @@ def session_probe_script(session_id: str) -> str:
     )
     return (
         'db="${OPENCODE_DB:-$HOME/.local/share/opencode/opencode.db}"; '
-        f"test -f \"$db\" && python3 -c {shlex.quote(code)} "
-        f"\"$db\" {shlex.quote(sid)}"
+        f'test -f "$db" && python3 -c {shlex.quote(code)} '
+        f'"$db" {shlex.quote(sid)}'
     )
 
 
 def db_path() -> Path:
-    return Path(os.environ.get("OPENCODE_DB", Path.home() / ".local/share/opencode/opencode.db"))
+    return Path(
+        os.environ.get("OPENCODE_DB", Path.home() / ".local/share/opencode/opencode.db")
+    )
+
+
+def bind_session_directory(session_id: str, directory: str) -> bool:
+    """Point a local OpenCode session at this Client's workspace directory.
+
+    Trigger follows the operator: after a cross-Client import the snapshot still
+    carries the previous machine's absolute home path, which OpenCode then
+    FileSystem.access-fails. Persist JSON is left unchanged.
+    """
+    sid = (session_id or "").strip()
+    dest = str(Path(directory).expanduser()) if directory else ""
+    if not sid or not dest:
+        return False
+    db = db_path()
+    if not db.is_file():
+        return False
+    rel = dest.lstrip("/")
+    conn = sqlite3.connect(db)
+    try:
+        cols = {
+            str(row[1]) for row in conn.execute("PRAGMA table_info(session)").fetchall()
+        }
+        assignments = ["directory=?"]
+        values: list[str] = [dest]
+        if "path" in cols:
+            assignments.append("path=?")
+            values.append(rel)
+        values.append(sid)
+        cur = conn.execute(
+            f"UPDATE session SET {', '.join(assignments)} WHERE id=?",
+            values,
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    except sqlite3.Error:
+        return False
+    finally:
+        conn.close()
 
 
 def persist_root() -> Path:
@@ -79,6 +119,7 @@ def list_models() -> list[str]:
         capture_output=True,
         text=True,
         timeout=30,
+        check=False,
     )
     if result.returncode != 0:
         return []
@@ -102,6 +143,7 @@ def probe_model(model: str, timeout: int = 45) -> tuple[bool, str]:
             capture_output=True,
             text=True,
             timeout=timeout,
+            check=False,
         )
     except subprocess.TimeoutExpired:
         return False, f"timeout after {timeout}s"
@@ -241,7 +283,9 @@ def id_from_pid(pid: str) -> str:
     return found[-1] if found else ""
 
 
-def from_pane(pid: str, cwd: str, exclude: str = "", fallback: bool = False) -> OcSession | None:
+def from_pane(
+    pid: str, cwd: str, exclude: str = "", fallback: bool = False
+) -> OcSession | None:
     command, started_ms = _agent_process(pid)
     found = SES_RE.findall(command)
     sid = found[-1] if found else ""
@@ -288,7 +332,9 @@ def wait_latest_local(timeout: int = 20) -> OcSession | None:
     return None
 
 
-def wait_latest_remote(ssh_argv: list[str], container: str = "", timeout: int = 20) -> OcSession | None:
+def wait_latest_remote(
+    ssh_argv: list[str], container: str = "", timeout: int = 20
+) -> OcSession | None:
     import time
 
     deadline = time.time() + timeout
@@ -302,7 +348,7 @@ def wait_latest_remote(ssh_argv: list[str], container: str = "", timeout: int = 
 
 def latest_remote(ssh_argv: list[str], container: str = "") -> OcSession | None:
     cmd = ssh_argv + [remote_query_cmd(container)]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if result.returncode != 0:
         return None
     line = (result.stdout or "").strip().splitlines()
@@ -362,7 +408,9 @@ raise SystemExit(1)
     inner = f"python3 -c {shlex.quote(code)}"
     if container:
         inner = f"docker exec {shlex.quote(container)} sh -lc {shlex.quote(inner)}"
-    result = subprocess.run([*ssh_argv, inner], capture_output=True, text=True, check=False)
+    result = subprocess.run(
+        [*ssh_argv, inner], capture_output=True, text=True, check=False
+    )
     if result.returncode != 0 or not (result.stdout or "").strip():
         return None
     parts = result.stdout.strip().splitlines()[-1].split("\t")
@@ -397,9 +445,8 @@ def empty_side(tool: str = "opencode") -> dict:
 
 
 def as_bind(session: OcSession, tool: str = "") -> dict:
-    from .workpoint import now_iso
-
     from .paneparse import parser_id_for_side
+    from .workpoint import now_iso
 
     info = {
         "tool": tool or session.tool or "opencode",
@@ -547,11 +594,17 @@ def persist_snapshot(info: dict, root: Path | None = None) -> Path | None:
 
 def import_snapshot(path: Path) -> None:
     result = subprocess.run(
-        [oc_bin(), "import", str(path)], capture_output=True, text=True
+        [oc_bin(), "import", str(path)], capture_output=True, text=True, check=False
     )
     if result.returncode != 0:
-        err = (result.stderr or result.stdout or "opencode import failed").strip().splitlines()
-        raise SystemExit(f"[err] opencode import {path.name}: {err[-1] if err else 'failed'}")
+        err = (
+            (result.stderr or result.stdout or "opencode import failed")
+            .strip()
+            .splitlines()
+        )
+        raise SystemExit(
+            f"[err] opencode import {path.name}: {err[-1] if err else 'failed'}"
+        )
 
 
 OPENCODE_FALLBACK_BINS = (
@@ -579,8 +632,10 @@ def persist_tenant(default: str = "") -> str:
     """The persist tenant this machine syncs: session-persist name, else default."""
     try:
         name = (
-            Path.home() / ".config" / "session-persist" / "name"
-        ).read_text(encoding="utf-8").strip()
+            (Path.home() / ".config" / "session-persist" / "name")
+            .read_text(encoding="utf-8")
+            .strip()
+        )
     except OSError:
         name = ""
     return name or default
@@ -649,10 +704,7 @@ def backup_local_snapshot(session_id: str, *, runner=subprocess.run) -> Path:
     root = Path(os.environ.get("DUAL_TMUX_HOME", Path.home() / ".dual-tmux"))
     dest_dir = root / "backups" / "opencode"
     dest_dir.mkdir(parents=True, exist_ok=True)
-    stamp = (
-        time.strftime("%Y%m%dT%H%M%S")
-        + f"-{time.time_ns() % 1_000_000_000:09d}"
-    )
+    stamp = time.strftime("%Y%m%dT%H%M%S") + f"-{time.time_ns() % 1_000_000_000:09d}"
     dest = dest_dir / f"{session_id}-{stamp}.json"
     import tempfile
 
