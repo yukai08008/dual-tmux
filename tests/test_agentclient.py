@@ -103,6 +103,13 @@ def test_collect_rejects_non_whitelist_client():
     assert "unsupported" in got["error"]
 
 
+def test_remote_probe_falls_back_to_live_process_mount_namespace():
+    script = agentclient._probe_script("opencode")
+    assert "for x in /proc/[0-9]*/exe" in script
+    assert 'candidate="${x%/exe}/root$target"' in script
+    assert "p=$target; run=$candidate" in script
+
+
 def test_active_remote_requires_live_process_and_parses_exact_session(monkeypatch):
     calls = []
 
@@ -120,6 +127,9 @@ def test_active_remote_requires_live_process_and_parses_exact_session(monkeypatc
     assert session and session.session_id == "ses_live"
     assert session.directory == "/workspace"
     assert "/proc/[0-9]*/cmdline" in calls[0][-1]
+    assert "/proc/%s/root" in calls[0][-1]
+    assert "pid+db" in calls[0][-1]
+    assert "OPENCODE_DB" in calls[0][-1]
 
 
 def test_active_remote_does_not_fall_back_to_latest(monkeypatch):
