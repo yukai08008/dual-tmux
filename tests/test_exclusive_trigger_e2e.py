@@ -218,14 +218,233 @@ def test_two_client_handoff_is_exclusive_under_ten_seconds(monkeypatch, tmp_path
             pass
 
 
+@pytest.mark.skipif(shutil.which("tmux") is None, reason="tmux is not installed")
+def test_control_resume_restores_input_ready_trigger_under_ten_seconds(
+    monkeypatch, tmp_path: Path
+):
+    """Cover the complete ControlService handoff -> restore -> input loop."""
+    from dual_tmux import (
+        activity,
+        cli,
+        daemon,
+        hotfix,
+        hub,
+        oc,
+        opsdir,
+        ownership,
+        store,
+    )
+    from dual_tmux.control import ControlService
+    from dual_tmux.store import save, tunnels_dir
+
+    old_home = tmp_path / "old-client"
+    new_home = tmp_path / "new-client"
+    old_binding = old_home / "dt-shared.json"
+    new_dt_home = new_home / ".dual-tmux"
+    old_home.mkdir()
+    new_home.mkdir()
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(new_dt_home))
+
+    suffix = f"{os.getpid()}_{time.time_ns()}"
+    op_name = f"op_resume_{suffix}"
+    run_name = f"run_resume_{suffix}"
+    trigger_sid = f"ses_trigger_{uuid.uuid4().hex}"
+    bullet_sid = f"ses_bullet_{uuid.uuid4().hex}"
+    ready = {
+        "trigger": tmp_path / "trigger-ready",
+        "bullet": tmp_path / "bullet-ready",
+    }
+    tunnel = {
+        "name": "dt-shared",
+        "op": op_name,
+        "run": run_name,
+        "runtime": {},
+        "trigger": {"tool": "opencode", "session_id": trigger_sid},
+        "bullet": {"tool": "opencode", "session_id": bullet_sid},
+    }
+    save(old_binding, tunnel)
+    save(tunnels_dir() / "dt-shared.json", tunnel)
+
+    fake_agent_code = (
+        "import pathlib,sys; pathlib.Path(sys.argv[1]).write_text('ready'); "
+        "print('FAKE_AGENT_READY',flush=True); "
+        "exec(\"for line in sys.stdin:\\n print('INPUT_ACK:'+line.strip(),flush=True)\")"
+    )
+    monkeypatch.setattr(
+        oc,
+        "resume_cmd",
+        lambda info: (
+            f"{shlex.quote(sys.executable)} -u -c {shlex.quote(fake_agent_code)} "
+            f"{shlex.quote(str(ready['trigger' if info['session_id'] == trigger_sid else 'bullet']))} "
+            f"-s {shlex.quote(info['session_id'])}"
+        ),
+    )
+    monkeypatch.setattr(oc, "ensure_local", lambda *_a, **_kw: False)
+    monkeypatch.setattr(opsdir, "prepare", lambda _data: new_home)
+
+    tmux.ensure_session(op_name, cwd=str(old_home))
+    tmux.ensure_session(run_name, cwd=str(old_home))
+    returned = old_home / "returned-to-shell"
+    pid, fd = pty.fork()
+    if pid == 0:
+        os.environ["TERM"] = "xterm-256color"
+        os.environ.pop("TMUX", None)
+        os.execl(
+            "/bin/sh",
+            "sh",
+            "-c",
+            f"{tmux.bin()} attach -t {op_name}; printf returned > {returned}",
+        )
+
+    state_lock = threading.Lock()
+    state = {
+        "state": "owned",
+        "holder": "tm_old",
+        "generation": 3,
+        "handoff": None,
+    }
+    old_cfg = AppConfig(client="tm_old", server="hub", user="test")
+    new_cfg = AppConfig(client="tm_new", server="hub", user="test")
+
+    def read_ownership(_name, *_args):
+        with state_lock:
+            current = dict(state)
+        current["evidence"] = {}
+        return current
+
+    def request_handoff(_name, **_kwargs):
+        with state_lock:
+            state["handoff"] = {
+                "protocol": 2,
+                "request_id": "req-control-resume",
+                "status": "pending_v2",
+            }
+            return {"ok": True, "handoff": dict(state["handoff"])}
+
+    def begin_handoff(_name, _request, generation, **_kwargs):
+        with state_lock:
+            assert generation == state["generation"]
+            state["handoff"]["status"] = "committing"
+            return {"ok": True, "handoff": dict(state["handoff"])}
+
+    def finish_handoff(_name, _request, generation, **_kwargs):
+        assert not tmux.has_session(op_name)
+        assert not tmux.has_session(run_name)
+        with state_lock:
+            assert generation == state["generation"]
+            state.update(
+                state="owned", holder="tm_new", generation=4, handoff=None
+            )
+        return {"ok": True, "generation": 4}
+
+    def snapshot(_data, *, lease=None):
+        if lease is None:
+            return {
+                "lease": read_ownership("dt-shared"),
+                "takeover": {
+                    "safe": True,
+                    "action": "request_handoff",
+                    "reason": "foreign_idle_detached",
+                },
+                "native_snapshots": {},
+            }
+        return {
+            "name": "dt-shared",
+            "attached": {"trigger": True, "bullet": False},
+            "progress": {"trigger": "idle", "bullet": "idle"},
+            "writers": {"trigger": {"status": "ok"}, "bullet": {"status": "ok"}},
+        }
+
+    monkeypatch.setattr(daemon, "load_config", lambda: old_cfg)
+    monkeypatch.setattr(ownership, "load_config", lambda: new_cfg)
+    monkeypatch.setattr(activity, "activity_evidence", lambda _data: {})
+    monkeypatch.setattr(ownership, "snapshot", snapshot)
+    monkeypatch.setattr(
+        ownership,
+        "probe_writers",
+        lambda data, role: {
+            "status": "ok",
+            "count": int(
+                tmux.has_session(data["op" if role == "trigger" else "run"])
+                and ready[role].exists()
+            ),
+            "pids": [],
+            "reason": "",
+        },
+    )
+    monkeypatch.setattr(ownership, "write_cache", lambda *_a, **_kw: None)
+    monkeypatch.setattr(cli, "_export_local_snapshots", lambda *_a: [])
+    monkeypatch.setattr(cli, "_verify_local_snapshot_exports", lambda *_a: None)
+    monkeypatch.setattr(hotfix, "sync_persist", lambda *_a: None)
+    monkeypatch.setattr(hub, "push", lambda *_a: None)
+    monkeypatch.setattr(hub, "push_best_effort", lambda *_a, **_kw: None)
+    monkeypatch.setattr(hub, "read_ownership", read_ownership)
+    monkeypatch.setattr(hub, "request_handoff", request_handoff)
+    monkeypatch.setattr(hub, "begin_handoff", begin_handoff)
+    monkeypatch.setattr(hub, "finish_handoff", finish_handoff)
+    monkeypatch.setattr(hub, "claim_generation", lambda *_a, **_kw: pytest.fail("no claim"))
+    monkeypatch.setattr(store, "iter_dt_files", lambda: [old_binding])
+
+    worker = threading.Thread(
+        target=lambda: (
+            time.sleep(0.1),
+            daemon.DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True),
+        )
+    )
+    try:
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline and tmux.attached_clients(op_name) != 1:
+            time.sleep(0.05)
+        assert tmux.attached_clients(op_name) == 1
+
+        started = time.monotonic()
+        worker.start()
+        result = ControlService().resume("dt-shared").data
+        worker.join(timeout=3)
+
+        assert result["ownership_generation"] == 4
+        assert state["holder"] == "tm_new"
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline and not returned.exists():
+            time.sleep(0.05)
+        assert returned.read_text(encoding="utf-8") == "returned"
+        assert tmux.has_session(op_name)
+        assert tmux.has_session(run_name)
+
+        tmux.send_keys(op_name, "control-resume-ready")
+        deadline = time.monotonic() + 3
+        pane = ""
+        while time.monotonic() < deadline:
+            pane = tmux.capture_pane(op_name)
+            if "INPUT_ACK:control-resume-ready" in pane:
+                break
+            time.sleep(0.05)
+        assert "INPUT_ACK:control-resume-ready" in pane
+        assert time.monotonic() - started < ownership.HANDOFF_TAKEOVER_TIMEOUT
+    finally:
+        worker.join(timeout=3)
+        tmux.kill_session(op_name)
+        tmux.kill_session(run_name)
+        os.close(fd)
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        try:
+            os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            pass
+
+
 @pytest.mark.skipif(
     not os.environ.get("DT_REAL_HANDOFF_HUB"),
     reason="set DT_REAL_HANDOFF_HUB to run the isolated SSH Hub gate",
 )
 def test_real_hub_daemon_handoff_returns_old_shell(monkeypatch, tmp_path: Path):
     """Opt-in release gate using real SSH, daemon logic, tmux and a PTY client."""
-    from dual_tmux import activity, hotfix, hub, ownership, store
+    from dual_tmux import activity, hotfix, hub, oc, opsdir, ownership, store
     from dual_tmux.config import write_config
+    from dual_tmux.control import ControlService
 
     server = os.environ["DT_REAL_HANDOFF_HUB"]
     tenant = f"dte2e_{uuid.uuid4().hex[:10]}"
@@ -332,31 +551,75 @@ def test_real_hub_daemon_handoff_returns_old_shell(monkeypatch, tmp_path: Path):
         activity.activity_evidence(tunnel)
         activity.activity_evidence(tunnel)
         hub.claim(tunnel_name)
-        plan_env = dict(new_env)
+        fake_agent_code = (
+            "import pathlib,sys; pathlib.Path(sys.argv[1]).write_text('ready'); "
+            "print('FAKE_AGENT_READY',flush=True); "
+            "exec(\"for line in sys.stdin:\\n print('INPUT_ACK:'+line.strip(),flush=True)\")"
+        )
+        trigger_ready = tmp_path / "real-trigger-ready"
+        bullet_ready = tmp_path / "real-bullet-ready"
+        monkeypatch.setattr(oc, "ensure_local", lambda *_a, **_kw: False)
+        monkeypatch.setattr(
+            oc,
+            "resume_cmd",
+            lambda info: (
+                f"{shlex.quote(sys.executable)} -u -c {shlex.quote(fake_agent_code)} "
+                f"{shlex.quote(str(trigger_ready if info['session_id'] == trigger_sid else bullet_ready))} "
+                f"-s {shlex.quote(info['session_id'])}"
+            ),
+        )
+        monkeypatch.setattr(opsdir, "prepare", lambda _data: new_root)
+        monkeypatch.setattr(hub, "push_best_effort", lambda *_a, **_kw: None)
+        monkeypatch.setattr(
+            ownership,
+            "probe_writers",
+            lambda _data, role: {
+                "status": "ok",
+                "count": int(
+                    (trigger_ready if role == "trigger" else bullet_ready).exists()
+                ),
+                "pids": [],
+                "reason": "",
+            },
+        )
         worker_code = (
-            "import time; from dual_tmux.daemon import DualTmuxDaemon; "
+            "import time; from dual_tmux import hub; "
+            "from dual_tmux.config import load_config; "
+            "from dual_tmux.daemon import DualTmuxDaemon; "
             "d=DualTmuxDaemon(ownership_interval=0); "
-            "[(d._ownership_step(force=True),time.sleep(.2)) for _ in range(12)]"
+            f"name={tunnel_name!r}; cfg=load_config(); "
+            "exec(\"for _ in range(12):\\n d._ownership_step(force=True)\\n if hub.read_ownership(name,cfg).get('holder') != cfg.client: break\\n time.sleep(.2)\")"
         )
         owner = subprocess.Popen([sys.executable, "-c", worker_code], env=old_env)
-        os.environ.update(plan_env)
+        os.environ.update(new_env)
         plan = ownership.plan_resume(tunnel)
         assert plan["safe"] is True, plan["reason"]
         assert plan["action"] == "request_handoff"
 
         started = time.monotonic()
-        token = ownership.acquire_for_resume(tunnel, plan)
-        elapsed = time.monotonic() - started
-        print(f"real handoff elapsed={elapsed:.3f}s")
+        resumed = ControlService().resume(tunnel_name).data
 
-        assert elapsed < ownership.HANDOFF_TAKEOVER_TIMEOUT
-        assert token["generation"] > int(plan["ownership"]["lease"]["generation"])
-        assert not tmux.has_session(op_name)
-        assert not tmux.has_session(run_name)
+        assert resumed["ownership_generation"] > int(
+            plan["ownership"]["lease"]["generation"]
+        )
+        assert tmux.has_session(op_name)
+        assert tmux.has_session(run_name)
         deadline = time.monotonic() + 3
         while time.monotonic() < deadline and not marker.exists():
             time.sleep(0.05)
         assert marker.read_text(encoding="utf-8") == "returned"
+        tmux.send_keys(op_name, "real-control-resume-ready")
+        deadline = time.monotonic() + 3
+        pane = ""
+        while time.monotonic() < deadline:
+            pane = tmux.capture_pane(op_name)
+            if "INPUT_ACK:real-control-resume-ready" in pane:
+                break
+            time.sleep(0.05)
+        assert "INPUT_ACK:real-control-resume-ready" in pane
+        elapsed = time.monotonic() - started
+        print(f"real control resume input-ready elapsed={elapsed:.3f}s")
+        assert elapsed < ownership.HANDOFF_TAKEOVER_TIMEOUT
         lease = hub.read_ownership(tunnel_name)
         assert lease["holder"] == "tm_e2e_new"
         for kind in ("opencode", "native"):
