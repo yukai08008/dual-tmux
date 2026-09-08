@@ -13,13 +13,13 @@
 
 | ID | 用例 | → acceptance | 自动化 |
 |---|---|---|---|
-| O-01 | cooperative handoff 在 deadline 内 release/claim | A-1 | fake clock |
+| O-01 | cooperative handoff 在 deadline 内 atomic transfer | A-1 | fake clock |
 | O-02 | 不再调用固定 65 秒 sleep | A-1 | fake clock |
 | O-03 | 10 秒超时保持旧 owner，不 force claim | A-3 | fake clock |
 | O-04 | daemon 默认每 2 秒巡检 | A-1 | unit |
 | O-05 | daemon 看见 foreign generation 即 park 本地 pane | A-2 | unit |
-| O-06 | persist→park→ack→release 顺序不变 | A-2/A-3 | unit |
-| O-07 | stale generation ack/release 被拒且状态不变 | A-4 | fault/unit |
+| O-06 | persist→commit→park→atomic transfer 顺序不变 | A-2/A-3 | unit |
+| O-07 | stale generation finish/release 被拒且状态不变 | A-4 | fault/unit |
 
 ## 2. 真实终端 E2E
 

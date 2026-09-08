@@ -8,7 +8,7 @@ test_cases: dev_plans/v0.4.54-v0.4.55/TEST_CASES.md
 invariants:
   - "CLI 现有功能、命令和参数不阉割"
   - "CLI/Web/飞书共享 ownership 内核；只读操作不 claim"
-  - "persist→park→ack→release 顺序不变"
+  - "persist→commit→park→atomic transfer 顺序不变"
   - "运行时数据不在 git 追踪中"
   - "真实前台 tmux E2E 覆盖旧端返回 shell"
 
