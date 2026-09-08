@@ -4,6 +4,12 @@
 
 ## 状态树
 
+### v0.4.55.post1 (RELEASING) — 跨 Client Resume 体验修复
+
+- Resume 会把 trigger OpenCode sqlite 中遗留的另一台机器绝对路径重绑定到当前 Client 的 `op_*` 工作目录，并在目录不一致时重启旧 TUI，避免 `FileSystem.access(/Users/<other>/...)`。
+- `owner_evidence_stale` 改为主动请求 handoff，不再直接拒绝用户显式 Resume；working、重复 writer、探测失败和快照冲突仍 fail-closed。
+- Resume attach 前明确显示 trigger 与 bullet session ID；tmux-trigger 技能使用真实进展证据与 8 轮静默上限，并覆盖 OpenCode 多层 `--auto`、内部 snapshot git 互锁的恢复方法和开发模型降级顺序。
+
 ### v0.4.55 (RELEASED) — Trigger 独热接管 API
 
 - 三件套：`dev_plans/v0.4.54-v0.4.55/`。

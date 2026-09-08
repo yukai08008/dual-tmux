@@ -541,8 +541,7 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
     )
     process_commands = [pane_cmd, *wp.walk_commands(info.get("pid") or "")]
     live_transport = pane_cmd in {"ssh", "docker"} or any(
-        command.startswith(("ssh ", "docker exec "))
-        or " ssh " in f" {command} "
+        command.startswith(("ssh ", "docker exec ")) or " ssh " in f" {command} "
         for command in process_commands
     )
     candidate = copy.deepcopy(data) if side == "bullet" else data
@@ -957,6 +956,28 @@ def cmd_make(args: argparse.Namespace) -> None:
     hub.push_best_effort(wait=True)
 
 
+def _bind_trigger_workspace(data: dict) -> None:
+    """Keep trigger OpenCode on this Client's ops dir after cross-Client resume."""
+    op = str(data.get("op") or "")
+    launch = opsdir.prepare(data)
+    if not op or launch is None:
+        return
+    dest = str(Path(launch))
+    trigger = data.setdefault("trigger", {})
+    trigger["directory"] = dest
+    sid = str(trigger.get("session_id") or "")
+    previous = oc_ops.by_id(sid) if sid else None
+    if sid:
+        oc_ops.bind_session_directory(sid, dest)
+    tmux_ops.ensure_session_cwd(op, dest)
+    pane_cwd = str((tmux_ops.pane_info(op) or {}).get("cwd") or "")
+    old_dir = str(getattr(previous, "directory", "") or "")
+    wrong_dir = bool(old_dir) and Path(old_dir).expanduser() != Path(dest)
+    wrong_pane = bool(pane_cwd) and Path(pane_cwd).expanduser() != Path(dest)
+    if tmux_ops.pane_command(op) == "opencode" and (wrong_dir or wrong_pane):
+        tmux_ops.quit_opencode(op)
+
+
 def _apply_resume_legacy(
     name: str | None,
     force: bool = False,
@@ -1063,6 +1084,7 @@ def _apply_resume_legacy(
 
     ensure_native(trigger, data["op"], "trigger")
     ensure_native(bullet, data["run"], "bullet")
+    _bind_trigger_workspace(data)
     _start_side(data, data["op"], "trigger", "", True)
     _start_side(data, data["run"], "bullet", "", True)
     wp.stamp(data, "resume_at")
@@ -1095,6 +1117,18 @@ def cmd_resume(args: argparse.Namespace) -> None:
         return
     data = apply_resume(args.name, force=bool(getattr(args, "force", False)))
     ui.ok(f"resumed DST {data['name']}")
+    trigger = data.get("trigger") or {}
+    bullet = data.get("bullet") or {}
+    local_trigger = oc_ops.by_id(str(trigger.get("session_id") or ""))
+    trigger_title = str(getattr(local_trigger, "title", "") or "")
+    ui.info(
+        f"attach trigger {trigger.get('session_id') or '-'}"
+        + (f"  {trigger_title}" if trigger_title else "")
+    )
+    ui.info(
+        f"bullet session {bullet.get('session_id') or '-'}  "
+        f"pane={data.get('run') or '-'}"
+    )
     if getattr(args, "attach", True):
         tmux_ops.attach(data["op"])
 

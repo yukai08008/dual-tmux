@@ -76,7 +76,9 @@ def _patch_resume(monkeypatch, data: dict):
     monkeypatch.setattr(cli, "find_dt", lambda _name: None)
     monkeypatch.setattr(cli.ev, "emit", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(cli, "_pane_shows_agent", lambda _name: False)
-    monkeypatch.setattr(recovery, "ensure_remote_session", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(
+        recovery, "ensure_remote_session", lambda *_args, **_kwargs: False
+    )
 
 
 def test_resume_stops_before_session_command_when_jump_does_not_stay(monkeypatch):
@@ -84,9 +86,15 @@ def test_resume_stops_before_session_command_when_jump_does_not_stay(monkeypatch
     _patch_resume(monkeypatch, data)
     calls = []
     monkeypatch.setattr(cli.tmux_ops, "pane_command", lambda _name: "zsh")
-    monkeypatch.setattr(cli.tmux_ops, "reconnect", lambda name, cmd: calls.append(("jump", name, cmd)))
-    monkeypatch.setattr(cli.tmux_ops, "wait_stable_command", lambda *_args, **_kwargs: "zsh")
-    monkeypatch.setattr(cli, "_start_side", lambda *_args, **_kwargs: calls.append(("start",)))
+    monkeypatch.setattr(
+        cli.tmux_ops, "reconnect", lambda name, cmd: calls.append(("jump", name, cmd))
+    )
+    monkeypatch.setattr(
+        cli.tmux_ops, "wait_stable_command", lambda *_args, **_kwargs: "zsh"
+    )
+    monkeypatch.setattr(
+        cli, "_start_side", lambda *_args, **_kwargs: calls.append(("start",))
+    )
 
     with pytest.raises(SystemExit, match="stopped before sending"):
         cli._apply_resume_legacy("msg")
@@ -105,7 +113,9 @@ def test_resume_waits_for_remote_jump_before_starting_bullet(monkeypatch):
         lambda *_args, **_kwargs: calls.append("landed") or "ssh",
     )
     monkeypatch.setattr(cli.oc_ops, "ensure_local", lambda *_args, **_kwargs: False)
-    monkeypatch.setattr(cli, "_start_side", lambda _data, _tmux, side, *_args: calls.append(side))
+    monkeypatch.setattr(
+        cli, "_start_side", lambda _data, _tmux, side, *_args: calls.append(side)
+    )
 
     cli._apply_resume_legacy("msg")
     assert calls == ["jump", "landed", "trigger", "bullet"]
@@ -136,7 +146,9 @@ def test_resume_imports_local_bullet_snapshot(monkeypatch):
     monkeypatch.setattr(
         cli.oc_ops,
         "ensure_local",
-        lambda info, **kwargs: seen.append((info["session_id"], kwargs.get("role", "trigger"))) or False,
+        lambda info, **kwargs: (
+            seen.append((info["session_id"], kwargs.get("role", "trigger"))) or False
+        ),
     )
     monkeypatch.setattr(cli, "_start_side", lambda *_args, **_kwargs: None)
 
@@ -183,8 +195,52 @@ def test_claim_rejection_does_not_drop_local_panes(monkeypatch):
     from dual_tmux import hub
 
     dropped = []
-    monkeypatch.setattr(hub, "claim", lambda *_args, **_kwargs: (_ for _ in ()).throw(SystemExit("held")))
+    monkeypatch.setattr(
+        hub,
+        "claim",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(SystemExit("held")),
+    )
     monkeypatch.setattr(hub, "drop_local", lambda data: dropped.append(data))
     with pytest.raises(SystemExit, match="held"):
         hub.require_active(_dst())
     assert dropped == []
+
+
+def test_resume_rebinds_trigger_workspace(monkeypatch, tmp_path):
+    data = _dst(server="")
+    data["runtime"]["cmd"] = ""
+    data["trigger"]["directory"] = "/Users/andy_ouc/.dual-tmux/ops/op_msg"
+    _patch_resume(monkeypatch, data)
+    launch = tmp_path / "ops" / "op_msg"
+    launch.mkdir(parents=True)
+    calls: list[str] = []
+    monkeypatch.setattr(cli.opsdir, "prepare", lambda _data: launch)
+    monkeypatch.setattr(
+        cli.oc_ops,
+        "by_id",
+        lambda _sid: type(
+            "S", (), {"directory": "/Users/andy_ouc/.dual-tmux/ops/op_msg"}
+        )(),
+    )
+    monkeypatch.setattr(
+        cli.oc_ops,
+        "bind_session_directory",
+        lambda sid, dest: calls.append(f"bind:{sid}:{dest}") or True,
+    )
+    monkeypatch.setattr(
+        cli.tmux_ops,
+        "ensure_session_cwd",
+        lambda name, cwd: calls.append(f"cwd:{name}:{cwd}"),
+    )
+    monkeypatch.setattr(cli.tmux_ops, "pane_command", lambda _name: "zsh")
+    monkeypatch.setattr(cli.tmux_ops, "pane_info", lambda _name: {"cwd": str(launch)})
+    monkeypatch.setattr(cli.oc_ops, "ensure_local", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(
+        cli,
+        "_start_side",
+        lambda *_args, **_kwargs: calls.append("start"),
+    )
+    cli._apply_resume_legacy("msg")
+    assert data["trigger"]["directory"] == str(launch)
+    assert f"bind:ses_trigger:{launch}" in calls
+    assert f"cwd:op_msg:{launch}" in calls
