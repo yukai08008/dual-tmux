@@ -1,0 +1,81 @@
+version: v0.4.55
+parent_final: v0.4.54.post3
+title: Trigger 独热接管协议
+type: api
+prd: dev_plans/v0.4.54-v0.4.55/PRD.md
+test_cases: dev_plans/v0.4.54-v0.4.55/TEST_CASES.md
+
+invariants:
+  - "CLI 现有功能、命令和参数不阉割"
+  - "CLI/Web/飞书共享 ownership 内核；只读操作不 claim"
+  - "persist→park→ack→release 顺序不变"
+  - "运行时数据不在 git 追踪中"
+  - "真实前台 tmux E2E 覆盖旧端返回 shell"
+
+deliverables:
+  - module: src/dual_tmux/ownership.py
+    change: 单一 10 秒 handoff deadline，删除固定 65 秒等待
+    public_api: [acquire_for_resume]
+  - module: src/dual_tmux/daemon.py
+    change: 2 秒 ownership watchdog 与外部 holder 本地 fencing
+    public_api: [DualTmuxDaemon]
+  - module: tests/
+    change: fake-clock 时序、generation fence 与真实 tmux attach E2E
+
+feature_branches:
+  - name: feature/v0.4.55-exclusive-trigger
+    title: 独热 Trigger 协议与可执行 SLA
+    deps: []
+    files:
+      - src/dual_tmux/ownership.py
+      - src/dual_tmux/daemon.py
+      - tests/test_ownership.py
+      - tests/test_daemon.py
+      - tests/test_exclusive_trigger_e2e.py
+    acceptance:
+      - "A-1 健康 owner handoff 后新端不超过 10 秒获得 generation"
+      - "A-2 旧端 tmux attach 进程退出并回到调用 shell"
+      - "A-3 超时路径 fail-closed，不产生新端 writer"
+      - "A-4 stale generation 的 ack/release 无副作用"
+      - "A-5 binding、persist、memory 和 CLI 合同不回归"
+    estimated_loc: ~260
+
+acceptance_count: 5
+total_estimated_loc: ~260
+
+risk_register:
+  - id: R1
+    risk: "持久化耗时吃满 10 秒预算"
+    mitigation: "总 deadline + fail-closed，不提前开放新 owner"
+    severity: high
+  - id: R2
+    risk: "daemon/网络失效时无法远程结束旧机本地 tmux"
+    mitigation: "不宣称接管成功；明确健康前提与超时错误"
+    severity: high
+  - id: R3
+    risk: "旧 generation 延迟操作破坏新 owner"
+    mitigation: "Hub 原子 generation/instance fence + fault test"
+    severity: high
+
+git_workflow:
+  branch_creation: from v0.4.54.post3
+  feature_order: exclusive-trigger
+  merge_policy: --no-ff
+  before_merge_checks:
+    - "pytest tests/ 全 PASS"
+    - "ruff check 全 PASS"
+    - "真实双 DUAL_TMUX_HOME + 前台 tmux attach E2E PASS"
+    - "git ls-files data/ | wc -l == 0"
+  final_tag: v0.4.55-final
+
+deployment_checklist:
+  - "构建 wheel/sdist 成功"
+  - "daemon ownership worker 周期 <= 2 秒"
+  - "真实接管耗时 <= 10 秒"
+  - "旧端 attach 返回 shell"
+  - "session binding/persist/memory 未删除"
+
+notes:
+  - "奇数 API 版默认不发布；未经用户明确要求不 merge/push/release"
+
+签名: Agent-PM-0.4.55
