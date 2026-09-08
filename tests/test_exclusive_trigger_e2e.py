@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import os
 import pty
+import re
+import shlex
 import shutil
 import signal
+import subprocess
+import sys
 import threading
 import time
+import uuid
 from pathlib import Path
 
 import pytest
@@ -113,26 +118,23 @@ def test_two_client_handoff_is_exclusive_under_ten_seconds(monkeypatch, tmp_path
             state["handoff"] = {"request_id": "req-e2e", "status": "pending"}
             return {"ok": True, "handoff": dict(state["handoff"])}
 
-    def decide_handoff(_name, _request, generation, **_kwargs):
-        with state_lock:
-            assert generation == state["generation"]
-            state["handoff"] = {"request_id": "req-e2e", "status": "acked"}
-            return {"ok": True}
-
-    def release(_name, *, generation=0):
-        with state_lock:
-            assert generation == state["generation"]
-            state.update(state="free", holder="", handoff=None)
-
-    def claim(_name, force=False):
-        assert force is False
-        # The claimant must never become writable while either old pane lives.
+    def finish_handoff(_name, _request, generation, **_kwargs):
         assert not tmux.has_session(op_name)
         assert not tmux.has_session(run_name)
         with state_lock:
-            assert state["state"] == "free"
+            assert generation == state["generation"]
             state.update(state="owned", holder="tm_new", generation=4, handoff=None)
-        return "tm_new"
+            return {"ok": True}
+
+    def begin_handoff(_name, _request, generation, **_kwargs):
+        with state_lock:
+            assert generation == state["generation"]
+            assert state["handoff"]["status"] == "pending"
+            state["handoff"]["status"] = "committing"
+            return {"ok": True, "handoff": dict(state["handoff"])}
+
+    def claim_generation(_name, force=False):
+        pytest.fail("atomic handoff transfer must not issue a second claim")
 
     monkeypatch.setattr(store, "iter_dt_files", lambda: [old_binding])
     monkeypatch.setattr(daemon, "load_config", lambda: old_cfg)
@@ -155,9 +157,9 @@ def test_two_client_handoff_is_exclusive_under_ten_seconds(monkeypatch, tmp_path
     monkeypatch.setattr(hub, "push", lambda *_a: None)
     monkeypatch.setattr(hub, "read_ownership", read_ownership)
     monkeypatch.setattr(hub, "request_handoff", request_handoff)
-    monkeypatch.setattr(hub, "decide_handoff", decide_handoff)
-    monkeypatch.setattr(hub, "release", release)
-    monkeypatch.setattr(hub, "claim", claim)
+    monkeypatch.setattr(hub, "begin_handoff", begin_handoff)
+    monkeypatch.setattr(hub, "finish_handoff", finish_handoff)
+    monkeypatch.setattr(hub, "claim_generation", claim_generation)
 
     worker = threading.Thread(
         target=lambda: (
@@ -210,3 +212,188 @@ def test_two_client_handoff_is_exclusive_under_ten_seconds(monkeypatch, tmp_path
             os.waitpid(pid, os.WNOHANG)
         except ChildProcessError:
             pass
+
+
+@pytest.mark.skipif(
+    not os.environ.get("DT_REAL_HANDOFF_HUB"),
+    reason="set DT_REAL_HANDOFF_HUB to run the isolated SSH Hub gate",
+)
+def test_real_hub_daemon_handoff_returns_old_shell(monkeypatch, tmp_path: Path):
+    """Opt-in release gate using real SSH, daemon logic, tmux and a PTY client."""
+    from dual_tmux import activity, hotfix, hub, ownership, store
+    from dual_tmux.config import write_config
+
+    server = os.environ["DT_REAL_HANDOFF_HUB"]
+    tenant = f"dte2e_{uuid.uuid4().hex[:10]}"
+    assert tenant.startswith("dte2e_") and len(tenant) == 16
+    tunnel_name = f"dt-e2e-{uuid.uuid4().hex[:8]}"
+    suffix = f"{os.getpid()}_{time.time_ns()}"
+    op_name = f"op_real_{suffix}"
+    run_name = f"run_real_{suffix}"
+    trigger_sid = f"ses_Trigger{uuid.uuid4().hex}"
+    bullet_sid = f"ses_Bullet{uuid.uuid4().hex}"
+    old_root = tmp_path / "old"
+    new_root = tmp_path / "new"
+    old_dt = old_root / ".dual-tmux"
+    new_dt = new_root / ".dual-tmux"
+    old_root.mkdir()
+    new_root.mkdir()
+    common_path = os.environ.get("PATH", "")
+
+    def env_for(root: Path, client: str) -> dict[str, str]:
+        return {
+            **os.environ,
+            "HOME": str(root),
+            "DUAL_TMUX_HOME": str(root / ".dual-tmux"),
+            "DT_CLIENT": client,
+            "DT_SERVER": server,
+            "DT_USER": tenant,
+            "PATH": common_path,
+        }
+
+    old_env = env_for(old_root, "tm_e2e_old")
+    new_env = env_for(new_root, "tm_e2e_new")
+    setup_cfg = AppConfig(client="tm_e2e_old", server=server, user=tenant)
+    subprocess.run(
+        [
+            *hub.ssh_argv(setup_cfg),
+            (
+                f'mkdir -p "$HOME/{tenant}/sessions/opencode" '
+                f'"$HOME/{tenant}/sessions/native"'
+            ),
+        ],
+        check=True,
+    )
+    tunnel = {
+        "name": tunnel_name,
+        "op": op_name,
+        "run": run_name,
+        "runtime": {},
+        "trigger": {"tool": "opencode", "session_id": trigger_sid},
+        "bullet": {"tool": "opencode", "session_id": bullet_sid},
+    }
+    for root, dt_home, client in (
+        (old_root, old_dt, "tm_e2e_old"),
+        (new_root, new_dt, "tm_e2e_new"),
+    ):
+        monkeypatch.setenv("HOME", str(root))
+        monkeypatch.setenv("DUAL_TMUX_HOME", str(dt_home))
+        monkeypatch.setenv("DT_CLIENT", client)
+        monkeypatch.setenv("DT_SERVER", server)
+        monkeypatch.setenv("DT_USER", tenant)
+        write_config(AppConfig(client=client, server=server, user=tenant))
+        store.save(dt_home / "tunnels" / f"{tunnel_name}.json", tunnel)
+        name_path = root / ".config" / "session-persist" / "name"
+        name_path.parent.mkdir(parents=True, exist_ok=True)
+        name_path.write_text(client + "\n", encoding="utf-8")
+        for kind in ("opencode", "native"):
+            local = root / "sessions" / kind / client
+            local.mkdir(parents=True, exist_ok=True)
+            (local / "durability-marker").write_text(
+                f"{client}:{kind}\n", encoding="utf-8"
+            )
+            script = dt_home / "bin" / f"dt-persist-{kind}"
+            script.parent.mkdir(parents=True, exist_ok=True)
+            script.write_text(
+                hotfix.persist_script(kind, server, tenant), encoding="utf-8"
+            )
+            script.chmod(0o755)
+
+    tmux.ensure_session(op_name, cwd=str(old_root))
+    tmux.ensure_session(run_name, cwd=str(old_root))
+    marker = old_root / "returned-to-shell"
+    pid, fd = pty.fork()
+    if pid == 0:
+        os.environ.update(old_env)
+        os.environ["TERM"] = "xterm-256color"
+        os.environ.pop("TMUX", None)
+        os.execl(
+            "/bin/sh",
+            "sh",
+            "-c",
+            f"{tmux.bin()} attach -t {op_name}; printf returned > {marker}",
+        )
+
+    trigger_writer = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)", trigger_sid],
+        env=old_env,
+    )
+    bullet_writer = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)", bullet_sid],
+        env=old_env,
+    )
+    owner = None
+    try:
+        os.environ.update(old_env)
+        activity.activity_evidence(tunnel)
+        activity.activity_evidence(tunnel)
+        hub.claim(tunnel_name)
+        plan_env = dict(new_env)
+        worker_code = (
+            "import time; from dual_tmux.daemon import DualTmuxDaemon; "
+            "d=DualTmuxDaemon(ownership_interval=0); "
+            "[(d._ownership_step(force=True),time.sleep(.2)) for _ in range(12)]"
+        )
+        owner = subprocess.Popen([sys.executable, "-c", worker_code], env=old_env)
+        os.environ.update(plan_env)
+        plan = ownership.plan_resume(tunnel)
+        assert plan["safe"] is True, plan["reason"]
+        assert plan["action"] == "request_handoff"
+
+        started = time.monotonic()
+        token = ownership.acquire_for_resume(tunnel, plan)
+        elapsed = time.monotonic() - started
+        print(f"real handoff elapsed={elapsed:.3f}s")
+
+        assert elapsed < ownership.HANDOFF_TAKEOVER_TIMEOUT
+        assert token["generation"] > int(plan["ownership"]["lease"]["generation"])
+        assert not tmux.has_session(op_name)
+        assert not tmux.has_session(run_name)
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline and not marker.exists():
+            time.sleep(0.05)
+        assert marker.read_text(encoding="utf-8") == "returned"
+        lease = hub.read_ownership(tunnel_name)
+        assert lease["holder"] == "tm_e2e_new"
+        for kind in ("opencode", "native"):
+            subprocess.run(
+                [str(new_dt / "bin" / f"dt-persist-{kind}"), server, "--wait"],
+                env=new_env,
+                check=True,
+            )
+        assert (
+            new_root / "sessions" / "opencode" / "tm_e2e_old" / "durability-marker"
+        ).read_text(encoding="utf-8") == "tm_e2e_old:opencode\n"
+        assert (
+            new_root / "sessions" / "native" / "tm_e2e_old" / "durability-marker"
+        ).read_text(encoding="utf-8") == "tm_e2e_old:native\n"
+    finally:
+        if owner is not None:
+            owner.terminate()
+            try:
+                owner.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                owner.kill()
+        for process in (trigger_writer, bullet_writer):
+            process.terminate()
+            try:
+                process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                process.kill()
+        tmux.kill_session(op_name)
+        tmux.kill_session(run_name)
+        os.close(fd)
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        cleanup_cfg = AppConfig(client="tm_e2e_new", server=server, user=tenant)
+        assert re.fullmatch(r"dte2e_[0-9a-f]{10}", tenant)
+        cleanup_code = (
+            "import pathlib,re,shutil,sys; n=sys.argv[1]; "
+            "assert re.fullmatch(r'dte2e_[0-9a-f]{10}',n); "
+            "p=pathlib.Path.home()/n; "
+            "shutil.rmtree(p) if p.is_dir() else None"
+        )
+        cleanup = f"python3 -c {shlex.quote(cleanup_code)} {shlex.quote(tenant)}"
+        subprocess.run([*hub.ssh_argv(cleanup_cfg), cleanup], check=False)

@@ -23,6 +23,7 @@ TRANSPORTS = {"ssh", "docker", "tmux"}
 EVIDENCE_TTL = 180
 HANDOFF_TAKEOVER_TIMEOUT = 10.0
 HANDOFF_POLL_INTERVAL = 0.25
+HANDOFF_PREPARE_TIMEOUT = 9
 
 
 def persistence_supported(data: dict, role: str) -> bool:
@@ -367,7 +368,12 @@ def acquire_for_resume(data: dict, plan: dict, *, force: bool = False) -> dict:
     lease = plan["ownership"]["lease"]
     if plan["action"] == "request_handoff":
         deadline = time.monotonic() + HANDOFF_TAKEOVER_TIMEOUT
-        result = hub.request_handoff(str(data.get("name") or ""), reason="resume")
+        result = hub.request_handoff(
+            str(data.get("name") or ""),
+            reason="resume",
+            timeout=HANDOFF_PREPARE_TIMEOUT,
+            generation=int(lease.get("generation") or 0),
+        )
         request = str((result.get("handoff") or {}).get("request_id") or "")
         if not result.get("ok") or not request:
             raise SystemExit(
@@ -379,9 +385,16 @@ def acquire_for_resume(data: dict, plan: dict, *, force: bool = False) -> dict:
         # Trigger panes and cannot prove that the old foreground attach exited.
         while time.monotonic() < deadline:
             current = hub.read_ownership(str(data.get("name") or ""))
+            if (
+                current.get("state") == "owned"
+                and current.get("holder") == load_config().client
+            ):
+                return {
+                    "generation": int(current.get("generation") or 0),
+                    "newly_acquired": True,
+                }
             if current.get("state") in {"free", "expired"}:
-                hub.claim(str(data.get("name") or ""))
-                acquired = hub.read_ownership(str(data.get("name") or ""))
+                acquired = hub.claim_generation(str(data.get("name") or ""))
                 return {
                     "generation": int(acquired.get("generation") or 0),
                     "newly_acquired": True,
@@ -395,6 +408,33 @@ def acquire_for_resume(data: dict, plan: dict, *, force: bool = False) -> dict:
                     f"[err] handoff rejected: {handoff.get('reason') or 'owner declined'}"
                 )
             time.sleep(HANDOFF_POLL_INTERVAL)
+        cancelled = hub.cancel_handoff(
+            str(data.get("name") or ""),
+            request,
+            int(lease.get("generation") or 0),
+        )
+        if not cancelled.get("ok"):
+            # The owner may have crossed the atomic commit point—or completed
+            # the transfer—between our last poll and cancel.  Reconcile once;
+            # never report a timeout after this Client already became owner.
+            current = hub.read_ownership(str(data.get("name") or ""))
+            if (
+                current.get("state") == "owned"
+                and current.get("holder") == load_config().client
+            ):
+                return {
+                    "generation": int(current.get("generation") or 0),
+                    "newly_acquired": True,
+                }
+            if (
+                cancelled.get("code") == "too_late"
+                and current.get("state") in {"free", "expired"}
+            ):
+                acquired = hub.claim_generation(str(data.get("name") or ""))
+                return {
+                    "generation": int(acquired.get("generation") or 0),
+                    "newly_acquired": True,
+                }
         raise SystemExit(
             "[err] handoff timed out before the old Trigger was persisted and "
             "parked; ownership was not changed"

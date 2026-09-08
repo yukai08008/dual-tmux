@@ -185,7 +185,6 @@ def test_cooperative_handoff_claims_without_fixed_tick_sleep(monkeypatch):
                 "generation": 8,
                 "handoff": {"request_id": "req-1", "status": "pending"},
             },
-            {"state": "free", "holder": "", "generation": 8},
             {"state": "owned", "holder": "tm_here", "generation": 9},
         ]
     )
@@ -203,8 +202,9 @@ def test_cooperative_handoff_claims_without_fixed_tick_sleep(monkeypatch):
     monkeypatch.setattr(ownership.hub, "read_ownership", lambda _name: next(states))
     monkeypatch.setattr(
         ownership.hub,
-        "claim",
-        lambda name, force=False: claims.append((name, force)),
+        "claim_generation",
+        lambda name, force=False: claims.append((name, force))
+        or {"holder": "tm_here", "generation": 9},
     )
     monkeypatch.setattr(ownership, "load_config", lambda: type("Cfg", (), {"client": "tm_here"})())
     monkeypatch.setattr(ownership.time, "monotonic", lambda: next(clock))
@@ -217,13 +217,14 @@ def test_cooperative_handoff_claims_without_fixed_tick_sleep(monkeypatch):
 
     token = ownership.acquire_for_resume(_data(), plan)
 
-    assert claims == [("dt-a", False)]
+    assert claims == []
     assert sleeps == [ownership.HANDOFF_POLL_INTERVAL]
     assert token == {"generation": 9, "newly_acquired": True}
 
 
 def test_handoff_timeout_is_fail_closed_and_never_force_claims(monkeypatch):
     claims = []
+    cancellations = []
     sleeps = []
     clock = iter([0, 0, ownership.HANDOFF_TAKEOVER_TIMEOUT + 0.01])
     monkeypatch.setattr(
@@ -246,8 +247,17 @@ def test_handoff_timeout_is_fail_closed_and_never_force_claims(monkeypatch):
     )
     monkeypatch.setattr(
         ownership.hub,
-        "claim",
-        lambda name, force=False: claims.append((name, force)),
+        "claim_generation",
+        lambda name, force=False: claims.append((name, force))
+        or {"holder": "tm_here", "generation": 9},
+    )
+    monkeypatch.setattr(
+        ownership.hub,
+        "cancel_handoff",
+        lambda name, request, generation: cancellations.append(
+            (name, request, generation)
+        )
+        or {"ok": True},
     )
     monkeypatch.setattr(ownership.time, "monotonic", lambda: next(clock))
     monkeypatch.setattr(ownership.time, "sleep", lambda seconds: sleeps.append(seconds))
@@ -261,7 +271,53 @@ def test_handoff_timeout_is_fail_closed_and_never_force_claims(monkeypatch):
         ownership.acquire_for_resume(_data(), plan)
 
     assert claims == []
+    assert cancellations == [("dt-a", "req-1", 0)]
     assert sleeps == [ownership.HANDOFF_POLL_INTERVAL]
+
+
+def test_handoff_timeout_reconciles_transfer_that_won_cancel_race(monkeypatch):
+    states = iter(
+        [
+            {
+                "state": "foreign",
+                "holder": "tm_other",
+                "generation": 8,
+                "handoff": {"request_id": "req-1", "status": "committing"},
+            },
+            {"state": "owned", "holder": "tm_here", "generation": 9},
+        ]
+    )
+    clock = iter([0, 0, ownership.HANDOFF_TAKEOVER_TIMEOUT + 0.01])
+    monkeypatch.setattr(
+        ownership.hub,
+        "request_handoff",
+        lambda *_a, **_kw: {
+            "ok": True,
+            "handoff": {"request_id": "req-1", "status": "pending"},
+        },
+    )
+    monkeypatch.setattr(ownership.hub, "read_ownership", lambda _name: next(states))
+    monkeypatch.setattr(
+        ownership.hub,
+        "cancel_handoff",
+        lambda *_a, **_kw: {"ok": False, "code": "generation_conflict"},
+    )
+    monkeypatch.setattr(
+        ownership, "load_config", lambda: type("Cfg", (), {"client": "tm_here"})()
+    )
+    monkeypatch.setattr(ownership.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(ownership.time, "sleep", lambda _seconds: None)
+
+    token = ownership.acquire_for_resume(
+        _data(),
+        {
+            "safe": True,
+            "action": "request_handoff",
+            "ownership": {"lease": {"state": "foreign", "generation": 8}},
+        },
+    )
+
+    assert token == {"generation": 9, "newly_acquired": True}
 
 
 def test_stale_foreign_evidence_is_never_takeover_safe(monkeypatch):

@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -19,21 +20,54 @@ from . import tmux as tmux_ops
 from .activity import TICKS, activity_path, frozen_last_ticks
 from .config import AppConfig, load_config
 from .identity import remote_dt_root
-from .paths import entries_dir, tunnels_dir
+from .paths import entries_dir, home_dir, tunnels_dir
 from .sshutil import SshTarget
+
+
+def _ssh_control_path() -> Path:
+    root = home_dir() / "ssh"
+    candidate = root / "control-%C"
+    if len(os.fsencode(candidate)) >= 96:
+        digest = hashlib.sha256(os.fsencode(home_dir())).hexdigest()[:12]
+        root = Path("/tmp") / f"dual-tmux-ssh-{os.getuid()}"
+        candidate = root / f"{digest}-%C"
+    root.mkdir(parents=True, exist_ok=True)
+    try:
+        root.chmod(0o700)
+    except OSError:
+        pass
+    return candidate
 
 
 def ssh_argv(cfg: AppConfig | None = None) -> list[str]:
     cfg = cfg or load_config()
     target = SshTarget(cfg.server, cfg.ssh_port)
-    return ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", *target.extra_args, target.dest]
+    return [
+        "ssh",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=8",
+        "-o",
+        "ControlMaster=auto",
+        "-o",
+        "ControlPersist=30",
+        "-o",
+        f"ControlPath={_ssh_control_path()}",
+        *target.extra_args,
+        target.dest,
+    ]
 
 
 def rsync_ssh(cfg: AppConfig | None = None) -> str:
     cfg = cfg or load_config()
     target = SshTarget(cfg.server, cfg.ssh_port)
     extra = " ".join(target.extra_args)
-    return f"ssh -o BatchMode=yes -o ConnectTimeout=8 {extra}".rstrip()
+    control = shlex.quote(str(_ssh_control_path()))
+    return (
+        "ssh -o BatchMode=yes -o ConnectTimeout=8 "
+        f"-o ControlMaster=auto -o ControlPersist=30 -o ControlPath={control} {extra}"
+    ).rstrip()
 
 
 def remote_root(cfg: AppConfig | None = None) -> str:
@@ -533,18 +567,21 @@ def _handoff_remote(
     request_id: str,
     generation: int,
     reason: str = "",
+    timeout: int = 0,
     cfg: AppConfig | None = None,
 ) -> dict:
     cfg = cfg or load_config()
-    payload = base64.b64encode(reason.encode("utf-8")).decode("ascii")
+    # OpenSSH joins argv into a remote shell command; an empty positional
+    # argument would collapse and shift TIMEOUT into REASON.
+    payload = base64.b64encode(reason.encode("utf-8")).decode("ascii") or "-"
     script = r"""
 set -e
-ROOT="$1"; NAME="$2"; ACTION="$3"; REQUEST="$4"; CLAIMANT="$5"; INSTANCE="$6"; GENERATION="$7"; REASON="$8"
+ROOT="$1"; NAME="$2"; ACTION="$3"; REQUEST="$4"; CLAIMANT="$5"; INSTANCE="$6"; GENERATION="$7"; REASON="$8"; TIMEOUT="$9"; LEASE_TTL="${10}"
 lock="$ROOT/locks/$NAME"; side="$ROOT/ownership/$NAME.json"
 mkdir -p "$ROOT/locks" "$ROOT/ownership"; exec 9>>"$lock"; flock -x 9
-python3 - "$lock" "$side" "$NAME" "$ACTION" "$REQUEST" "$CLAIMANT" "$INSTANCE" "$GENERATION" "$REASON" <<'PY'
+python3 - "$lock" "$side" "$NAME" "$ACTION" "$REQUEST" "$CLAIMANT" "$INSTANCE" "$GENERATION" "$REASON" "$TIMEOUT" "$LEASE_TTL" <<'PY'
 import base64,json,os,sys,tempfile,time
-lock,path,name,action,request,claimant,instance,generation,reason=sys.argv[1:]
+lock,path,name,action,request,claimant,instance,generation,reason,timeout,lease_ttl=sys.argv[1:]
 parts=open(lock).read().strip().split('@') if os.path.exists(lock) else []
 holder=parts[0] if parts else ''; current=int(parts[2]) if len(parts)>2 and parts[2].isdigit() else 0
 try:
@@ -554,24 +591,61 @@ if current != int(generation) or data.get('holder') != holder or int(data.get('g
  print(json.dumps({'ok':False,'code':'generation_conflict','generation':current})); raise SystemExit(3)
 handoff=data.get('handoff') if isinstance(data.get('handoff'),dict) else None
 now=int(time.time())
+ok=True; code=''
 if action=='request':
  if handoff and handoff.get('request_id') != request and handoff.get('status')=='pending':
   print(json.dumps({'ok':False,'code':'handoff_pending','handoff':handoff})); raise SystemExit(4)
- detail=base64.b64decode(reason).decode('utf-8','replace') if reason else ''
- handoff={'request_id':request,'status':'pending','claimant':claimant,'claimant_instance_id':instance,'requested_at':now,'reason':detail}
+ detail=base64.b64decode(reason).decode('utf-8','replace') if reason != '-' else ''
+ handoff={'request_id':request,'status':'pending','claimant':claimant,'claimant_instance_id':instance,'requested_at':now,'deadline_at':now+max(1,int(timeout or 1)),'reason':detail}
 elif not handoff or handoff.get('request_id') != request:
  print(json.dumps({'ok':False,'code':'request_not_found'})); raise SystemExit(5)
+elif action=='commit':
+ if claimant != holder or (data.get('instance_id') and data.get('instance_id') != instance):
+  print(json.dumps({'ok':False,'code':'not_owner'})); raise SystemExit(7)
+ if handoff.get('status') != 'pending':
+  print(json.dumps({'ok':False,'code':'invalid_state','handoff':handoff})); raise SystemExit(8)
+ if now >= int(handoff.get('deadline_at') or 0):
+  handoff['status']='rejected'; handoff['decided_at']=now; handoff['reason']='handoff_deadline_expired'
+  ok=False; code='deadline_expired'
+ else:
+  handoff['status']='committing'; handoff['committed_at']=now
+elif action=='cancel':
+ if claimant != handoff.get('claimant') or instance != handoff.get('claimant_instance_id'):
+  print(json.dumps({'ok':False,'code':'not_claimant'})); raise SystemExit(9)
+ if handoff.get('status') == 'pending':
+  handoff['status']='cancelled'; handoff['decided_at']=now; handoff['reason']='claimant_timeout'
+ elif handoff.get('status') == 'committing':
+  print(json.dumps({'ok':False,'code':'too_late','handoff':handoff})); raise SystemExit(10)
+ else:
+  print(json.dumps({'ok':False,'code':'invalid_state','handoff':handoff})); raise SystemExit(8)
+elif action=='finish':
+ if claimant != holder or (data.get('instance_id') and data.get('instance_id') != instance):
+  print(json.dumps({'ok':False,'code':'not_owner'})); raise SystemExit(7)
+ if handoff.get('status') != 'committing':
+  print(json.dumps({'ok':False,'code':'invalid_state','handoff':handoff})); raise SystemExit(8)
+ handoff['status']='acked'; handoff['decided_at']=now
+ handoff['reason']=base64.b64decode(reason).decode('utf-8','replace') if reason != '-' else ''
+ target=str(handoff.get('claimant') or ''); target_instance=str(handoff.get('claimant_instance_id') or '')
+ if not target or not target_instance:
+  print(json.dumps({'ok':False,'code':'invalid_claimant'})); raise SystemExit(11)
+ current+=1
+ with open(lock,'w') as f: f.write(f'{target}@{now}@{current}\n')
+ data={'schema':2,'name':name,'holder':target,'instance_id':target_instance,'generation':current,'renewed_at':now,'expires_at':now+int(lease_ttl),'evidence':{},'handoff':handoff}
 elif action in ('ack','reject'):
  if claimant != holder or (data.get('instance_id') and data.get('instance_id') != instance):
   print(json.dumps({'ok':False,'code':'not_owner'})); raise SystemExit(7)
+ if action=='ack' and handoff.get('status') != 'committing':
+  print(json.dumps({'ok':False,'code':'invalid_state','handoff':handoff})); raise SystemExit(8)
+ if action=='reject' and handoff.get('status') not in ('pending','committing'):
+  print(json.dumps({'ok':False,'code':'invalid_state','handoff':handoff})); raise SystemExit(8)
  handoff['status']='acked' if action=='ack' else 'rejected'; handoff['decided_at']=now
- handoff['reason']=base64.b64decode(reason).decode('utf-8','replace') if reason else ''
+ handoff['reason']=base64.b64decode(reason).decode('utf-8','replace') if reason != '-' else ''
 else:
  print(json.dumps({'ok':False,'code':'invalid_action'})); raise SystemExit(6)
 data['handoff']=handoff
 fd,tmp=tempfile.mkstemp(prefix='.ownership-',dir=os.path.dirname(path))
 with os.fdopen(fd,'w') as f: json.dump(data,f,separators=(',',':')); f.write('\n')
-os.replace(tmp,path); print(json.dumps({'ok':True,'handoff':handoff,'generation':current}))
+os.replace(tmp,path); print(json.dumps({'ok':ok,'code':code,'handoff':handoff,'generation':current}))
 PY
 """
     result = _run(
@@ -579,6 +653,7 @@ PY
         + [
             "bash", "-s", "--", remote_root(cfg), name, action, request_id,
             cfg.client, instance_id(), str(generation), payload,
+            str(int(timeout or 0)), str(LOCK_TTL),
         ],
         input=script,
     )
@@ -593,12 +668,19 @@ PY
     return value
 
 
-def request_handoff(name: str, *, reason: str = "") -> dict:
-    lease = read_ownership(name)
-    if lease["state"] != "foreign":
+def request_handoff(
+    name: str,
+    *,
+    reason: str = "",
+    timeout: int = 8,
+    generation: int = 0,
+    cfg: AppConfig | None = None,
+) -> dict:
+    lease = read_ownership(name, cfg) if not generation else None
+    if lease is not None and lease["state"] != "foreign":
         return {"ok": False, "code": "not_foreign", "lease": lease}
-    pending = lease.get("handoff") or {}
-    cfg = load_config()
+    pending = (lease or {}).get("handoff") or {}
+    cfg = cfg or load_config()
     if (
         pending.get("status") == "pending"
         and pending.get("claimant") == cfg.client
@@ -607,20 +689,76 @@ def request_handoff(name: str, *, reason: str = "") -> dict:
         return {
             "ok": True,
             "handoff": pending,
-            "generation": int(lease.get("generation") or 0),
+            "generation": int((lease or {}).get("generation") or generation),
             "idempotent": True,
         }
-    request_id = uuid.uuid4().hex
+    request_id = hashlib.sha256(
+        f"{name}:{cfg.client}:{instance_id()}:{int((lease or {}).get('generation') or generation)}".encode()
+    ).hexdigest()[:32]
     return _handoff_remote(
         name, "request", request_id=request_id,
-        generation=int(lease["generation"]), reason=reason,
+        generation=int((lease or {}).get("generation") or generation),
+        reason=reason, timeout=timeout, cfg=cfg,
     )
 
 
-def decide_handoff(name: str, request_id: str, generation: int, *, accept: bool, reason: str = "") -> dict:
+def begin_handoff(
+    name: str,
+    request_id: str,
+    generation: int,
+    *,
+    cfg: AppConfig | None = None,
+) -> dict:
+    """Atomically commit an owner to park before the request deadline."""
+    return _handoff_remote(
+        name, "commit", request_id=request_id, generation=generation, cfg=cfg
+    )
+
+
+def cancel_handoff(
+    name: str,
+    request_id: str,
+    generation: int,
+    *,
+    cfg: AppConfig | None = None,
+) -> dict:
+    """Cancel a pending request; an owner that already committed wins."""
+    return _handoff_remote(
+        name, "cancel", request_id=request_id, generation=generation, cfg=cfg
+    )
+
+
+def finish_handoff(
+    name: str,
+    request_id: str,
+    generation: int,
+    *,
+    reason: str = "",
+    cfg: AppConfig | None = None,
+) -> dict:
+    """Atomically acknowledge and transfer to the authenticated claimant."""
+    return _handoff_remote(
+        name,
+        "finish",
+        request_id=request_id,
+        generation=generation,
+        reason=reason,
+        cfg=cfg,
+    )
+
+
+def decide_handoff(
+    name: str,
+    request_id: str,
+    generation: int,
+    *,
+    accept: bool,
+    reason: str = "",
+    cfg: AppConfig | None = None,
+) -> dict:
     return _handoff_remote(
         name, "ack" if accept else "reject", request_id=request_id,
-        generation=generation, reason=reason,
+        generation=generation, reason=reason, cfg=cfg,
     )
 
 
@@ -643,9 +781,9 @@ def idle_enough(name: str, holder: str) -> bool:
     return frozen_last_ticks(text, name, TICKS)
 
 
-def claim(name: str, force: bool = False) -> str:
+def _claim_ownership(name: str, force: bool = False) -> dict:
     if not enabled():
-        return load_config().client
+        return {"holder": load_config().client, "generation": 1}
     kind, holder, age, _generation = _lock_remote("read", name)
     if kind == "HELD" and holder and holder != load_config().client:
         if not force and not idle_enough(name, holder):
@@ -665,7 +803,28 @@ def claim(name: str, force: bool = False) -> str:
             f"wait, dt drop there, or: dt resume {name} --force"
         )
     ev.emit("hub.claim", name=name, holder=holder or load_config().client, force=force)
-    return holder or load_config().client
+    return {
+        "holder": holder or load_config().client,
+        "generation": int(_generation or 0),
+    }
+
+
+def claim(name: str, force: bool = False) -> str:
+    return str(_claim_ownership(name, force=force)["holder"])
+
+
+def claim_generation(name: str, force: bool = False) -> dict:
+    """Claim once and return the generation produced by the same Hub lock RPC."""
+    if not enabled():
+        return {"holder": load_config().client, "generation": 1}
+    kind, holder, age, generation = _lock_remote("claim", name, force=force)
+    if kind == "HELD":
+        raise SystemExit(
+            f"[err] {name} active on {holder} ({age}s ago, TTL {LOCK_TTL}s)"
+        )
+    claimed = holder or load_config().client
+    ev.emit("hub.claim", name=name, holder=claimed, force=force)
+    return {"holder": claimed, "generation": int(generation or 0)}
 
 
 def release(name: str, *, generation: int = 0) -> None:

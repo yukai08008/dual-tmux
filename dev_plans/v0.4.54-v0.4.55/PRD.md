@@ -14,8 +14,8 @@
 ### 1.1 In-scope
 
 - 常驻 daemon 以 2 秒轻量 watchdog 响应 handoff 和检查 ownership fence；完整事实缓存保持 15 秒周期。
-- 保持 `persist → park(detach + kill) → ack → release → claim → restore` 顺序。
-- claimant 使用单一总时限等待明确 release，不再固定等待 65 秒。
+- 保持 `persist → commit → park(detach + kill) → atomic transfer → restore` 顺序。
+- claimant 使用单一总时限等待明确的原子 transfer，不再固定等待 65 秒。
 - 旧 owner 一旦观察到更高 generation/外部 holder，必须立即 park 本地两侧 tmux。
 - 用单调时钟测试 10 秒预算，用真实前台 tmux Client 测试旧端回到 shell。
 
@@ -53,17 +53,18 @@ sequenceDiagram
     O->>O: export + durable sync
     O->>T: detach-client + kill-session
     T-->>T: attach 退出，返回原 shell
-    O->>H: ack(generation)
-    O->>H: release(generation)
-    N->>H: observe free, claim new generation
+    O->>H: commit(request_id, deadline)
+    O->>H: finish: ack + atomic transfer(new generation)
+    N->>H: observe itself as new owner
     N->>N: restore + verify writers
 ```
 
 ## 3. SLA 与失败语义
 
 - `ownership_interval = 2s`，handoff 获取总预算 `10s`。
-- 协作接管只有观察到 `free/expired` 并成功 claim 才进入 restore。
-- 10 秒内未完成 persist/park/release：返回明确超时，保持旧 owner；不得先开放新端再等待旧端退出。
+- 协作接管只有观察到 Hub 已原子转让给自己的新 generation 才进入 restore；无可抢占的 `free` 窗口。
+- 10 秒内未完成 persist/commit/park/transfer：返回明确超时；cancel 胜出时保持旧 owner，不得先开放新端再等待旧端退出。
+- claimant 超时 cancel 与 owner commit 在同一 Hub 锁内竞争；cancel 赢则旧端不 park，commit 赢则 owner 必须完成 park + transfer。
 - Hub 不可达、generation 冲突、附件探针未知或持久化失败均 fail-closed。
 - daemon 观察到外部 holder 时执行本地 fence；它不需要等 minute tick。
 
@@ -73,7 +74,7 @@ sequenceDiagram
 |---|---|---|---|---|
 | R1 | high | 持久化超过 10 秒 | 超时拒绝新端 restore，旧端保持权威并给出可重试错误 | Coder |
 | R2 | high | 旧 daemon 不存活，无法让其前台 tmux 返回 shell | 不伪造 kick 成功；健康检查与 E2E 把 daemon 作为 SLA 前提 | Coder/Tester |
-| R3 | high | 旧 generation 晚到的 ack/release 破坏新 owner | Hub 端 generation + instance fencing，增加无副作用测试 | Coder |
+| R3 | high | 旧 generation 晚到的 ack/release 破坏新 owner | Hub 端 generation + instance fencing；finish 原子转让，增加无副作用测试 | Coder |
 | R4 | medium | 2 秒巡检增加 Hub SSH 压力 | worker 串行、只读快照缓存、后续可迁移成长连接；本版测量资源占用 | Coder |
 | R5 | high | 误删 session 数据 | park 只 detach/kill tmux；binding/persist/native store 纳入回归 | Tester |
 

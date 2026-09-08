@@ -10,6 +10,7 @@ import socket
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Protocol
 
@@ -685,6 +686,7 @@ class DualTmuxDaemon:
                         generation,
                         accept=False,
                         reason=",".join(reasons),
+                        cfg=cfg,
                     )
                     log.emit(
                         "ownership.handoff.reject", name=name, reason=",".join(reasons)
@@ -694,11 +696,29 @@ class DualTmuxDaemon:
                 from .hotfix import sync_persist
 
                 _export_local_snapshots(data, cfg.client)
-                sync_persist("opencode", cfg)
-                sync_persist("native", cfg)
+                with ThreadPoolExecutor(
+                    max_workers=3, thread_name_prefix="dt-handoff-persist"
+                ) as pool:
+                    futures = [
+                        pool.submit(sync_persist, "opencode", cfg),
+                        pool.submit(sync_persist, "native", cfg),
+                        pool.submit(hub.push, cfg),
+                    ]
+                    for future in futures:
+                        future.result()
                 _verify_local_snapshot_exports(data, cfg.client)
-                hub.push(cfg)
                 log.emit("ownership.handoff.persist", name=name, generation=generation)
+                committed = hub.begin_handoff(
+                    name, request_id, generation, cfg=cfg
+                )
+                if not committed.get("ok"):
+                    log.emit(
+                        "ownership.handoff.expired",
+                        name=name,
+                        generation=generation,
+                    )
+                    continue
+                log.emit("ownership.handoff.commit", name=name, generation=generation)
                 hub.park_local(data)
                 if any(
                     tmux_ops.has_session(str(data.get(key) or ""))
@@ -706,16 +726,15 @@ class DualTmuxDaemon:
                 ):
                     raise SystemExit("[err] handoff park did not stop all local panes")
                 log.emit("ownership.handoff.park", name=name, generation=generation)
-                hub.decide_handoff(
+                hub.finish_handoff(
                     name,
                     request_id,
                     generation,
-                    accept=True,
                     reason="persisted_and_parked",
+                    cfg=cfg,
                 )
                 log.emit("ownership.handoff.ack", name=name, generation=generation)
-                hub.release(name, generation=generation)
-                log.emit("ownership.handoff.release", name=name, generation=generation)
+                log.emit("ownership.handoff.transfer", name=name, generation=generation + 1)
             except (OSError, RuntimeError, SystemExit) as exc:
                 log.emit(
                     "ownership.handoff.fail",

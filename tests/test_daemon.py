@@ -337,6 +337,8 @@ def _handoff_setup(monkeypatch, tmp_path):
             },
         },
     )
+    monkeypatch.setattr(hub, "begin_handoff", lambda *_a, **_kw: {"ok": True})
+    monkeypatch.setattr(hub, "finish_handoff", lambda *_a, **_kw: {"ok": True})
     return hub
 
 
@@ -354,21 +356,20 @@ def test_handoff_orders_persist_park_ack_release(monkeypatch, tmp_path):
     monkeypatch.setattr(hotfix, "sync_persist", lambda *_a: calls.append("sync"))
     monkeypatch.setattr("dual_tmux.daemon.tmux_ops.has_session", lambda _name: False)
     monkeypatch.setattr(hub, "push", lambda *_a: calls.append("push"))
+    monkeypatch.setattr(
+        hub,
+        "begin_handoff",
+        lambda *_a, **_kw: calls.append("commit") or {"ok": True},
+    )
     monkeypatch.setattr(hub, "park_local", lambda *_a: calls.append("park"))
-    monkeypatch.setattr(hub, "decide_handoff", lambda *_a, **_kw: calls.append("ack"))
-    monkeypatch.setattr(hub, "release", lambda *_a, **_kw: calls.append("release"))
+    monkeypatch.setattr(
+        hub, "finish_handoff", lambda *_a, **_kw: calls.append("finish") or {"ok": True}
+    )
 
     DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
-    assert calls == [
-        "export",
-        "sync",
-        "sync",
-        "verify",
-        "push",
-        "park",
-        "ack",
-        "release",
-    ]
+    assert calls[0] == "export"
+    assert sorted(calls[1:4]) == ["push", "sync", "sync"]
+    assert calls[4:] == ["verify", "commit", "park", "finish"]
 
 
 def test_handoff_detaches_known_attached_idle_owner(monkeypatch, tmp_path):
@@ -394,11 +395,12 @@ def test_handoff_detaches_known_attached_idle_owner(monkeypatch, tmp_path):
     monkeypatch.setattr("dual_tmux.daemon.tmux_ops.has_session", lambda _name: False)
     monkeypatch.setattr(hub, "push", lambda *_a: None)
     monkeypatch.setattr(hub, "park_local", lambda *_a: calls.append("park"))
-    monkeypatch.setattr(hub, "decide_handoff", lambda *_a, **_kw: calls.append("ack"))
-    monkeypatch.setattr(hub, "release", lambda *_a, **_kw: calls.append("release"))
+    monkeypatch.setattr(
+        hub, "finish_handoff", lambda *_a, **_kw: calls.append("finish") or {"ok": True}
+    )
 
     DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
-    assert calls == ["park", "ack", "release"]
+    assert calls == ["park", "finish"]
 
 
 def test_ownership_watchdog_defaults_to_two_seconds():
@@ -507,6 +509,30 @@ def test_handoff_native_upload_failure_never_parks_or_releases(monkeypatch, tmp_
     assert calls == []
 
 
+def test_handoff_expired_after_persist_never_parks(monkeypatch, tmp_path):
+    from dual_tmux import cli, hotfix
+
+    hub = _handoff_setup(monkeypatch, tmp_path)
+    calls = []
+    monkeypatch.setattr(cli, "_export_local_snapshots", lambda *_a: calls.append("export") or [])
+    monkeypatch.setattr(cli, "_verify_local_snapshot_exports", lambda *_a: calls.append("verify"))
+    monkeypatch.setattr(hotfix, "sync_persist", lambda kind, _cfg: calls.append(kind))
+    monkeypatch.setattr(hub, "push", lambda *_a: calls.append("push"))
+    monkeypatch.setattr(
+        hub,
+        "begin_handoff",
+        lambda *_a, **_kw: {"ok": False, "code": "deadline_expired"},
+    )
+    monkeypatch.setattr(hub, "park_local", lambda *_a: calls.append("park"))
+    monkeypatch.setattr(hub, "finish_handoff", lambda *_a, **_kw: calls.append("finish"))
+
+    DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
+
+    assert calls[0] == "export"
+    assert sorted(calls[1:4]) == ["native", "opencode", "push"]
+    assert calls[4:] == ["verify"]
+
+
 def test_handoff_stale_generation_ack_never_releases(monkeypatch, tmp_path):
     from dual_tmux import cli, hotfix
 
@@ -520,7 +546,7 @@ def test_handoff_stale_generation_ack_never_releases(monkeypatch, tmp_path):
     monkeypatch.setattr(hub, "park_local", lambda *_a: calls.append("park"))
     monkeypatch.setattr(
         hub,
-        "decide_handoff",
+        "finish_handoff",
         lambda *_a, **_kw: (_ for _ in ()).throw(SystemExit("generation_conflict")),
     )
     monkeypatch.setattr(hub, "release", lambda *_a, **_kw: calls.append("release"))
