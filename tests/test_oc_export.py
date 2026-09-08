@@ -123,3 +123,34 @@ def test_oc_bin_fallback(monkeypatch):
     )
     monkeypatch.setattr(os, "access", lambda p, m: True)
     assert oc.oc_bin().endswith(".opencode/bin/opencode")
+
+
+def test_bind_session_directory_rewrites_foreign_home(tmp_path, monkeypatch):
+    import sqlite3
+
+    db = tmp_path / "opencode.db"
+    con = sqlite3.connect(db)
+    con.execute(
+        "CREATE TABLE session (id text primary key, directory text not null, path text)"
+    )
+    con.execute(
+        "INSERT INTO session VALUES (?, ?, ?)",
+        (
+            "ses_1",
+            "/Users/andy_ouc/.dual-tmux/ops/op_a",
+            "Users/andy_ouc/.dual-tmux/ops/op_a",
+        ),
+    )
+    con.commit()
+    con.close()
+    monkeypatch.setattr(oc, "db_path", lambda: db)
+    dest = tmp_path / "ops" / "op_a"
+    dest.mkdir(parents=True)
+    assert oc.bind_session_directory("ses_1", str(dest))
+    row = (
+        sqlite3.connect(db)
+        .execute("SELECT directory, path FROM session WHERE id=?", ("ses_1",))
+        .fetchone()
+    )
+    assert row[0] == str(dest)
+    assert row[1] == str(dest).lstrip("/")

@@ -257,9 +257,11 @@ def snapshot(data: dict, *, lease: dict | None = None) -> dict:
     )
     if foreign and (not sampled_at or int(time.time()) - sampled_at > EVIDENCE_TTL):
         result["snapshot"]["freshness"] = "stale" if sampled_at else "unknown"
+        # Stale evidence cannot prove the owner is busy or idle. Ask it to park;
+        # do not brick resume on the machine the operator is sitting at.
         result["takeover"] = {
-            "safe": False,
-            "action": "stop",
+            "safe": True,
+            "action": "request_handoff",
             "reason": "owner_evidence_stale",
         }
     if foreign and result["takeover"]["safe"]:

@@ -420,7 +420,7 @@ def test_failed_service_cleanup_cancels_reservation_without_claim(monkeypatch):
     assert calls == [("dt-a", "fault-1", 8)]
 
 
-def test_stale_foreign_evidence_is_never_takeover_safe(monkeypatch):
+def test_stale_foreign_evidence_requests_handoff(monkeypatch):
     evidence = {
         "sampled_at": 100,
         "sides": {
@@ -448,8 +448,8 @@ def test_stale_foreign_evidence_is_never_takeover_safe(monkeypatch):
     monkeypatch.setattr(ownership.time, "time", lambda: 1000)
     result = ownership.snapshot(_data())
     assert result["takeover"] == {
-        "safe": False,
-        "action": "stop",
+        "safe": True,
+        "action": "request_handoff",
         "reason": "owner_evidence_stale",
     }
 
