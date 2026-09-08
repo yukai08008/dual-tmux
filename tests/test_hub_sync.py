@@ -1,6 +1,7 @@
 import base64
 import json
 import os
+import shlex
 from pathlib import Path
 
 from dual_tmux import hub
@@ -141,3 +142,37 @@ def test_stale_sidecar_never_overrides_v1(monkeypatch):
     assert value["evidence"] == {}
     assert value["source"] == "v1"
     assert value["conflict"] is True
+
+
+def test_handoff_remote_quotes_values_before_ssh_shell(monkeypatch):
+    seen = []
+
+    class Result:
+        returncode = 0
+        stderr = ""
+        stdout = '{"ok":true,"generation":7}\n'
+
+    monkeypatch.setattr(
+        hub, "_run", lambda argv, **_kwargs: seen.append(argv) or Result()
+    )
+    monkeypatch.setattr(hub, "instance_id", lambda: "host; false")
+    cfg = AppConfig(client="tm_new", server="tom7r", user="andy")
+
+    value = hub._handoff_remote(
+        "dt-a; false",
+        "cancel",
+        request_id="req; false",
+        generation=7,
+        cfg=cfg,
+    )
+
+    remote = shlex.split(seen[0][-1])
+    assert remote[:4] == ["bash", "-s", "--", "andy/dual-tmux"]
+    assert remote[4:9] == [
+        "dt-a; false",
+        "cancel",
+        "req; false",
+        "tm_new",
+        "host; false",
+    ]
+    assert value["ok"] is True
