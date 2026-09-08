@@ -76,6 +76,22 @@ def test_get_without_name_uses_latest_tunnel(tmp_path, monkeypatch):
     assert ControlService().get_tunnel(None).data["name"] == "dt-msg"
 
 
+def test_send_checks_ownership_before_writing_tmux(tmp_path, monkeypatch):
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
+    save(tunnels_dir() / "dt-msg.json", _tunnel())
+    monkeypatch.setattr(
+        "dual_tmux.hub.require_active",
+        lambda _data: (_ for _ in ()).throw(SystemExit("foreign owner")),
+    )
+    monkeypatch.setattr(
+        "dual_tmux.control.tmux_ops.send_keys",
+        lambda *_a, **_kw: pytest.fail("fenced Client must not receive input"),
+    )
+
+    with pytest.raises(ControlError, match="foreign owner"):
+        ControlService().send("msg", "hello", "trigger")
+
+
 def test_control_errors_are_structured(tmp_path, monkeypatch):
     monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
     service = ControlService()
@@ -300,7 +316,11 @@ def test_handoff_rechecks_live_plan_before_remote_request(monkeypatch):
     monkeypatch.setattr(
         ownership,
         "plan_resume",
-        lambda _data: {"safe": False, "action": "stop", "reason": "bullet_duplicate_writer"},
+        lambda _data: {
+            "safe": False,
+            "action": "stop",
+            "reason": "bullet_duplicate_writer",
+        },
     )
     monkeypatch.setattr(
         hub, "request_handoff", lambda *_a, **_kw: pytest.fail("must not request")

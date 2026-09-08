@@ -286,7 +286,10 @@ def write_cache(facts: dict, *, now: int | None = None) -> Path:
     name = str(facts.get("name") or "")
     if not name or "/" in name or name in {".", ".."}:
         raise ValueError("invalid ownership cache name")
-    payload = {"cached_at": int(time.time()) if now is None else int(now), "facts": facts}
+    payload = {
+        "cached_at": int(time.time()) if now is None else int(now),
+        "facts": facts,
+    }
     path = cache_path(name)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, raw = tempfile.mkstemp(prefix=".ownership-", dir=path.parent)
@@ -331,7 +334,9 @@ def read_cache(name: str, *, now: int | None = None) -> dict:
 def plan_from_facts(data: dict, facts: dict) -> dict:
     """Build the frozen resume-plan shape from already collected facts."""
     takeover = dict(facts.get("takeover") or {})
-    if not all((data.get(role) or {}).get("session_id") for role in ("trigger", "bullet")):
+    if not all(
+        (data.get(role) or {}).get("session_id") for role in ("trigger", "bullet")
+    ):
         takeover = {"safe": False, "action": "stop", "reason": "not_a_frozen_dst"}
     steps: list[str] = []
     if takeover.get("action") == "request_handoff":
@@ -355,9 +360,46 @@ def plan_resume(data: dict) -> dict:
     facts = snapshot(data)
     plan = plan_from_facts(data, facts)
     facts["takeover"] = {
-        "safe": plan["safe"], "action": plan["action"], "reason": plan["reason"]
+        "safe": plan["safe"],
+        "action": plan["action"],
+        "reason": plan["reason"],
     }
     return plan
+
+
+def _claim_after_service_fence(data: dict, lease: dict) -> dict:
+    """Reserve, clean, then atomically publish a new Hub generation."""
+    name = str(data.get("name") or "")
+    generation = int(lease.get("generation") or 0)
+    reservation = hub.reserve_fault_takeover(name, generation)
+    request_id = str(reservation.get("request_id") or "")
+    try:
+        if (data.get("runtime") or {}).get("server"):
+            from .recovery import fence_remote_bullet
+
+            fenced = fence_remote_bullet(data)
+            if fenced is None:
+                raise SystemExit(
+                    "[err] service-side cleanup could not be verified; "
+                    "ownership was not changed"
+                )
+        acquired = hub.finish_fault_takeover(name, request_id, generation)
+    except BaseException:
+        cancellation = None
+        try:
+            cancellation = hub.cancel_fault_takeover(name, request_id, generation)
+        except (OSError, SystemExit):
+            pass
+        if cancellation and cancellation.get("code") == "already_committed":
+            return {
+                "holder": str(cancellation.get("holder") or load_config().client),
+                "generation": int(cancellation.get("generation") or 0),
+            }
+        raise
+    return {
+        "holder": str(acquired.get("holder") or load_config().client),
+        "generation": int(acquired.get("generation") or 0),
+    }
 
 
 def acquire_for_resume(data: dict, plan: dict, *, force: bool = False) -> dict:
@@ -394,7 +436,11 @@ def acquire_for_resume(data: dict, plan: dict, *, force: bool = False) -> dict:
                     "newly_acquired": True,
                 }
             if current.get("state") in {"free", "expired"}:
-                acquired = hub.claim_generation(str(data.get("name") or ""))
+                acquired = (
+                    _claim_after_service_fence(data, current)
+                    if current.get("state") == "expired"
+                    else hub.claim_generation(str(data.get("name") or ""))
+                )
                 return {
                     "generation": int(acquired.get("generation") or 0),
                     "newly_acquired": True,
@@ -426,11 +472,15 @@ def acquire_for_resume(data: dict, plan: dict, *, force: bool = False) -> dict:
                     "generation": int(current.get("generation") or 0),
                     "newly_acquired": True,
                 }
-            if (
-                cancelled.get("code") == "too_late"
-                and current.get("state") in {"free", "expired"}
-            ):
-                acquired = hub.claim_generation(str(data.get("name") or ""))
+            if cancelled.get("code") == "too_late" and current.get("state") in {
+                "free",
+                "expired",
+            }:
+                acquired = (
+                    _claim_after_service_fence(data, current)
+                    if current.get("state") == "expired"
+                    else hub.claim_generation(str(data.get("name") or ""))
+                )
                 return {
                     "generation": int(acquired.get("generation") or 0),
                     "newly_acquired": True,
@@ -440,7 +490,12 @@ def acquire_for_resume(data: dict, plan: dict, *, force: bool = False) -> dict:
             "parked; ownership was not changed"
         )
     was_owned = lease.get("state") == "owned"
-    hub.claim(str(data.get("name") or ""), force=force)
+    if lease.get("state") == "expired":
+        _claim_after_service_fence(data, lease)
+    elif lease.get("state") == "free":
+        hub.claim_generation(str(data.get("name") or ""))
+    else:
+        hub.claim(str(data.get("name") or ""), force=force)
     current = hub.read_ownership(str(data.get("name") or ""))
     if current.get("state") != "owned" or current.get("holder") != load_config().client:
         raise SystemExit("[err] ownership acquisition could not be verified")

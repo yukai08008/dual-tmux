@@ -515,7 +515,7 @@ class DualTmuxDaemon:
         interval: float = 2.0,
         mailbox_interval: float = 5.0,
         mailbox_sync=None,
-        ownership_interval: float = 2.0,
+        ownership_interval: float = 1.0,
         ownership_cache_interval: float = 15.0,
     ):
         self.manager = manager or ConnectorManager()
@@ -529,6 +529,27 @@ class DualTmuxDaemon:
         self._statusbar_frame = 0
         self._ownership_last = 0.0
         self._ownership_cache_last = 0.0
+        self._ownership_confirmed_at: dict[str, float] = {}
+
+    def _park_unconfirmed(self, data: dict, *, now: float, reason: str) -> bool:
+        """Self-fence a live Client that cannot confirm its short Hub lease."""
+        from . import hub
+
+        name = str(data.get("name") or "")
+        confirmed_at = self._ownership_confirmed_at.get(name)
+        # A freshly restarted daemon has no proof that this pane still owns a
+        # live Hub generation.  It therefore fences immediately instead of
+        # granting itself a brand-new local grace period after every restart.
+        if confirmed_at is not None and now - confirmed_at < hub.OWNERSHIP_LEASE_TTL:
+            return False
+        try:
+            parked = hub.park_local(data)
+        except (OSError, SystemExit):
+            log.emit("ownership.self_fence.fail", name=name, reason=reason)
+            return False
+        if parked:
+            log.emit("ownership.self_fence.park", name=name, reason=reason)
+        return bool(parked)
 
     def _statusbar_step(self) -> None:
         """Refresh tmux status-bar sync chips; animates the spinner while busy.
@@ -572,8 +593,7 @@ class DualTmuxDaemon:
             return
         self._ownership_last = now
         refresh_cache = (
-            force
-            or now - self._ownership_cache_last >= self.ownership_cache_interval
+            force or now - self._ownership_cache_last >= self.ownership_cache_interval
         )
         if refresh_cache:
             self._ownership_cache_last = now
@@ -588,8 +608,7 @@ class DualTmuxDaemon:
 
         def is_live(data: dict) -> bool:
             return any(
-                tmux_ops.has_session(str(data.get(key) or ""))
-                for key in ("op", "run")
+                tmux_ops.has_session(str(data.get(key) or "")) for key in ("op", "run")
             )
 
         # A live foreground Trigger must never queue behind a long catalog of
@@ -606,14 +625,16 @@ class DualTmuxDaemon:
             try:
                 lease = hub.read_ownership(name, cfg)
             except (OSError, SystemExit, ValueError):
+                if cfg.hub_enabled and live:
+                    self._park_unconfirmed(
+                        data, now=time.monotonic(), reason="hub_unreachable"
+                    )
                 continue
             if not cfg.hub_enabled:
                 if refresh_cache:
                     try:
                         activity.activity_evidence(data)
-                        ownership.write_cache(
-                            ownership.snapshot(data, lease=lease)
-                        )
+                        ownership.write_cache(ownership.snapshot(data, lease=lease))
                     except (OSError, SystemExit, ValueError):
                         pass
                 continue
@@ -621,14 +642,14 @@ class DualTmuxDaemon:
             # Client owns the tunnel, stop both local tmux sessions now so any
             # foreground `tmux attach` returns to its invoking shell.  This is
             # the fast watchdog path; the minute tick remains only a fallback.
-            if lease.get("state") == "foreign":
+            if lease.get("state") in {"foreign", "free", "expired"}:
                 try:
                     parked = hub.park_local(data)
                     if parked:
                         log.emit(
                             "ownership.fence.park",
                             name=name,
-                            holder=lease.get("holder") or "",
+                            holder=lease.get("holder") or "none",
                             generation=int(lease.get("generation") or 0),
                         )
                 except (OSError, SystemExit):
@@ -639,11 +660,21 @@ class DualTmuxDaemon:
                     )
                 if refresh_cache:
                     try:
-                        ownership.write_cache(
-                            ownership.snapshot(data, lease=lease)
-                        )
+                        ownership.write_cache(ownership.snapshot(data, lease=lease))
                     except (OSError, SystemExit, ValueError):
                         pass
+                continue
+            self._ownership_confirmed_at.setdefault(
+                name, now - float(lease.get("age_seconds") or 0)
+            )
+            try:
+                hub.renew_ownership(name, int(lease.get("generation") or 0), cfg=cfg)
+                self._ownership_confirmed_at[name] = now
+            except (OSError, SystemExit, ValueError):
+                if live:
+                    self._park_unconfirmed(
+                        data, now=time.monotonic(), reason="renewal_failed"
+                    )
                 continue
             handoff = lease.get("handoff") or {}
             handoff_status = str(handoff.get("status") or "")
@@ -655,9 +686,7 @@ class DualTmuxDaemon:
                 if refresh_cache:
                     try:
                         activity.activity_evidence(data)
-                        ownership.write_cache(
-                            ownership.snapshot(data, lease=lease)
-                        )
+                        ownership.write_cache(ownership.snapshot(data, lease=lease))
                     except (OSError, SystemExit, ValueError):
                         pass
                 continue
@@ -733,17 +762,50 @@ class DualTmuxDaemon:
                     )
                     from .hotfix import sync_persist
 
-                    _export_local_snapshots(data, cfg.client)
-                    with ThreadPoolExecutor(
-                        max_workers=3, thread_name_prefix="dt-handoff-persist"
-                    ) as pool:
-                        futures = [
-                            pool.submit(sync_persist, "opencode", cfg),
-                            pool.submit(sync_persist, "native", cfg),
-                            pool.submit(hub.push, cfg),
-                        ]
-                        for future in futures:
-                            future.result()
+                    keepalive_stop = threading.Event()
+                    keepalive_last = [time.monotonic()]
+
+                    def keepalive(
+                        stop: threading.Event = keepalive_stop,
+                        last: list[float] = keepalive_last,
+                        tunnel_name: str = name,
+                        lease_generation: int = generation,
+                        owner_cfg=cfg,
+                    ) -> None:
+                        while not stop.wait(max(1.0, self.ownership_interval)):
+                            try:
+                                hub.renew_ownership(
+                                    tunnel_name, lease_generation, cfg=owner_cfg
+                                )
+                                last[0] = time.monotonic()
+                            except (OSError, SystemExit, ValueError):
+                                pass
+
+                    keepalive_thread = threading.Thread(
+                        target=keepalive,
+                        daemon=True,
+                        name=f"dt-handoff-lease-{name}",
+                    )
+                    keepalive_thread.start()
+                    try:
+                        _export_local_snapshots(data, cfg.client)
+                        with ThreadPoolExecutor(
+                            max_workers=3, thread_name_prefix="dt-handoff-persist"
+                        ) as pool:
+                            futures = [
+                                pool.submit(sync_persist, "opencode", cfg),
+                                pool.submit(sync_persist, "native", cfg),
+                                pool.submit(hub.push, cfg),
+                            ]
+                            for future in futures:
+                                future.result()
+                    finally:
+                        keepalive_stop.set()
+                        keepalive_thread.join(timeout=self.ownership_interval + 1)
+                    if time.monotonic() - keepalive_last[0] >= hub.OWNERSHIP_LEASE_TTL:
+                        raise SystemExit(
+                            "[err] ownership lease expired while persisting handoff"
+                        )
                     _verify_local_snapshot_exports(data, cfg.client)
                     log.emit(
                         "ownership.handoff.persist", name=name, generation=generation

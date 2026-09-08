@@ -11,17 +11,21 @@ invariants:
   - "persist→commit→park→atomic transfer 顺序不变"
   - "运行时数据不在 git 追踪中"
   - "真实前台 tmux E2E 覆盖旧端返回 shell"
+  - "故障接管由 m7 预留、清场证明与 generation 原子转让组成"
 
 deliverables:
   - module: src/dual_tmux/ownership.py
     change: 单一 10 秒 handoff deadline，删除固定 65 秒等待
     public_api: [acquire_for_resume]
   - module: src/dual_tmux/daemon.py
-    change: 2 秒 ownership watchdog、外部 holder fencing 与 committing 重入恢复
+    change: 1 秒 ownership watchdog、外部 holder fencing 与 committing 重入恢复
     public_api: [DualTmuxDaemon]
   - module: src/dual_tmux/hub.py
-    change: v2 protocol gate、deadline/cancel 与原子 generation transfer
-    public_api: [request_handoff, begin_handoff, cancel_handoff, finish_handoff]
+    change: v2 protocol gate、4 秒租约、deadline/cancel、故障接管预留与原子 generation transfer
+    public_api: [request_handoff, begin_handoff, cancel_handoff, finish_handoff, renew_ownership, reserve_fault_takeover, finish_fault_takeover, cancel_fault_takeover]
+  - module: src/dual_tmux/recovery.py
+    change: 服务端 writer 单次 SSH 清场并二次确认，无证明则 fail-closed
+    public_api: [fence_remote_bullet]
   - module: tests/
     change: fake-clock 时序、generation fence 与真实 tmux attach E2E
 
@@ -42,10 +46,14 @@ feature_branches:
       - "A-4 stale generation 的 ack/release 无副作用"
       - "A-5 binding、persist、memory 和 CLI 合同不回归"
       - "A-6 新旧协议混跑时 fail-closed，旧端不被误踢"
-    estimated_loc: ~260
+      - "A-7 owner 故障时新端在 10 秒内完成 m7 仲裁、清场和输入就绪"
+      - "A-8 m7/清场失败时不签发新 generation"
+      - "A-9 故障端恢复后旧 generation 被 fence，不自动复活"
+      - "A-10 Web/ControlService mutation 不得绕过 ownership gate"
+    estimated_loc: ~600
 
-acceptance_count: 6
-total_estimated_loc: ~260
+acceptance_count: 10
+total_estimated_loc: ~600
 
 risk_register:
   - id: R1
@@ -64,6 +72,10 @@ risk_register:
     risk: "滚动升级期间旧 handoff 语义绕过 deadline/cancel"
     mitigation: "v2 独立状态 + 双向兼容拒绝；两端升级后才允许接管"
     severity: high
+  - id: R5
+    risk: "服务端清场与 generation 转让之间被第三端插队"
+    mitigation: "m7 先写有时限的 reservation；finish 校验 request/client/instance/旧 generation 后原子推进"
+    severity: high
 
 git_workflow:
   branch_creation: from v0.4.54.post3
@@ -78,9 +90,10 @@ git_workflow:
 
 deployment_checklist:
   - "构建 wheel/sdist 成功"
-  - "daemon ownership worker 周期 <= 2 秒"
+  - "daemon ownership worker 周期 <= 1 秒"
   - "真实接管耗时 <= 10 秒"
   - "旧端 attach 返回 shell"
+  - "真实 owner 故障 + 服务端 writer 清场 + 新 Trigger 输入就绪 <= 10 秒"
   - "session binding/persist/memory 未删除"
 
 notes:

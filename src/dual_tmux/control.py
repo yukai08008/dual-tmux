@@ -270,6 +270,8 @@ class ControlService:
         return load(path)
 
     def send(self, name: str, text: str, side: str = "bullet") -> ControlResult:
+        from . import hub
+
         data = self.get_tunnel(name).data
         normalized = {"op": "trigger", "run": "bullet"}.get(side, side)
         if normalized not in {"trigger", "bullet"}:
@@ -281,6 +283,7 @@ class ControlService:
             )
         agent = (data.get(normalized) or {}).get("tool") or "opencode"
         self._require_capability(agent, "send")
+        _translate(lambda: hub.require_active(data))
         _translate(lambda: tmux_ops.send_keys(pane, text))
         return ControlResult(
             "pane.send", {"pane": pane, "side": normalized}, _event("pane.send")
@@ -406,14 +409,15 @@ class ControlService:
         else:
             plan = ownership.plan_from_facts(data, cached["facts"])
             if cached.get("freshness") != "fresh":
-                plan.update(safe=False, action="stop", reason="ownership_cache_stale", steps=[])
+                plan.update(
+                    safe=False, action="stop", reason="ownership_cache_stale", steps=[]
+                )
             else:
                 facts = cached["facts"]
                 lease = facts.get("lease") or {}
                 sampled = int((lease.get("evidence") or {}).get("sampled_at") or 0)
-                if (
-                    lease.get("state") == "foreign"
-                    and (not sampled or int(time.time()) - sampled > ownership.EVIDENCE_TTL)
+                if lease.get("state") == "foreign" and (
+                    not sampled or int(time.time()) - sampled > ownership.EVIDENCE_TTL
                 ):
                     plan.update(
                         safe=False,
@@ -421,7 +425,9 @@ class ControlService:
                         reason="owner_evidence_stale",
                         steps=[],
                     )
-        plan["cache"] = {key: cached.get(key) for key in ("cached_at", "age_seconds", "freshness")}
+        plan["cache"] = {
+            key: cached.get(key) for key in ("cached_at", "age_seconds", "freshness")
+        }
         return ControlResult("session.resume.plan", plan, _event("session.resume.plan"))
 
     def handoff(self, name: str, *, reason: str = "") -> ControlResult:
