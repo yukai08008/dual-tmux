@@ -163,7 +163,7 @@ before it parks or releases; the receiver rechecks the lease generation before
 commit. In local-only mode the same machinery can restore a locally persisted
 snapshot without requiring a Hub.
 
-A foreign idle owner receives a handoff request when another Client explicitly runs Resume, even if a terminal is still attached to the owner's tmux. Its daemon must persist snapshots, detach and park local panes, acknowledge and release—in that order—before the claimant acquires the next generation and resumes. Working, stalled, unknown attachment, stale evidence, or an invalid writer count is rejected. Background refresh and tick never initiate this handoff. To leave explicitly, use `dt drop dt-msg`.
+A foreign idle owner receives a handoff request when another Client explicitly runs Resume, even if a terminal is still attached to the owner's tmux. A resident owner daemon persists snapshots, detaches and parks local panes, acknowledges and releases before the claimant resumes. If the owner only has the default minute tick, the claimant safely transfers the Hub lock after preflight and waits through a tick cycle; the old Client sees the foreign lock and drops its local panes, preserving the original lock-driven takeover behavior. Working, stalled, unknown attachment, stale evidence, or an invalid writer count is rejected. Background refresh and tick never initiate a takeover. To leave explicitly, use `dt drop dt-msg`.
 
 To **branch** (two live tunnels, not steal the lock):
 
