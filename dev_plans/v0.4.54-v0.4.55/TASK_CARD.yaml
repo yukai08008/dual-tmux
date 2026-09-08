@@ -1,0 +1,102 @@
+version: v0.4.55
+parent_final: v0.4.54.post3
+title: Trigger 独热接管协议
+type: api
+prd: dev_plans/v0.4.54-v0.4.55/PRD.md
+test_cases: dev_plans/v0.4.54-v0.4.55/TEST_CASES.md
+
+invariants:
+  - "CLI 现有功能、命令和参数不阉割"
+  - "CLI/Web/飞书共享 ownership 内核；只读操作不 claim"
+  - "persist→commit→park→atomic transfer 顺序不变"
+  - "运行时数据不在 git 追踪中"
+  - "真实前台 tmux E2E 覆盖旧端返回 shell"
+  - "故障接管由 m7 预留、清场证明与 generation 原子转让组成"
+
+deliverables:
+  - module: src/dual_tmux/ownership.py
+    change: 单一 10 秒 handoff deadline，删除固定 65 秒等待
+    public_api: [acquire_for_resume]
+  - module: src/dual_tmux/daemon.py
+    change: 1 秒 ownership watchdog、外部 holder fencing 与 committing 重入恢复
+    public_api: [DualTmuxDaemon]
+  - module: src/dual_tmux/hub.py
+    change: v2 protocol gate、4 秒租约、deadline/cancel、故障接管预留与原子 generation transfer
+    public_api: [request_handoff, begin_handoff, cancel_handoff, finish_handoff, renew_ownership, reserve_fault_takeover, finish_fault_takeover, cancel_fault_takeover]
+  - module: src/dual_tmux/recovery.py
+    change: 服务端 writer 单次 SSH 清场并二次确认，无证明则 fail-closed
+    public_api: [fence_remote_bullet]
+  - module: tests/
+    change: fake-clock 时序、generation fence 与真实 tmux attach E2E
+
+feature_branches:
+  - name: feature/v0.4.55-exclusive-trigger
+    title: 独热 Trigger 协议与可执行 SLA
+    deps: []
+    files:
+      - src/dual_tmux/ownership.py
+      - src/dual_tmux/daemon.py
+      - tests/test_ownership.py
+      - tests/test_daemon.py
+      - tests/test_exclusive_trigger_e2e.py
+    acceptance:
+      - "A-1 健康 owner handoff 后新端不超过 10 秒获得 generation"
+      - "A-2 旧端 tmux attach 进程退出并回到调用 shell"
+      - "A-3 超时路径 fail-closed，不产生新端 writer"
+      - "A-4 stale generation 的 ack/release 无副作用"
+      - "A-5 binding、persist、memory 和 CLI 合同不回归"
+      - "A-6 新旧协议混跑时 fail-closed，旧端不被误踢"
+      - "A-7 owner 故障时新端在 10 秒内完成 m7 仲裁、清场和输入就绪"
+      - "A-8 m7/清场失败时不签发新 generation"
+      - "A-9 故障端恢复后旧 generation 被 fence，不自动复活"
+      - "A-10 Web/ControlService mutation 不得绕过 ownership gate"
+    estimated_loc: ~600
+
+acceptance_count: 10
+total_estimated_loc: ~600
+
+risk_register:
+  - id: R1
+    risk: "持久化耗时吃满 10 秒预算"
+    mitigation: "总 deadline + fail-closed，不提前开放新 owner"
+    severity: high
+  - id: R2
+    risk: "daemon/网络失效时无法远程结束旧机本地 tmux"
+    mitigation: "不宣称接管成功；明确健康前提与超时错误"
+    severity: high
+  - id: R3
+    risk: "旧 generation 延迟操作破坏新 owner"
+    mitigation: "Hub 原子 generation/instance fence + fault test"
+    severity: high
+  - id: R4
+    risk: "滚动升级期间旧 handoff 语义绕过 deadline/cancel"
+    mitigation: "v2 独立状态 + 双向兼容拒绝；两端升级后才允许接管"
+    severity: high
+  - id: R5
+    risk: "服务端清场与 generation 转让之间被第三端插队"
+    mitigation: "m7 先写有时限的 reservation；finish 校验 request/client/instance/旧 generation 后原子推进"
+    severity: high
+
+git_workflow:
+  branch_creation: from v0.4.54.post3
+  feature_order: exclusive-trigger
+  merge_policy: --no-ff
+  before_merge_checks:
+    - "pytest tests/ 全 PASS"
+    - "ruff check 全 PASS"
+    - "真实双 DUAL_TMUX_HOME + 前台 tmux attach E2E PASS"
+    - "git ls-files data/ | wc -l == 0"
+  final_tag: v0.4.55-final
+
+deployment_checklist:
+  - "构建 wheel/sdist 成功"
+  - "daemon ownership worker 周期 <= 1 秒"
+  - "真实接管耗时 <= 10 秒"
+  - "旧端 attach 返回 shell"
+  - "真实 owner 故障 + 服务端 writer 清场 + 新 Trigger 输入就绪 <= 10 秒"
+  - "session binding/persist/memory 未删除"
+
+notes:
+  - "独热与故障接管要求多 Client 同步升级；经用户明确授权，作为奇数 API 版安全能力例外发布"
+
+签名: Agent-PM-0.4.55

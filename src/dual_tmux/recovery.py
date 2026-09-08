@@ -83,8 +83,7 @@ def _remote_command(
     command = f"sh -lc {shlex.quote(script)}"
     if container and use_container:
         command = (
-            f"docker exec -i {shlex.quote(container)} "
-            f"sh -lc {shlex.quote(script)}"
+            f"docker exec -i {shlex.quote(container)} sh -lc {shlex.quote(script)}"
         )
     return runner(
         [*_ssh_argv(data), command],
@@ -205,9 +204,7 @@ def _remote_probe(
     }
 
 
-def probe_tunnel(
-    data: dict, *, runner: Runner = subprocess.run
-) -> dict[str, Any]:
+def probe_tunnel(data: dict, *, runner: Runner = subprocess.run) -> dict[str, Any]:
     runtime = data.get("runtime") or {}
     remote = bool(runtime.get("server"))
     trigger = data.get("trigger") or {}
@@ -221,12 +218,8 @@ def probe_tunnel(
     trigger_tool = trigger.get("tool") or "opencode"
     bullet_tool = bullet.get("tool") or "opencode"
     layers = {
-        "tmux_trigger": _layer(
-            op_live, "running" if op_live else "missing", op
-        ),
-        "tmux_bullet": _layer(
-            run_live, "running" if run_live else "missing", run
-        ),
+        "tmux_trigger": _layer(op_live, "running" if op_live else "missing", op),
+        "tmux_bullet": _layer(run_live, "running" if run_live else "missing", run),
         "trigger_agent": _layer(
             op_live and op_cmd == trigger_tool,
             "running" if op_cmd == trigger_tool else "stopped",
@@ -253,9 +246,7 @@ def probe_tunnel(
                         False, "unknown", runtime.get("directory") or ""
                     ),
                     "agent": _layer(False, "unknown", bullet_tool),
-                    "session": _layer(
-                        False, "unknown", bullet.get("session_id") or ""
-                    ),
+                    "session": _layer(False, "unknown", bullet.get("session_id") or ""),
                 }
             )
     else:
@@ -325,28 +316,40 @@ def fence_remote_bullet(
     """
     bullet = data.get("bullet") or {}
     sid = (bullet.get("session_id") or "").strip()
-    pids = remote_session_pids(data, runner=runner)
-    if pids is None:
+    if not sid or not (data.get("runtime") or {}).get("server"):
         return None
-    if not pids:
-        return []
     pattern = f"[{sid[0]}]{sid[1:]}"
-    joined = " ".join(str(pid) for pid in pids)
     script = (
-        f"kill {joined} 2>/dev/null || true; "
-        f"sleep 1; "
-        f"pgrep -f {shlex.quote(pattern)} | xargs -r kill -9 2>/dev/null || true"
+        f"pids=$(pgrep -f {shlex.quote(pattern)} || true); "
+        'if [ -n "$pids" ]; then '
+        "kill $pids 2>/dev/null || true; sleep 1; "
+        f"remaining=$(pgrep -f {shlex.quote(pattern)} || true); "
+        'if [ -n "$remaining" ]; then '
+        "kill -9 $remaining 2>/dev/null || true; sleep 0.2; fi; "
+        "fi; "
+        f'test -z "$(pgrep -f {shlex.quote(pattern)} || true)" || exit 42; '
+        "printf 'DT_KILLED=%s\\n' \"$pids\""
     )
     try:
-        _remote_command(data, script, runner=runner)
+        result = _remote_command(data, script, runner=runner)
     except (OSError, subprocess.TimeoutExpired):
         return None
-    return pids
+    if result.returncode != 0:
+        return None
+    marker = next(
+        (
+            line
+            for line in (result.stdout or "").splitlines()
+            if line.startswith("DT_KILLED=")
+        ),
+        "",
+    )
+    if not marker:
+        return None
+    return [int(value) for value in marker.partition("=")[2].split() if value.isdigit()]
 
 
-def ensure_remote_session(
-    data: dict, *, runner: Runner = subprocess.run
-) -> bool:
+def ensure_remote_session(data: dict, *, runner: Runner = subprocess.run) -> bool:
     bullet = data.get("bullet") or {}
     sid = bullet.get("session_id") or ""
     if not sid or (bullet.get("tool") or "opencode") != "opencode":
@@ -363,7 +366,7 @@ def ensure_remote_session(
         f"cd {shlex.quote(directory)} || exit 41; "
         "tmp=$(mktemp /tmp/dt-opencode.XXXXXX.json) || exit 42; "
         "trap 'rm -f \"$tmp\"' EXIT; "
-        "cat >\"$tmp\"; opencode import \"$tmp\""
+        'cat >"$tmp"; opencode import "$tmp"'
     )
     try:
         result = _remote_command(
@@ -376,15 +379,13 @@ def ensure_remote_session(
         raise SystemExit(f"[err] remote bullet import: {exc}") from exc
     if result.returncode != 0:
         detail = (
-            result.stderr or result.stdout or "import failed"
-        ).strip().splitlines()
+            (result.stderr or result.stdout or "import failed").strip().splitlines()
+        )
         raise SystemExit(
             f"[err] remote bullet import: {detail[-1] if detail else 'failed'}"
         )
     if not (_remote_probe(data, runner=runner).get("session") or {}).get("ok"):
-        raise SystemExit(
-            f"[err] remote bullet import did not restore session {sid}"
-        )
+        raise SystemExit(f"[err] remote bullet import did not restore session {sid}")
     ev.emit("recovery.remote_import", name=data.get("name"), session=sid)
     return True
 
@@ -449,20 +450,14 @@ def observe(
         save_state(state)
         return state
     state["healthy"] = False
-    state["consecutive_failures"] = (
-        int(state.get("consecutive_failures") or 0) + 1
-    )
+    state["consecutive_failures"] = int(state.get("consecutive_failures") or 0) + 1
     state["last_error"] = ",".join(result.get("failures") or [])
     state["status"] = (
-        "suspect"
-        if state["consecutive_failures"] < FAIL_THRESHOLD
-        else "degraded"
+        "suspect" if state["consecutive_failures"] < FAIL_THRESHOLD else "degraded"
     )
     if not enabled:
         state["status"] = (
-            "disabled"
-            if state["consecutive_failures"] < FAIL_THRESHOLD
-            else "degraded"
+            "disabled" if state["consecutive_failures"] < FAIL_THRESHOLD else "degraded"
         )
         save_state(state)
         return state

@@ -337,18 +337,26 @@ for raw in glob.glob('/proc/[0-9]*/cmdline'):
    if x in ('-s','--session') and i+1<len(args): sid=args[i+1]
    elif x.startswith('--session='): sid=x.split('=',1)[1]
   cwd=os.path.realpath('/proc/%s/cwd'%pid)
-  found.append((sid,cwd,pid))
+  env={}
+  for item in open('/proc/%s/environ'%pid,'rb').read().split(b'\\0'):
+   key,sep,value=item.partition(b'=')
+   if sep: env[key.decode('utf-8','replace')]=value.decode('utf-8','replace')
+  db=env.get('OPENCODE_DB') or os.path.join(env.get('HOME','/root'),'.local/share/opencode/opencode.db')
+  if os.path.isabs(db): db='/proc/%s/root'%pid+db
+  found.append((sid,cwd,pid,db))
  except (OSError,ValueError): pass
-db=os.environ.get('OPENCODE_DB',os.path.expanduser('~/.local/share/opencode/opencode.db'))
-if not os.path.isfile(db): raise SystemExit(1)
-c=sqlite3.connect('file:'+db+'?mode=ro',uri=True)
-for sid,cwd,pid in sorted(found,key=lambda x:x[2],reverse=True):
- if sid:
-  row=c.execute("SELECT id,slug,IFNULL(title,''),directory,IFNULL(model,''),IFNULL(agent,'') FROM session WHERE id=?",(sid,)).fetchone()
- else:
-  row=c.execute("SELECT id,slug,IFNULL(title,''),directory,IFNULL(model,''),IFNULL(agent,'') FROM session WHERE directory=? AND time_archived IS NULL ORDER BY time_updated DESC LIMIT 1",(cwd,)).fetchone()
- if row:
-  print('\\t'.join(str(x or '') for x in row)); raise SystemExit(0)
+for sid,cwd,pid,db in sorted(found,key=lambda x:x[2],reverse=True):
+ try:
+  if not os.path.isfile(db): continue
+  c=sqlite3.connect('file:'+db+'?mode=ro',uri=True)
+  if sid:
+   row=c.execute("SELECT id,slug,IFNULL(title,''),directory,IFNULL(model,''),IFNULL(agent,'') FROM session WHERE id=?",(sid,)).fetchone()
+  else:
+   row=c.execute("SELECT id,slug,IFNULL(title,''),directory,IFNULL(model,''),IFNULL(agent,'') FROM session WHERE directory=? AND time_archived IS NULL ORDER BY time_updated DESC LIMIT 1",(cwd,)).fetchone()
+  c.close()
+  if row:
+   print('\\t'.join(str(x or '') for x in row)); raise SystemExit(0)
+ except sqlite3.Error: pass
 raise SystemExit(1)
 """
     inner = f"python3 -c {shlex.quote(code)}"

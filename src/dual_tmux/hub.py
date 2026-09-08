@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -19,21 +20,54 @@ from . import tmux as tmux_ops
 from .activity import TICKS, activity_path, frozen_last_ticks
 from .config import AppConfig, load_config
 from .identity import remote_dt_root
-from .paths import entries_dir, tunnels_dir
+from .paths import entries_dir, home_dir, tunnels_dir
 from .sshutil import SshTarget
 
 
-def ssh_argv(cfg: AppConfig | None = None) -> list[str]:
+def _ssh_control_path() -> Path:
+    root = home_dir() / "ssh"
+    candidate = root / "control-%C"
+    if len(os.fsencode(candidate)) >= 96:
+        digest = hashlib.sha256(os.fsencode(home_dir())).hexdigest()[:12]
+        root = Path("/tmp") / f"dual-tmux-ssh-{os.getuid()}"
+        candidate = root / f"{digest}-%C"
+    root.mkdir(parents=True, exist_ok=True)
+    try:
+        root.chmod(0o700)
+    except OSError:
+        pass
+    return candidate
+
+
+def ssh_argv(cfg: AppConfig | None = None, *, connect_timeout: int = 8) -> list[str]:
     cfg = cfg or load_config()
     target = SshTarget(cfg.server, cfg.ssh_port)
-    return ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", *target.extra_args, target.dest]
+    return [
+        "ssh",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        f"ConnectTimeout={connect_timeout}",
+        "-o",
+        "ControlMaster=auto",
+        "-o",
+        "ControlPersist=30",
+        "-o",
+        f"ControlPath={_ssh_control_path()}",
+        *target.extra_args,
+        target.dest,
+    ]
 
 
 def rsync_ssh(cfg: AppConfig | None = None) -> str:
     cfg = cfg or load_config()
     target = SshTarget(cfg.server, cfg.ssh_port)
     extra = " ".join(target.extra_args)
-    return f"ssh -o BatchMode=yes -o ConnectTimeout=8 {extra}".rstrip()
+    control = shlex.quote(str(_ssh_control_path()))
+    return (
+        "ssh -o BatchMode=yes -o ConnectTimeout=8 "
+        f"-o ControlMaster=auto -o ControlPersist=30 -o ControlPath={control} {extra}"
+    ).rstrip()
 
 
 def remote_root(cfg: AppConfig | None = None) -> str:
@@ -42,6 +76,11 @@ def remote_root(cfg: AppConfig | None = None) -> str:
 
 
 LOCK_TTL = 300
+# Four seconds leaves the claimant enough of the ten-second UX budget to fence
+# the service-side writer and restore an input-ready Trigger.  The daemon
+# renews every second, so a healthy owner gets multiple opportunities.
+OWNERSHIP_LEASE_TTL = 4
+FAULT_TAKEOVER_TTL = 10
 
 
 def enabled(cfg: AppConfig | None = None) -> bool:
@@ -57,7 +96,9 @@ def _require_hub(cfg: AppConfig) -> None:
 
 
 def _run(argv: list[str], input: str | None = None) -> subprocess.CompletedProcess:
-    return subprocess.run(argv, capture_output=True, text=True, input=input, check=False)
+    return subprocess.run(
+        argv, capture_output=True, text=True, input=input, check=False
+    )
 
 
 def _ensure_remote(cfg: AppConfig) -> None:
@@ -71,7 +112,9 @@ def _ensure_remote(cfg: AppConfig) -> None:
     ]
     result = _run(dest)
     if result.returncode != 0:
-        err = (result.stderr or result.stdout or "ssh mkdir failed").strip().splitlines()
+        err = (
+            (result.stderr or result.stdout or "ssh mkdir failed").strip().splitlines()
+        )
         raise SystemExit(f"[err] hub mkdir: {err[-1] if err else 'failed'}")
 
 
@@ -128,7 +171,9 @@ def pull(cfg: AppConfig | None = None) -> str:
 def _tunnel_time(path: Path) -> float:
     """Use the binding's logical clock, falling back to its file mtime."""
     try:
-        value = str(json.loads(path.read_text(encoding="utf-8")).get("updated_at") or "")
+        value = str(
+            json.loads(path.read_text(encoding="utf-8")).get("updated_at") or ""
+        )
         if value:
             return datetime.fromisoformat(value).timestamp()
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
@@ -171,10 +216,13 @@ def _copy_newer(left: Path, right: Path, *, logical_time: bool = False) -> Path:
 
 def _copy_preferred(preferred: Path, other: Path) -> None:
     if preferred.is_file():
-        merged_mtime = max(
-            preferred.stat().st_mtime_ns,
-            other.stat().st_mtime_ns if other.is_file() else 0,
-        ) + 1_000_000_000
+        merged_mtime = (
+            max(
+                preferred.stat().st_mtime_ns,
+                other.stat().st_mtime_ns if other.is_file() else 0,
+            )
+            + 1_000_000_000
+        )
         other.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(preferred, other)
         os.utime(preferred, ns=(merged_mtime, merged_mtime))
@@ -193,7 +241,11 @@ def merge_snapshot(
     """Merge a downloaded hub snapshot with local bindings without deletions."""
     for root in (local_tunnels, local_entries, hub_tunnels, hub_entries):
         root.mkdir(parents=True, exist_ok=True)
-    names = {path.name for root in (local_tunnels, hub_tunnels) for path in root.glob("dt-*.json")}
+    names = {
+        path.name
+        for root in (local_tunnels, hub_tunnels)
+        for path in root.glob("dt-*.json")
+    }
     owned_entries: set[str] = set()
     for name in sorted(names):
         local = local_tunnels / name
@@ -213,7 +265,9 @@ def merge_snapshot(
             else:
                 _copy_preferred(hub_entry, local_entry)
     orphan_entries = {
-        path.name for root in (local_entries, hub_entries) for path in root.glob("run_*.cmd")
+        path.name
+        for root in (local_entries, hub_entries)
+        for path in root.glob("run_*.cmd")
     } - owned_entries
     for name in sorted(orphan_entries):
         _copy_newer(local_entries / name, hub_entries / name)
@@ -251,10 +305,12 @@ def remove_remote(name: str, run: str = "", cfg: AppConfig | None = None) -> Non
     if not cfg.hub_enabled:
         return
     root = remote_root(cfg)
-    parts = [(
-        f"rm -f {root}/tunnels/{name}.json {root}/locks/{name} "
-        f"{root}/ownership/{name}.json"
-    )]
+    parts = [
+        (
+            f"rm -f {root}/tunnels/{name}.json {root}/locks/{name} "
+            f"{root}/ownership/{name}.json"
+        )
+    ]
     if run:
         parts.append(f"rm -f {root}/entries/{run}.cmd")
     result = _run(ssh_argv(cfg) + ["; ".join(parts)])
@@ -286,13 +342,13 @@ def _lock_remote(
     ).decode("ascii")
     script = r"""
 set -e
-ROOT="$1"; NAME="$2"; ME="$3"; TTL="$4"; ACTION="$5"; FORCE="$6"; INSTANCE="$7"; EVIDENCE="$8"; EXPECTED="$9"
+ROOT="$1"; NAME="$2"; ME="$3"; TTL="$4"; ACTION="$5"; FORCE="$6"; INSTANCE="$7"; EVIDENCE="$8"; EXPECTED="$9"; LEGACY_TTL="${10}"
 mkdir -p "$ROOT/locks" "$ROOT/ownership"
 f="$ROOT/locks/$NAME"
 side="$ROOT/ownership/$NAME.json"
 now=$(date +%s)
 holder=""; age=99999; generation=0
-side_instance=""; side_generation=0
+side_present=0; side_instance=""; side_generation=0; side_protocol=1; side_takeover=""
 exec 9>>"$f"
 if ! flock -n 9; then
   value=$(cat "$f" 2>/dev/null || true)
@@ -314,12 +370,16 @@ if [ -s "$side" ]; then
 import json,sys
 try:
  with open(sys.argv[1]) as f: x=json.load(f)
- print(str(x.get('instance_id') or '')+'|'+str(int(x.get('generation') or 0)))
-except Exception: print('|0')
+ takeover=x.get('takeover') if isinstance(x.get('takeover'),dict) else {}
+ print('1|'+str(x.get('instance_id') or '')+'|'+str(int(x.get('generation') or 0))+'|'+str(int(x.get('lease_protocol') or 1))+'|'+str(takeover.get('status') or ''))
+except Exception: print('0||0|1|')
 PY
 )
-  side_instance=$(printf '%s' "$values" | cut -d'|' -f1)
-  side_generation=$(printf '%s' "$values" | cut -d'|' -f2)
+  side_present=$(printf '%s' "$values" | cut -d'|' -f1)
+  side_instance=$(printf '%s' "$values" | cut -d'|' -f2)
+  side_generation=$(printf '%s' "$values" | cut -d'|' -f3)
+  side_protocol=$(printf '%s' "$values" | cut -d'|' -f4)
+  side_takeover=$(printf '%s' "$values" | cut -d'|' -f5)
 fi
 if [ "$ACTION" = "read" ]; then
   if [ -n "$holder" ] && [ "$age" -le "$TTL" ]; then echo "HELD $holder $age ${generation:-0}"; else echo "FREE"; fi
@@ -340,6 +400,34 @@ PY
     echo "FREE"
   else echo "HELD ${holder:-—} $age ${generation:-0}"; fi
   exit 0
+fi
+if [ "$ACTION" = "renew" ]; then
+  renew_ttl="$TTL"; if [ "$side_protocol" != "2" ]; then renew_ttl="$LEGACY_TTL"; fi
+  renew_active=0; if { [ "$side_protocol" = "2" ] && [ "$age" -lt "$renew_ttl" ]; } || { [ "$side_protocol" != "2" ] && [ "$age" -le "$renew_ttl" ]; }; then renew_active=1; fi
+  if [ "$holder" = "$ME" ] && [ "$renew_active" = "1" ] && [ "$generation" = "$EXPECTED" ] && { [ "$side_present" = "0" ] || [ "$side_generation" = "$generation" ]; } && { [ -z "$side_instance" ] || [ "$side_instance" = "$INSTANCE" ]; } && [ "$side_takeover" != "fencing" ]; then
+    echo "$ME@$now@${generation:-1}" > "$f"
+    python3 - "$side" "$NAME" "$ME" "$INSTANCE" "$generation" "$now" "$TTL" <<'PY'
+import json,os,sys,tempfile
+path,name,holder,instance,generation,now,ttl=sys.argv[1:]
+try:
+ with open(path) as f: value=json.load(f)
+except Exception: value={"schema":2,"name":name,"holder":holder,"instance_id":instance,"generation":int(generation or 0),"evidence":{},"handoff":None}
+value['holder']=holder; value['instance_id']=instance; value['generation']=int(generation or 0)
+value['lease_protocol']=2; value['lease_ttl']=int(ttl)
+value['renewed_at']=int(now); value['expires_at']=int(now)+int(ttl)
+fd,tmp=tempfile.mkstemp(prefix='.ownership-',dir=os.path.dirname(path))
+with os.fdopen(fd,'w') as f: json.dump(value,f,separators=(',',':')); f.write('\n')
+os.replace(tmp,path)
+PY
+    echo "OK $ME 0 ${generation:-1}"
+  else
+    echo "HELD ${holder:-—} $age ${generation:-0}"
+  fi
+  exit 0
+fi
+if [ "$ACTION" = "claim" ] && [ "$side_takeover" = "fencing" ]; then
+  echo "HELD ${holder:-takeover-pending} $age ${generation:-0}"
+  exit 2
 fi
 if [ "$ACTION" = "claim" ] && [ "$holder" = "$ME" ] && [ "$age" -le "$TTL" ] && [ -n "$side_instance" ] && [ "$side_generation" = "$generation" ] && [ "$side_instance" != "$INSTANCE" ] && [ "$FORCE" != "1" ]; then
   echo "HELD $holder $age ${generation:-0}"
@@ -364,7 +452,7 @@ try:
  with open(path) as f: old=json.load(f)
 except Exception: pass
 handoff=old.get('handoff') if old.get('holder')==holder and int(old.get('generation') or 0)==int(generation) else None
-value={"schema":2,"name":name,"holder":holder,"instance_id":instance,"generation":int(generation),"renewed_at":int(now),"expires_at":int(now)+int(ttl),"evidence":ev,"handoff":handoff}
+value={"schema":2,"lease_protocol":2,"lease_ttl":int(ttl),"name":name,"holder":holder,"instance_id":instance,"generation":int(generation),"renewed_at":int(now),"expires_at":int(now)+int(ttl),"evidence":ev,"handoff":handoff}
 os.makedirs(os.path.dirname(path),exist_ok=True)
 fd,tmp=tempfile.mkstemp(prefix='.ownership-',dir=os.path.dirname(path))
 with os.fdopen(fd,'w') as f: json.dump(value,f,separators=(',',':')); f.write('\n')
@@ -373,7 +461,7 @@ PY
 echo "OK $ME 0 ${generation:-1}"
 """
     result = _run(
-        ssh_argv(cfg)
+        ssh_argv(cfg, connect_timeout=2)
         + [
             "bash",
             "-s",
@@ -387,6 +475,7 @@ echo "OK $ME 0 ${generation:-1}"
             instance,
             encoded_evidence,
             str(int(expected_generation or 0)),
+            str(LOCK_TTL),
         ],
         input=script,
     )
@@ -474,7 +563,8 @@ printf 'V1 '; if [ -e "$lock" ]; then base64 <"$lock" | tr -d '\n'; fi; printf '
 printf 'V2 '; if [ -e "$side" ]; then base64 <"$side" | tr -d '\n'; fi; printf '\n'
 """
     result = _run(
-        ssh_argv(cfg) + ["bash", "-s", "--", remote_root(cfg), name], input=script
+        ssh_argv(cfg, connect_timeout=2) + ["bash", "-s", "--", remote_root(cfg), name],
+        input=script,
     )
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "ownership read failed").strip()
@@ -493,15 +583,48 @@ printf 'V2 '; if [ -e "$side" ]; then base64 <"$side" | tr -d '\n'; fi; printf '
     stamp = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
     generation = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
     age = max(0, now - stamp) if stamp else 0
-    active = bool(holder and stamp and age <= LOCK_TTL)
     try:
         sidecar = json.loads(values.get("V2", b"") or b"{}")
     except (json.JSONDecodeError, TypeError):
         sidecar = {}
+    takeover = (
+        sidecar.get("takeover")
+        if isinstance(sidecar.get("takeover"), dict)
+        else {}
+    )
+    # finish_fault_takeover commits the sidecar before the legacy lock.  If
+    # the SSH process dies between those two atomic writes, any Client may
+    # finish publishing that already-committed decision; it cannot choose a
+    # different holder or generation.
+    if (
+        takeover.get("status") == "committed"
+        and takeover.get("previous_holder") == holder
+        and sidecar.get("holder") == takeover.get("claimant")
+        and int(sidecar.get("generation") or 0) == generation + 1
+    ):
+        repaired = _fault_takeover_remote(
+            name,
+            "repair",
+            request_id=str(takeover.get("request_id") or ""),
+            generation=generation,
+            cfg=cfg,
+        )
+        if repaired.get("ok"):
+            return read_ownership(name, cfg)
     aligned = bool(
         sidecar
         and sidecar.get("holder") == holder
         and int(sidecar.get("generation") or 0) == generation
+    )
+    lease_ttl = (
+        int(sidecar.get("lease_ttl") or OWNERSHIP_LEASE_TTL)
+        if aligned and sidecar.get("lease_protocol") == 2
+        else LOCK_TTL
+    )
+    active = bool(
+        holder
+        and stamp
+        and (age < lease_ttl if lease_ttl != LOCK_TTL else age <= lease_ttl)
     )
     side_instance = str(sidecar.get("instance_id") or "") if aligned else ""
     local_instance = existing_instance_id()
@@ -512,15 +635,26 @@ printf 'V2 '; if [ -e "$side" ]; then base64 <"$side" | tr -d '\n'; fi; printf '
     return {
         "schema": 2,
         "name": name,
-        "state": "owned" if active and mine else ("foreign" if active else ("expired" if holder else "free")),
+        "state": "owned"
+        if active and mine
+        else ("foreign" if active else ("expired" if holder else "free")),
         "holder": holder if active else "",
         "instance_id": side_instance,
         "generation": generation,
         "renewed_at": stamp,
-        "expires_at": stamp + LOCK_TTL if stamp else 0,
+        "expires_at": stamp + lease_ttl if stamp else 0,
+        "lease_protocol": int(sidecar.get("lease_protocol") or 1) if aligned else 1,
+        "lease_ttl": lease_ttl,
         "age_seconds": age,
-        "evidence": sidecar.get("evidence") if aligned and isinstance(sidecar.get("evidence"), dict) else {},
-        "handoff": sidecar.get("handoff") if aligned and isinstance(sidecar.get("handoff"), dict) else None,
+        "evidence": sidecar.get("evidence")
+        if aligned and isinstance(sidecar.get("evidence"), dict)
+        else {},
+        "handoff": sidecar.get("handoff")
+        if aligned and isinstance(sidecar.get("handoff"), dict)
+        else None,
+        "takeover": sidecar.get("takeover")
+        if aligned and isinstance(sidecar.get("takeover"), dict)
+        else None,
         "source": "v2" if aligned else "v1",
         "conflict": bool(sidecar and not aligned),
     }
@@ -533,18 +667,21 @@ def _handoff_remote(
     request_id: str,
     generation: int,
     reason: str = "",
+    timeout: int = 0,
     cfg: AppConfig | None = None,
 ) -> dict:
     cfg = cfg or load_config()
-    payload = base64.b64encode(reason.encode("utf-8")).decode("ascii")
+    # OpenSSH joins argv into a remote shell command; an empty positional
+    # argument would collapse and shift TIMEOUT into REASON.
+    payload = base64.b64encode(reason.encode("utf-8")).decode("ascii") or "-"
     script = r"""
 set -e
-ROOT="$1"; NAME="$2"; ACTION="$3"; REQUEST="$4"; CLAIMANT="$5"; INSTANCE="$6"; GENERATION="$7"; REASON="$8"
+ROOT="$1"; NAME="$2"; ACTION="$3"; REQUEST="$4"; CLAIMANT="$5"; INSTANCE="$6"; GENERATION="$7"; REASON="$8"; TIMEOUT="$9"; LEASE_TTL="${10}"
 lock="$ROOT/locks/$NAME"; side="$ROOT/ownership/$NAME.json"
 mkdir -p "$ROOT/locks" "$ROOT/ownership"; exec 9>>"$lock"; flock -x 9
-python3 - "$lock" "$side" "$NAME" "$ACTION" "$REQUEST" "$CLAIMANT" "$INSTANCE" "$GENERATION" "$REASON" <<'PY'
+python3 - "$lock" "$side" "$NAME" "$ACTION" "$REQUEST" "$CLAIMANT" "$INSTANCE" "$GENERATION" "$REASON" "$TIMEOUT" "$LEASE_TTL" <<'PY'
 import base64,json,os,sys,tempfile,time
-lock,path,name,action,request,claimant,instance,generation,reason=sys.argv[1:]
+lock,path,name,action,request,claimant,instance,generation,reason,timeout,lease_ttl=sys.argv[1:]
 parts=open(lock).read().strip().split('@') if os.path.exists(lock) else []
 holder=parts[0] if parts else ''; current=int(parts[2]) if len(parts)>2 and parts[2].isdigit() else 0
 try:
@@ -553,34 +690,97 @@ except Exception: data={}
 if current != int(generation) or data.get('holder') != holder or int(data.get('generation') or 0) != current:
  print(json.dumps({'ok':False,'code':'generation_conflict','generation':current})); raise SystemExit(3)
 handoff=data.get('handoff') if isinstance(data.get('handoff'),dict) else None
+takeover=data.get('takeover') if isinstance(data.get('takeover'),dict) else None
 now=int(time.time())
+ok=True; code=''
+if takeover and takeover.get('status') == 'fencing':
+ print(json.dumps({'ok':False,'code':'fault_takeover_in_progress','generation':current})); raise SystemExit(13)
 if action=='request':
- if handoff and handoff.get('request_id') != request and handoff.get('status')=='pending':
+ if holder == claimant and (not data.get('instance_id') or data.get('instance_id') == instance):
+  print(json.dumps({'ok':False,'code':'already_owner','generation':current})); raise SystemExit(12)
+ if handoff and handoff.get('status') in ('pending','pending_v2','committing'):
+  if handoff.get('claimant') == claimant and handoff.get('claimant_instance_id') == instance:
+   print(json.dumps({'ok':True,'code':'idempotent','handoff':handoff,'generation':current})); raise SystemExit(0)
   print(json.dumps({'ok':False,'code':'handoff_pending','handoff':handoff})); raise SystemExit(4)
- detail=base64.b64decode(reason).decode('utf-8','replace') if reason else ''
- handoff={'request_id':request,'status':'pending','claimant':claimant,'claimant_instance_id':instance,'requested_at':now,'reason':detail}
+ detail=base64.b64decode(reason).decode('utf-8','replace') if reason != '-' else ''
+ handoff={'protocol':2,'request_id':request,'status':'pending_v2','claimant':claimant,'claimant_instance_id':instance,'requested_at':now,'deadline_at':now+max(1,int(timeout or 1)),'reason':detail}
 elif not handoff or handoff.get('request_id') != request:
  print(json.dumps({'ok':False,'code':'request_not_found'})); raise SystemExit(5)
+elif action=='commit':
+ if claimant != holder or (data.get('instance_id') and data.get('instance_id') != instance):
+  print(json.dumps({'ok':False,'code':'not_owner'})); raise SystemExit(7)
+ if handoff.get('status') != 'pending_v2':
+  print(json.dumps({'ok':False,'code':'invalid_state','handoff':handoff})); raise SystemExit(8)
+ if now >= int(handoff.get('deadline_at') or 0):
+  handoff['status']='rejected'; handoff['decided_at']=now; handoff['reason']='handoff_deadline_expired'
+  ok=False; code='deadline_expired'
+ else:
+  handoff['status']='committing'; handoff['committed_at']=now
+elif action=='cancel':
+ if claimant != handoff.get('claimant') or instance != handoff.get('claimant_instance_id'):
+  print(json.dumps({'ok':False,'code':'not_claimant'})); raise SystemExit(9)
+ if handoff.get('status') == 'pending_v2':
+  handoff['status']='cancelled'; handoff['decided_at']=now; handoff['reason']='claimant_timeout'
+ elif handoff.get('status') == 'committing':
+  print(json.dumps({'ok':False,'code':'too_late','handoff':handoff})); raise SystemExit(10)
+ else:
+  print(json.dumps({'ok':False,'code':'invalid_state','handoff':handoff})); raise SystemExit(8)
+elif action=='finish':
+ if claimant != holder or (data.get('instance_id') and data.get('instance_id') != instance):
+  print(json.dumps({'ok':False,'code':'not_owner'})); raise SystemExit(7)
+ if handoff.get('status') != 'committing':
+  print(json.dumps({'ok':False,'code':'invalid_state','handoff':handoff})); raise SystemExit(8)
+ handoff['status']='acked'; handoff['decided_at']=now
+ handoff['reason']=base64.b64decode(reason).decode('utf-8','replace') if reason != '-' else ''
+ target=str(handoff.get('claimant') or ''); target_instance=str(handoff.get('claimant_instance_id') or '')
+ if not target or not target_instance:
+  print(json.dumps({'ok':False,'code':'invalid_claimant'})); raise SystemExit(11)
+ current+=1
+ data={'schema':2,'lease_protocol':2,'lease_ttl':int(lease_ttl),'name':name,'holder':target,'instance_id':target_instance,'generation':current,'renewed_at':now,'expires_at':now+int(lease_ttl),'evidence':{},'handoff':handoff}
 elif action in ('ack','reject'):
  if claimant != holder or (data.get('instance_id') and data.get('instance_id') != instance):
   print(json.dumps({'ok':False,'code':'not_owner'})); raise SystemExit(7)
+ if action=='ack' and handoff.get('status') != 'committing':
+  print(json.dumps({'ok':False,'code':'invalid_state','handoff':handoff})); raise SystemExit(8)
+ if action=='reject' and handoff.get('status') not in ('pending','committing'):
+  print(json.dumps({'ok':False,'code':'invalid_state','handoff':handoff})); raise SystemExit(8)
  handoff['status']='acked' if action=='ack' else 'rejected'; handoff['decided_at']=now
- handoff['reason']=base64.b64decode(reason).decode('utf-8','replace') if reason else ''
+ handoff['reason']=base64.b64decode(reason).decode('utf-8','replace') if reason != '-' else ''
 else:
  print(json.dumps({'ok':False,'code':'invalid_action'})); raise SystemExit(6)
 data['handoff']=handoff
 fd,tmp=tempfile.mkstemp(prefix='.ownership-',dir=os.path.dirname(path))
 with os.fdopen(fd,'w') as f: json.dump(data,f,separators=(',',':')); f.write('\n')
-os.replace(tmp,path); print(json.dumps({'ok':True,'handoff':handoff,'generation':current}))
+os.replace(tmp,path)
+# Publish the legacy lock last.  It remains the authority, so a crash between
+# the two writes leaves the old generation active instead of exposing a new
+# holder without its instance/generation fence.
+if action=='finish':
+ with open(lock,'w') as f: f.write(f'{data["holder"]}@{now}@{current}\n')
+print(json.dumps({'ok':ok,'code':code,'handoff':handoff,'generation':current}))
 PY
 """
+    # SSH flattens argv into one remote-shell command.  Quote every value read
+    # from local config or the Hub sidecar (notably request_id) before it
+    # reaches that shell.  A relative root preserves the login-home semantics
+    # of remote_root() without relying on unquoted tilde expansion.
+    remote_args = [
+        "bash",
+        "-s",
+        "--",
+        f"{cfg.user}/dual-tmux",
+        name,
+        action,
+        request_id,
+        cfg.client,
+        instance_id(),
+        str(generation),
+        payload,
+        str(int(timeout or 0)),
+        str(OWNERSHIP_LEASE_TTL),
+    ]
     result = _run(
-        ssh_argv(cfg)
-        + [
-            "bash", "-s", "--", remote_root(cfg), name, action, request_id,
-            cfg.client, instance_id(), str(generation), payload,
-        ],
-        input=script,
+        ssh_argv(cfg, connect_timeout=2) + [shlex.join(remote_args)], input=script
     )
     lines = (result.stdout or "").strip().splitlines()
     try:
@@ -593,34 +793,103 @@ PY
     return value
 
 
-def request_handoff(name: str, *, reason: str = "") -> dict:
-    lease = read_ownership(name)
-    if lease["state"] != "foreign":
+def request_handoff(
+    name: str,
+    *,
+    reason: str = "",
+    timeout: int = 8,
+    generation: int = 0,
+    cfg: AppConfig | None = None,
+) -> dict:
+    lease = read_ownership(name, cfg) if not generation else None
+    if lease is not None and lease["state"] != "foreign":
         return {"ok": False, "code": "not_foreign", "lease": lease}
-    pending = lease.get("handoff") or {}
-    cfg = load_config()
+    pending = (lease or {}).get("handoff") or {}
+    cfg = cfg or load_config()
     if (
-        pending.get("status") == "pending"
+        pending.get("status") == "pending_v2"
         and pending.get("claimant") == cfg.client
         and pending.get("claimant_instance_id") == instance_id()
     ):
         return {
             "ok": True,
             "handoff": pending,
-            "generation": int(lease.get("generation") or 0),
+            "generation": int((lease or {}).get("generation") or generation),
             "idempotent": True,
         }
     request_id = uuid.uuid4().hex
     return _handoff_remote(
-        name, "request", request_id=request_id,
-        generation=int(lease["generation"]), reason=reason,
+        name,
+        "request",
+        request_id=request_id,
+        generation=int((lease or {}).get("generation") or generation),
+        reason=reason,
+        timeout=timeout,
+        cfg=cfg,
     )
 
 
-def decide_handoff(name: str, request_id: str, generation: int, *, accept: bool, reason: str = "") -> dict:
+def begin_handoff(
+    name: str,
+    request_id: str,
+    generation: int,
+    *,
+    cfg: AppConfig | None = None,
+) -> dict:
+    """Atomically commit an owner to park before the request deadline."""
     return _handoff_remote(
-        name, "ack" if accept else "reject", request_id=request_id,
-        generation=generation, reason=reason,
+        name, "commit", request_id=request_id, generation=generation, cfg=cfg
+    )
+
+
+def cancel_handoff(
+    name: str,
+    request_id: str,
+    generation: int,
+    *,
+    cfg: AppConfig | None = None,
+) -> dict:
+    """Cancel a pending request; an owner that already committed wins."""
+    return _handoff_remote(
+        name, "cancel", request_id=request_id, generation=generation, cfg=cfg
+    )
+
+
+def finish_handoff(
+    name: str,
+    request_id: str,
+    generation: int,
+    *,
+    reason: str = "",
+    cfg: AppConfig | None = None,
+) -> dict:
+    """Atomically acknowledge and transfer to the authenticated claimant."""
+    return _handoff_remote(
+        name,
+        "finish",
+        request_id=request_id,
+        generation=generation,
+        reason=reason,
+        cfg=cfg,
+    )
+
+
+def decide_handoff(
+    name: str,
+    request_id: str,
+    generation: int,
+    *,
+    accept: bool,
+    reason: str = "",
+    cfg: AppConfig | None = None,
+) -> dict:
+    return _handoff_remote(
+        name,
+        "ack" if accept else "reject",
+        request_id=request_id,
+        generation=generation,
+        reason=reason,
+        cfg=cfg,
     )
 
 
@@ -631,7 +900,14 @@ def holder_activity(holder: str, cfg: AppConfig | None = None) -> str:
     host = SshTarget(cfg.server, cfg.ssh_port).dest
     tmp = Path(tempfile.mkdtemp()) / f"{holder}.log"
     result = _run(
-        ["rsync", "-a", "-e", rsync_ssh(cfg), f"{host}:{remote_root(cfg)}/activity/{holder}.log", str(tmp)]
+        [
+            "rsync",
+            "-a",
+            "-e",
+            rsync_ssh(cfg),
+            f"{host}:{remote_root(cfg)}/activity/{holder}.log",
+            str(tmp),
+        ]
     )
     if result.returncode != 0 or not tmp.is_file():
         return ""
@@ -643,11 +919,22 @@ def idle_enough(name: str, holder: str) -> bool:
     return frozen_last_ticks(text, name, TICKS)
 
 
-def claim(name: str, force: bool = False) -> str:
+def _claim_ownership(name: str, force: bool = False) -> dict:
     if not enabled():
-        return load_config().client
-    kind, holder, age, _generation = _lock_remote("read", name)
-    if kind == "HELD" and holder and holder != load_config().client:
+        return {"holder": load_config().client, "generation": 1}
+    lease = read_ownership(name)
+    holder = str(lease.get("holder") or "")
+    age = int(lease.get("age_seconds") or 0)
+    _generation = int(lease.get("generation") or 0)
+    if lease.get("state") == "expired" and lease.get("lease_protocol") == 2:
+        raise SystemExit(
+            "[err] expired service ownership requires fenced fault takeover"
+        )
+    if lease.get("state") == "foreign" and lease.get("lease_protocol") == 2:
+        raise SystemExit(
+            "[err] active service ownership cannot be claimed directly; use handoff"
+        )
+    if lease.get("state") == "foreign":
         if not force and not idle_enough(name, holder):
             raise SystemExit(
                 f"[err] {name} active on {holder} ({age}s ago). "
@@ -656,16 +943,245 @@ def claim(name: str, force: bool = False) -> str:
             )
         if not force:
             ui.info(f"idle  {name} on {holder}: last {TICKS} ticks frozen, taking over")
-        kind, holder, age, _generation = _lock_remote("claim", name, force=True)
+        kind, holder, age, _generation = _lock_remote(
+            "claim",
+            name,
+            force=True,
+            ttl=int(lease.get("lease_ttl") or LOCK_TTL),
+        )
     else:
-        kind, holder, age, _generation = _lock_remote("claim", name, force=force)
+        kind, holder, age, _generation = _lock_remote(
+            "claim", name, force=force, ttl=OWNERSHIP_LEASE_TTL
+        )
     if kind == "HELD":
         raise SystemExit(
             f"[err] {name} active on {holder} ({age}s ago, TTL {LOCK_TTL}s). "
             f"wait, dt drop there, or: dt resume {name} --force"
         )
     ev.emit("hub.claim", name=name, holder=holder or load_config().client, force=force)
-    return holder or load_config().client
+    return {
+        "holder": holder or load_config().client,
+        "generation": int(_generation or 0),
+    }
+
+
+def claim(name: str, force: bool = False) -> str:
+    return str(_claim_ownership(name, force=force)["holder"])
+
+
+def claim_generation(name: str, force: bool = False) -> dict:
+    """Claim once and return the generation produced by the same Hub lock RPC."""
+    if not enabled():
+        return {"holder": load_config().client, "generation": 1}
+    lease = read_ownership(name)
+    if lease.get("state") == "expired" and lease.get("lease_protocol") == 2:
+        raise SystemExit(
+            "[err] expired service ownership requires fenced fault takeover"
+        )
+    if lease.get("state") == "foreign" and lease.get("lease_protocol") == 2:
+        raise SystemExit(
+            "[err] active service ownership cannot be claimed directly; use handoff"
+        )
+    if lease.get("state") == "foreign" and not force:
+        raise SystemExit(
+            f"[err] {name} active on {lease.get('holder') or 'unknown'} "
+            f"({int(lease.get('age_seconds') or 0)}s ago, "
+            f"TTL {int(lease.get('lease_ttl') or LOCK_TTL)}s)"
+        )
+    kind, holder, age, generation = _lock_remote(
+        "claim", name, force=force, ttl=OWNERSHIP_LEASE_TTL
+    )
+    if kind == "HELD":
+        raise SystemExit(
+            f"[err] {name} active on {holder} ({age}s ago, TTL {LOCK_TTL}s)"
+        )
+    claimed = holder or load_config().client
+    ev.emit("hub.claim", name=name, holder=claimed, force=force)
+    return {"holder": claimed, "generation": int(generation or 0)}
+
+
+def renew_ownership(
+    name: str,
+    generation: int,
+    *,
+    cfg: AppConfig | None = None,
+) -> dict:
+    """Renew this installation's short service-mode lease without stealing."""
+    cfg = cfg or load_config()
+    if not cfg.hub_enabled:
+        return {"holder": cfg.client, "generation": 1}
+    kind, holder, _age, current = _lock_remote(
+        "renew",
+        name,
+        cfg=cfg,
+        ttl=OWNERSHIP_LEASE_TTL,
+        expected_generation=generation,
+    )
+    if (
+        kind != "OK"
+        or holder != cfg.client
+        or int(current or 0) != int(generation or 0)
+    ):
+        raise SystemExit(
+            f"[err] ownership renewal fenced: holder={holder or 'unknown'} "
+            f"generation={current}"
+        )
+    return {"holder": holder, "generation": int(current or 0)}
+
+
+def _fault_takeover_remote(
+    name: str,
+    action: str,
+    *,
+    request_id: str,
+    generation: int,
+    cfg: AppConfig | None = None,
+) -> dict:
+    """Reserve or commit an expired generation under the Hub's flock.
+
+    The reservation is the fence between service cleanup and transfer: only
+    its claimant can publish the next generation, and ordinary renewals can
+    no longer revive the expired owner once reservation succeeds.
+    """
+    cfg = cfg or load_config()
+    if not cfg.hub_enabled:
+        return {"ok": True, "generation": 1, "holder": cfg.client}
+    script = r"""
+set -e
+ROOT="$1"; NAME="$2"; ACTION="$3"; REQUEST="$4"; CLAIMANT="$5"; INSTANCE="$6"; EXPECTED="$7"; LEASE_TTL="$8"; TAKEOVER_TTL="$9"; LEGACY_TTL="${10}"
+lock="$ROOT/locks/$NAME"; side="$ROOT/ownership/$NAME.json"
+mkdir -p "$ROOT/locks" "$ROOT/ownership"; exec 9>>"$lock"; flock -x 9
+python3 - "$lock" "$side" "$NAME" "$ACTION" "$REQUEST" "$CLAIMANT" "$INSTANCE" "$EXPECTED" "$LEASE_TTL" "$TAKEOVER_TTL" "$LEGACY_TTL" <<'PY'
+import json,os,sys,tempfile,time
+lock,path,name,action,request,claimant,instance,expected,lease_ttl,takeover_ttl,legacy_ttl=sys.argv[1:]
+expected=int(expected); lease_ttl=int(lease_ttl); takeover_ttl=int(takeover_ttl); legacy_ttl=int(legacy_ttl); now=int(time.time())
+parts=open(lock).read().strip().split('@') if os.path.exists(lock) else []
+holder=parts[0] if parts else ''
+renewed=int(parts[1]) if len(parts)>1 and parts[1].isdigit() else 0
+generation=int(parts[2]) if len(parts)>2 and parts[2].isdigit() else 0
+try:
+ with open(path) as f: data=json.load(f)
+except Exception: data={}
+if not data:
+ data={'schema':2,'lease_protocol':1,'name':name,'holder':holder,'instance_id':'','generation':generation,'renewed_at':renewed,'expires_at':renewed+legacy_ttl,'evidence':{},'handoff':None}
+takeover=data.get('takeover') if isinstance(data.get('takeover'),dict) else None
+if action=='repair':
+ if takeover and takeover.get('status')=='committed' and takeover.get('request_id')==request and takeover.get('previous_holder')==holder and data.get('holder')==takeover.get('claimant') and int(data.get('generation') or 0)==generation+1:
+  with open(lock,'w') as f: f.write(f'{data["holder"]}@{now}@{generation+1}\n')
+  print(json.dumps({'ok':True,'code':'repaired','takeover':takeover,'generation':generation+1,'holder':data['holder']})); raise SystemExit(0)
+ print(json.dumps({'ok':False,'code':'nothing_to_repair','generation':generation})); raise SystemExit(10)
+if action in ('finish','cancel') and takeover and takeover.get('status')=='committed' and takeover.get('request_id')==request and takeover.get('claimant')==claimant and takeover.get('claimant_instance_id')==instance and int(data.get('generation') or 0)==expected+1:
+ if generation==expected and holder==takeover.get('previous_holder'):
+  with open(lock,'w') as f: f.write(f'{claimant}@{now}@{expected+1}\n')
+ elif generation!=expected+1 or holder!=claimant:
+  print(json.dumps({'ok':False,'code':'generation_conflict','generation':generation})); raise SystemExit(4)
+ print(json.dumps({'ok':True,'code':'already_committed' if action=='cancel' else 'idempotent','takeover':takeover,'generation':expected+1,'holder':claimant})); raise SystemExit(0)
+aligned=(data.get('holder')==holder and int(data.get('generation') or 0)==generation)
+if not aligned:
+ print(json.dumps({'ok':False,'code':'sidecar_conflict','generation':generation})); raise SystemExit(3)
+if generation != expected:
+ print(json.dumps({'ok':False,'code':'generation_conflict','generation':generation})); raise SystemExit(4)
+if takeover and now-int(takeover.get('started_at') or 0)>takeover_ttl:
+ takeover=None; data['takeover']=None
+if action=='begin':
+ effective_ttl=lease_ttl if int(data.get('lease_protocol') or 1)==2 else legacy_ttl
+ if renewed and (now-renewed < effective_ttl if effective_ttl != legacy_ttl else now-renewed <= effective_ttl):
+  print(json.dumps({'ok':False,'code':'lease_active','generation':generation})); raise SystemExit(5)
+ handoff=data.get('handoff') if isinstance(data.get('handoff'),dict) else None
+ if handoff and handoff.get('status') in ('pending_v2','committing') and now < int(handoff.get('deadline_at') or 0) and (handoff.get('claimant')!=claimant or handoff.get('claimant_instance_id')!=instance):
+  print(json.dumps({'ok':False,'code':'handoff_claimant_conflict','generation':generation})); raise SystemExit(6)
+ if takeover:
+  if takeover.get('request_id')==request and takeover.get('claimant')==claimant and takeover.get('claimant_instance_id')==instance:
+   print(json.dumps({'ok':True,'code':'idempotent','takeover':takeover,'generation':generation})); raise SystemExit(0)
+  print(json.dumps({'ok':False,'code':'takeover_pending','generation':generation})); raise SystemExit(7)
+ takeover={'protocol':1,'request_id':request,'status':'fencing','claimant':claimant,'claimant_instance_id':instance,'previous_holder':holder,'started_at':now}
+ data['takeover']=takeover
+elif action=='finish':
+ if not takeover or takeover.get('request_id')!=request or takeover.get('claimant')!=claimant or takeover.get('claimant_instance_id')!=instance:
+  print(json.dumps({'ok':False,'code':'reservation_lost','generation':generation})); raise SystemExit(8)
+ generation+=1
+ data={'schema':2,'lease_protocol':2,'lease_ttl':lease_ttl,'name':name,'holder':claimant,'instance_id':instance,'generation':generation,'renewed_at':now,'expires_at':now+lease_ttl,'evidence':{},'handoff':None,'takeover':{'protocol':1,'request_id':request,'status':'committed','claimant':claimant,'claimant_instance_id':instance,'previous_holder':holder,'started_at':takeover.get('started_at'),'committed_at':now}}
+elif action=='cancel':
+ if not takeover or takeover.get('request_id')!=request or takeover.get('claimant')!=claimant or takeover.get('claimant_instance_id')!=instance:
+  print(json.dumps({'ok':False,'code':'reservation_lost','generation':generation})); raise SystemExit(8)
+ data['takeover']=None
+else:
+ print(json.dumps({'ok':False,'code':'invalid_action'})); raise SystemExit(9)
+fd,tmp=tempfile.mkstemp(prefix='.ownership-',dir=os.path.dirname(path))
+with os.fdopen(fd,'w') as f: json.dump(data,f,separators=(',',':')); f.write('\n')
+os.replace(tmp,path)
+if action=='finish':
+ with open(lock,'w') as f: f.write(f'{claimant}@{now}@{generation}\n')
+print(json.dumps({'ok':True,'code':'','takeover':data.get('takeover'),'generation':generation,'holder':data.get('holder') or holder}))
+PY
+"""
+    root = remote_root(cfg)
+    remote_args = [
+        "bash",
+        "-s",
+        "--",
+        root.removeprefix("~/"),
+        name,
+        action,
+        request_id,
+        cfg.client,
+        instance_id(),
+        str(int(generation or 0)),
+        str(OWNERSHIP_LEASE_TTL),
+        str(FAULT_TAKEOVER_TTL),
+        str(LOCK_TTL),
+    ]
+    result = _run(
+        ssh_argv(cfg, connect_timeout=2) + [shlex.join(remote_args)], input=script
+    )
+    lines = (result.stdout or "").strip().splitlines()
+    try:
+        value = json.loads(lines[-1]) if lines else {}
+    except json.JSONDecodeError:
+        value = {}
+    if not value:
+        detail = (result.stderr or "fault takeover failed").strip().splitlines()
+        raise SystemExit(
+            f"[err] hub fault takeover: {detail[-1] if detail else 'failed'}"
+        )
+    return value
+
+
+def reserve_fault_takeover(name: str, generation: int) -> dict:
+    request_id = uuid.uuid4().hex
+    try:
+        value = _fault_takeover_remote(
+            name, "begin", request_id=request_id, generation=generation
+        )
+    except SystemExit:
+        # The Hub may have durably written the reservation while the SSH
+        # response was lost.  Retry once with the same id; begin is idempotent.
+        value = _fault_takeover_remote(
+            name, "begin", request_id=request_id, generation=generation
+        )
+    if not value.get("ok"):
+        raise SystemExit(
+            f"[err] fault takeover rejected: {value.get('code') or 'unknown'}"
+        )
+    value["request_id"] = request_id
+    return value
+
+
+def finish_fault_takeover(name: str, request_id: str, generation: int) -> dict:
+    value = _fault_takeover_remote(
+        name, "finish", request_id=request_id, generation=generation
+    )
+    if not value.get("ok"):
+        raise SystemExit(
+            f"[err] fault takeover commit rejected: {value.get('code') or 'unknown'}"
+        )
+    return value
+
+
+def cancel_fault_takeover(name: str, request_id: str, generation: int) -> dict:
+    return _fault_takeover_remote(
+        name, "cancel", request_id=request_id, generation=generation
+    )
 
 
 def release(name: str, *, generation: int = 0) -> None:
@@ -749,6 +1265,7 @@ def enforce_local() -> None:
 def push_best_effort(wait: bool = False) -> None:
     if not enabled():
         return
+
     def _run_push() -> None:
         try:
             dest = push()
@@ -773,6 +1290,7 @@ def push_best_effort(wait: bool = False) -> None:
 def sync_best_effort(wait: bool = False) -> None:
     if not enabled():
         return
+
     def _run_sync() -> None:
         try:
             dest = sync()

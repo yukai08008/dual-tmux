@@ -92,6 +92,68 @@ def test_foreign_idle_detached_can_request_handoff(monkeypatch):
     assert result["action"] == "request_handoff"
 
 
+def test_foreign_idle_attached_can_request_explicit_handoff(monkeypatch):
+    evidence = {
+        "sampled_at": 100,
+        "sides": {
+            role: {
+                "runtime": "agent",
+                "attached": True,
+                "state": "idle",
+                "writers": {"status": "ok", "count": 1, "pids": [1], "reason": ""},
+            }
+            for role in ("trigger", "bullet")
+        },
+    }
+    monkeypatch.setattr(
+        ownership.hub,
+        "read_ownership",
+        lambda _name: {
+            "state": "foreign",
+            "holder": "tm_other",
+            "generation": 8,
+            "source": "v2",
+            "evidence": evidence,
+            "conflict": False,
+        },
+    )
+    monkeypatch.setattr(ownership.time, "time", lambda: 120)
+    result = ownership.plan_resume(_data())
+    assert result["safe"] is True
+    assert result["action"] == "request_handoff"
+
+
+def test_foreign_unknown_attachment_still_fails_closed(monkeypatch):
+    evidence = {
+        "sampled_at": 100,
+        "sides": {
+            role: {
+                "runtime": "agent",
+                "attached": None if role == "trigger" else False,
+                "state": "idle",
+                "writers": {"status": "ok", "count": 1, "pids": [1], "reason": ""},
+            }
+            for role in ("trigger", "bullet")
+        },
+    }
+    monkeypatch.setattr(
+        ownership.hub,
+        "read_ownership",
+        lambda _name: {
+            "state": "foreign",
+            "holder": "tm_other",
+            "generation": 8,
+            "source": "v2",
+            "evidence": evidence,
+            "conflict": False,
+        },
+    )
+    monkeypatch.setattr(ownership.time, "time", lambda: 120)
+    result = ownership.plan_resume(_data())
+    assert result["safe"] is False
+    assert result["reason"] == "trigger_attachment_unknown"
+
+
 def test_probe_failure_is_unknown_not_zero(monkeypatch):
     monkeypatch.setattr(
         ownership.subprocess,
@@ -112,6 +174,250 @@ def test_unsafe_plan_never_claims(monkeypatch):
     with pytest.raises(SystemExit, match="preflight rejected"):
         ownership.acquire_for_resume(_data(), {"safe": False, "reason": "probe_failed"})
     assert called == []
+
+
+def test_active_v2_owner_cannot_be_directly_force_claimed(monkeypatch):
+    from dual_tmux import hub
+
+    monkeypatch.setattr(hub, "enabled", lambda: True)
+    monkeypatch.setattr(
+        hub,
+        "read_ownership",
+        lambda _name: {
+            "state": "foreign",
+            "holder": "tm_other",
+            "generation": 8,
+            "lease_protocol": 2,
+        },
+    )
+    monkeypatch.setattr(
+        hub, "_lock_remote", lambda *_a, **_kw: pytest.fail("must use handoff")
+    )
+
+    with pytest.raises(SystemExit, match="cannot be claimed directly"):
+        hub.claim_generation("dt-a", force=True)
+
+
+def test_cooperative_handoff_claims_without_fixed_tick_sleep(monkeypatch):
+    states = iter(
+        [
+            {
+                "state": "foreign",
+                "holder": "tm_other",
+                "generation": 8,
+                "handoff": {"request_id": "req-1", "status": "pending"},
+            },
+            {"state": "owned", "holder": "tm_here", "generation": 9},
+        ]
+    )
+    claims = []
+    sleeps = []
+    clock = iter([0, 0, 0.25, 0.5])
+    monkeypatch.setattr(
+        ownership.hub,
+        "request_handoff",
+        lambda *_a, **_kw: {
+            "ok": True,
+            "handoff": {"request_id": "req-1", "status": "pending"},
+        },
+    )
+    monkeypatch.setattr(ownership.hub, "read_ownership", lambda _name: next(states))
+    monkeypatch.setattr(
+        ownership.hub,
+        "claim_generation",
+        lambda name, force=False: (
+            claims.append((name, force)) or {"holder": "tm_here", "generation": 9}
+        ),
+    )
+    monkeypatch.setattr(
+        ownership, "load_config", lambda: type("Cfg", (), {"client": "tm_here"})()
+    )
+    monkeypatch.setattr(ownership.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(ownership.time, "sleep", lambda seconds: sleeps.append(seconds))
+    plan = {
+        "safe": True,
+        "action": "request_handoff",
+        "ownership": {"lease": {"state": "foreign"}},
+    }
+
+    token = ownership.acquire_for_resume(_data(), plan)
+
+    assert claims == []
+    assert sleeps == [ownership.HANDOFF_POLL_INTERVAL]
+    assert token == {"generation": 9, "newly_acquired": True}
+
+
+def test_handoff_timeout_is_fail_closed_and_never_force_claims(monkeypatch):
+    claims = []
+    cancellations = []
+    sleeps = []
+    clock = iter([0, 0, ownership.HANDOFF_TAKEOVER_TIMEOUT + 0.01])
+    monkeypatch.setattr(
+        ownership.hub,
+        "request_handoff",
+        lambda *_a, **_kw: {
+            "ok": True,
+            "handoff": {"request_id": "req-1", "status": "pending"},
+        },
+    )
+    monkeypatch.setattr(
+        ownership.hub,
+        "read_ownership",
+        lambda _name: {
+            "state": "foreign",
+            "holder": "tm_other",
+            "generation": 8,
+            "handoff": {"request_id": "req-1", "status": "pending"},
+        },
+    )
+    monkeypatch.setattr(
+        ownership.hub,
+        "claim_generation",
+        lambda name, force=False: (
+            claims.append((name, force)) or {"holder": "tm_here", "generation": 9}
+        ),
+    )
+    monkeypatch.setattr(
+        ownership.hub,
+        "cancel_handoff",
+        lambda name, request, generation: (
+            cancellations.append((name, request, generation)) or {"ok": True}
+        ),
+    )
+    monkeypatch.setattr(ownership.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(ownership.time, "sleep", lambda seconds: sleeps.append(seconds))
+    plan = {
+        "safe": True,
+        "action": "request_handoff",
+        "ownership": {"lease": {"state": "foreign"}},
+    }
+
+    with pytest.raises(SystemExit, match="ownership was not changed"):
+        ownership.acquire_for_resume(_data(), plan)
+
+    assert claims == []
+    assert cancellations == [("dt-a", "req-1", 0)]
+    assert sleeps == [ownership.HANDOFF_POLL_INTERVAL]
+
+
+def test_handoff_timeout_reconciles_transfer_that_won_cancel_race(monkeypatch):
+    states = iter(
+        [
+            {
+                "state": "foreign",
+                "holder": "tm_other",
+                "generation": 8,
+                "handoff": {"request_id": "req-1", "status": "committing"},
+            },
+            {"state": "owned", "holder": "tm_here", "generation": 9},
+        ]
+    )
+    clock = iter([0, 0, ownership.HANDOFF_TAKEOVER_TIMEOUT + 0.01])
+    monkeypatch.setattr(
+        ownership.hub,
+        "request_handoff",
+        lambda *_a, **_kw: {
+            "ok": True,
+            "handoff": {"request_id": "req-1", "status": "pending"},
+        },
+    )
+    monkeypatch.setattr(ownership.hub, "read_ownership", lambda _name: next(states))
+    monkeypatch.setattr(
+        ownership.hub,
+        "cancel_handoff",
+        lambda *_a, **_kw: {"ok": False, "code": "generation_conflict"},
+    )
+    monkeypatch.setattr(
+        ownership, "load_config", lambda: type("Cfg", (), {"client": "tm_here"})()
+    )
+    monkeypatch.setattr(ownership.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(ownership.time, "sleep", lambda _seconds: None)
+
+    token = ownership.acquire_for_resume(
+        _data(),
+        {
+            "safe": True,
+            "action": "request_handoff",
+            "ownership": {"lease": {"state": "foreign", "generation": 8}},
+        },
+    )
+
+    assert token == {"generation": 9, "newly_acquired": True}
+
+
+def test_expired_owner_is_fenced_before_atomic_fault_takeover(monkeypatch):
+    calls = []
+    lease = {"state": "expired", "generation": 8}
+    monkeypatch.setattr(
+        ownership.hub,
+        "reserve_fault_takeover",
+        lambda name, generation: (
+            calls.append(("reserve", name, generation))
+            or {"ok": True, "request_id": "fault-1"}
+        ),
+    )
+    monkeypatch.setattr(
+        "dual_tmux.recovery.fence_remote_bullet",
+        lambda _data: calls.append(("fence",)) or [101],
+    )
+    monkeypatch.setattr(
+        ownership.hub,
+        "finish_fault_takeover",
+        lambda name, request, generation: (
+            calls.append(("finish", name, request, generation))
+            or {"ok": True, "holder": "tm_here", "generation": 9}
+        ),
+    )
+    monkeypatch.setattr(
+        ownership.hub,
+        "cancel_fault_takeover",
+        lambda *_a, **_kw: pytest.fail("successful takeover must not cancel"),
+    )
+    monkeypatch.setattr(
+        ownership, "load_config", lambda: type("Cfg", (), {"client": "tm_here"})()
+    )
+    data = _data()
+    data["runtime"]["server"] = "tom7r"
+
+    token = ownership._claim_after_service_fence(data, lease)
+
+    assert calls == [
+        ("reserve", "dt-a", 8),
+        ("fence",),
+        ("finish", "dt-a", "fault-1", 8),
+    ]
+    assert token == {"holder": "tm_here", "generation": 9}
+
+
+def test_failed_service_cleanup_cancels_reservation_without_claim(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        ownership.hub,
+        "reserve_fault_takeover",
+        lambda *_a, **_kw: {"ok": True, "request_id": "fault-1"},
+    )
+    monkeypatch.setattr("dual_tmux.recovery.fence_remote_bullet", lambda _data: None)
+    monkeypatch.setattr(
+        ownership.hub,
+        "finish_fault_takeover",
+        lambda *_a, **_kw: pytest.fail("cleanup failure must not commit"),
+    )
+    monkeypatch.setattr(
+        ownership.hub,
+        "cancel_fault_takeover",
+        lambda name, request, generation: (
+            calls.append((name, request, generation)) or {"ok": True}
+        ),
+    )
+    data = _data()
+    data["runtime"]["server"] = "tom7r"
+
+    with pytest.raises(SystemExit, match="cleanup could not be verified"):
+        ownership._claim_after_service_fence(
+            data, {"state": "expired", "generation": 8}
+        )
+
+    assert calls == [("dt-a", "fault-1", 8)]
 
 
 def test_stale_foreign_evidence_is_never_takeover_safe(monkeypatch):
@@ -252,6 +558,62 @@ def test_remote_writer_probe_supports_container_runtime(monkeypatch):
     data["bullet"] = {"tool": "claude", "session_id": "session-123"}
     monkeypatch.setattr(recovery, "remote_session_pids", lambda _data: [7])
     assert ownership.probe_writers(data, "bullet")["pids"] == [7]
+
+
+def test_local_blank_opencode_argv_uses_exact_live_pane_session(monkeypatch):
+    from dual_tmux import oc
+
+    data = _data()
+    monkeypatch.setattr(ownership, "_local_session_pids", lambda _sid: [])
+    monkeypatch.setattr(
+        ownership.tmux_ops,
+        "pane_info",
+        lambda _pane: {"pid": "42", "cmd": "opencode", "cwd": "/workspace"},
+    )
+    monkeypatch.setattr(
+        oc,
+        "from_pane",
+        lambda *_args, **_kwargs: oc.OcSession("ses_trigger", "live"),
+    )
+    assert ownership.probe_writers(data, "trigger")["pids"] == [42]
+
+
+def test_remote_blank_opencode_argv_uses_exact_live_session(monkeypatch):
+    from dual_tmux import oc, recovery
+
+    data = _data()
+    data["runtime"] = {"server": "box"}
+    monkeypatch.setattr(recovery, "remote_session_pids", lambda _data: [])
+    monkeypatch.setattr(
+        ownership.tmux_ops,
+        "pane_info",
+        lambda _pane: {"pid": "84", "cmd": "ssh", "cwd": "/workspace"},
+    )
+    monkeypatch.setattr("dual_tmux.cli._ssh_argv", lambda _data: ["ssh", "box"])
+    monkeypatch.setattr(
+        oc,
+        "active_remote",
+        lambda *_args, **_kwargs: oc.OcSession("ses_bullet", "live"),
+    )
+    assert ownership.probe_writers(data, "bullet")["pids"] == [84]
+
+
+def test_blank_opencode_argv_rejects_different_live_session(monkeypatch):
+    from dual_tmux import oc
+
+    data = _data()
+    monkeypatch.setattr(ownership, "_local_session_pids", lambda _sid: [])
+    monkeypatch.setattr(
+        ownership.tmux_ops,
+        "pane_info",
+        lambda _pane: {"pid": "42", "cmd": "opencode", "cwd": "/workspace"},
+    )
+    monkeypatch.setattr(
+        oc,
+        "from_pane",
+        lambda *_args, **_kwargs: oc.OcSession("ses_other", "other"),
+    )
+    assert ownership.probe_writers(data, "trigger")["count"] == 0
 
 
 def test_resume_plan_cli_skips_ready_checks_and_audit_writes(monkeypatch):

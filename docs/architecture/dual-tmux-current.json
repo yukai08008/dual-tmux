@@ -1,0 +1,193 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "dual-tmux 当前运行架构",
+    "locale": "zh-CN",
+    "output": "docs/architecture/dual-tmux-current.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/yukai08008/dual-tmux",
+      "revision": "f587276bf5776eb5b24abb3046f4ec78ea366f89"
+    },
+    "views": [
+      {
+        "id": "control_path",
+        "label": "控制与安全门",
+        "focus": ["interfaces", "control", "ownership", "tunnel_store"],
+        "note": "CLI、Web 和飞书统一进入 ControlService，并在改变 pane 前验证 ownership。"
+      },
+      {
+        "id": "session_runtime",
+        "label": "Trigger 与 Bullet",
+        "focus": ["trigger_tmux", "run_tmux", "remote_agent", "remote_db", "namespace_probe"],
+        "note": "Trigger 跟随操作者；remote bullet 固定在 work point 的 sqlite。"
+      },
+      {
+        "id": "cross_client",
+        "label": "跨 Client 收敛",
+        "focus": ["local_persist", "hub", "ownership", "tunnel_store"],
+        "note": "Hub 同步 binding、lease 和 trigger/native snapshot，不复制 remote bullet 数据库。"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "interfaces",
+      "type": "frontend",
+      "label": "操作入口",
+      "pos": [40, 275],
+      "size": [142, 66],
+      "sources": [{"path": "src/dual_tmux/cli.py", "label": "CLI"}, {"path": "src/dual_tmux/web.py", "label": "Web"}]
+    },
+    {
+      "id": "control",
+      "type": "backend",
+      "label": "ControlService",
+      "tag": "Client",
+      "pos": [250, 275],
+      "size": [150, 66],
+      "sources": [{"path": "src/dual_tmux/control.py"}]
+    },
+    {
+      "id": "ownership",
+      "type": "security",
+      "label": "Ownership Gate",
+      "tag": "fail-closed",
+      "pos": [475, 275],
+      "size": [184, 76],
+      "sources": [{"path": "src/dual_tmux/ownership.py"}, {"path": "src/dual_tmux/activity.py"}]
+    },
+    {
+      "id": "tunnel_store",
+      "type": "database",
+      "label": "Tunnel Binding",
+      "tag": "Client snapshot",
+      "pos": [485, 80],
+      "size": [164, 68],
+      "sources": [{"path": "src/dual_tmux/store.py"}, {"path": "src/dual_tmux/workpoint.py"}]
+    },
+    {
+      "id": "daemon",
+      "type": "backend",
+      "label": "Daemon + Tick",
+      "tag": "Client",
+      "pos": [260, 80],
+      "size": [154, 68],
+      "sources": [{"path": "src/dual_tmux/daemon.py"}, {"path": "src/dual_tmux/activity.py"}]
+    },
+    {
+      "id": "trigger_tmux",
+      "type": "backend",
+      "label": "op_* Trigger",
+      "tag": "follows operator",
+      "pos": [735, 155],
+      "size": [158, 68],
+      "sources": [{"path": "src/dual_tmux/tmux.py"}, {"path": "docs/session-location.md"}]
+    },
+    {
+      "id": "run_tmux",
+      "type": "backend",
+      "label": "run_* Transport",
+      "tag": "Client pane",
+      "pos": [735, 390],
+      "size": [168, 68],
+      "sources": [{"path": "src/dual_tmux/tmux.py"}, {"path": "src/dual_tmux/workpoint.py"}]
+    },
+    {
+      "id": "local_persist",
+      "type": "database",
+      "label": "Client Persist Trees",
+      "tag": "per tm_* source",
+      "pos": [470, 590],
+      "size": [180, 70],
+      "sources": [{"path": "docs/persist-sync.md"}, {"path": "src/dual_tmux/native_persist.py"}]
+    },
+    {
+      "id": "remote_agent",
+      "type": "backend",
+      "label": "Remote Bullet",
+      "tag": "pinned to work point",
+      "pos": [1015, 390],
+      "size": [170, 68],
+      "sources": [{"path": "docs/session-location.md"}, {"path": "src/dual_tmux/agent_sessions.py"}]
+    },
+    {
+      "id": "remote_db",
+      "type": "database",
+      "label": "Work-point Session Store",
+      "tag": "single source of truth",
+      "pos": [1260, 390],
+      "size": [184, 70],
+      "sources": [{"path": "src/dual_tmux/oc.py"}, {"path": "docs/session-location.md"}]
+    },
+    {
+      "id": "namespace_probe",
+      "type": "security",
+      "label": "Live Session Probe",
+      "tag": "mount namespace aware",
+      "pos": [1260, 155],
+      "size": [180, 70],
+      "sources": [{"path": "src/dual_tmux/oc.py"}, {"path": "src/dual_tmux/ownership.py"}]
+    },
+    {
+      "id": "hub",
+      "type": "cloud",
+      "label": "Hub",
+      "tag": "optional",
+      "pos": [1040, 620],
+      "size": [180, 70],
+      "sources": [{"path": "src/dual_tmux/hub.py"}, {"path": "docs/persist-sync.md"}]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Client / operator machine",
+      "wraps": ["interfaces", "control", "ownership", "tunnel_store", "daemon", "trigger_tmux", "run_tmux", "local_persist"],
+      "pad": 22
+    },
+    {
+      "kind": "security-group",
+      "label": "Remote work point / possible container mount namespace",
+      "wraps": ["remote_agent", "remote_db"],
+      "pad": 20
+    },
+    {
+      "kind": "region",
+      "label": "Synchronization Hub",
+      "wraps": ["hub"],
+      "pad": 18
+    }
+  ],
+  "connections": [
+    {"id": "entry_control", "from": "interfaces", "to": "control", "variant": "emphasis"},
+    {"id": "control_gate", "from": "control", "to": "ownership", "variant": "security"},
+    {"id": "gate_binding", "from": "ownership", "to": "tunnel_store", "variant": "dashed"},
+    {"id": "daemon_binding", "from": "daemon", "to": "tunnel_store", "variant": "dashed"},
+    {"id": "gate_trigger", "from": "ownership", "to": "trigger_tmux", "variant": "emphasis"},
+    {"id": "trigger_run", "from": "trigger_tmux", "to": "run_tmux", "label": "dispatch + poll", "variant": "emphasis", "fromSide": "bottom", "toSide": "top"},
+    {"id": "run_bullet", "from": "run_tmux", "to": "remote_agent", "label": "SSH / docker exec", "variant": "security"},
+    {"id": "bullet_db", "from": "remote_agent", "to": "remote_db", "variant": "emphasis"},
+    {"id": "probe_db", "from": "namespace_probe", "to": "remote_db", "label": "/proc/<pid>/root", "variant": "security", "fromSide": "bottom", "toSide": "top"},
+    {"id": "trigger_persist", "from": "trigger_tmux", "to": "local_persist", "variant": "dashed", "fromSide": "left", "toSide": "right", "via": [[700, 189], [700, 625]]},
+    {"id": "persist_hub", "from": "local_persist", "to": "hub", "label": "snapshots + bindings", "variant": "emphasis"}
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "会话位置",
+      "items": ["Trigger 跟随操作者，通过 persist snapshot 跨 Client", "Remote bullet 固定在 work point，直接复用同一 session store"]
+    },
+    {
+      "dot": "rose",
+      "title": "安全不变量",
+      "items": ["一个冻结 session 只允许一个 writer", "未知、重复或 session 不一致时 fail-closed", "可见 TUI 不等于已证明 session identity"]
+    },
+    {
+      "dot": "emerald",
+      "title": "Namespace 修复",
+      "items": ["从 live PID 的 environ 定位 OPENCODE_DB", "通过 /proc/<pid>/root 进入进程文件系统视图", "裸 argv 无 -s 时用 pane + sqlite 精确验证"]
+    }
+  ]
+}

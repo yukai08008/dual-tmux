@@ -63,19 +63,26 @@ def test_fence_kills_listed_pids():
 
     def runner(argv, **kwargs):
         calls.append(argv[-1])
-        if "pgrep" in argv[-1] and "kill" not in argv[-1]:
-            return R(0, "101\n102\n")
-        return R(0, "")
+        return R(0, "DT_KILLED=101 102\n")
 
     killed = recovery.fence_remote_bullet(_data(), runner=runner)
     assert killed == [101, 102]
-    kill_cmd = [c for c in calls if "kill 101 102" in c]
+    kill_cmd = [c for c in calls if "kill $pids" in c]
     assert kill_cmd, calls
     assert "kill -9" in kill_cmd[0]
 
 
+def test_fence_fails_closed_when_writer_survives_cleanup():
+    def runner(argv, **kwargs):
+        return R(42, "")
+
+    assert recovery.fence_remote_bullet(_data(), runner=runner) is None
+
+
 def test_fence_noop_when_nothing_running():
-    killed = recovery.fence_remote_bullet(_data(), runner=lambda *a, **k: R(0, ""))
+    killed = recovery.fence_remote_bullet(
+        _data(), runner=lambda *a, **k: R(0, "DT_KILLED=\n")
+    )
     assert killed == []
 
 

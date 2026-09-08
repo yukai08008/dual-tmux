@@ -158,7 +158,7 @@ commit：内容相同则幂等；append-only 的较新历史会在备份本地�
 只有在上传成功后才会 park/release，接收方在 commit 前后都会复核 generation。
 纯本地模式也能使用本地 snapshot 恢复，不依赖 Hub。
 
-只有原 owner 处于 idle、detached 且证据新鲜时才发起 handoff；原 Client daemon 必须依次完成 persist → park → ack → release，申请端才能取得下一代 generation 并恢复。attached、working、stalled、未知或过期证据都会拒绝自动接管。主动放手仍使用 `dt drop dt-msg`。
+另一 Client 明确执行 Resume 时，只要原 owner 处于 idle 且证据新鲜，即使它的 tmux 仍有终端 attached，也会发起 handoff。原 Client 有常驻 daemon 时，会按 persist → detach/park → ack → release 完成交接；如果只有默认的每分钟 tick，申请端在安全预检后转移 Hub 锁并等待一个 tick 周期，旧 Client 看到 foreign lock 后自动 drop 本地 pane，保留最初的锁驱动接管行为。working、stalled、attached 探测未知、证据过期或 writer 数异常仍会拒绝接管。后台刷新和 tick 不会主动发起接管。主动放手仍使用 `dt drop dt-msg`。
 
 要 **分叉**（两条隧道同时活，不是抢锁）：
 

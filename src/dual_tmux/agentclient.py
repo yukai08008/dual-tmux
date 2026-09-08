@@ -120,10 +120,16 @@ def collect_local(name: str, *, runner: Runner = subprocess.run) -> dict[str, st
 def _probe_script(name: str) -> str:
     # name is normalized against SUPPORTED before interpolation.
     return (
-        f"p=$(command -v {name} 2>/dev/null || true); "
+        f"p=$(command -v {name} 2>/dev/null || true); run=$p; "
+        "if [ -z \"$run\" ] && [ -d /proc ]; then "
+        "for x in /proc/[0-9]*/exe; do "
+        "target=$(readlink \"$x\" 2>/dev/null || true); "
+        f"case \"$target\" in */{name}) candidate=\"${{x%/exe}}/root$target\"; "
+        "if [ -x \"$candidate\" ]; then p=$target; run=$candidate; break; fi;; esac; "
+        "done; fi; "
         "printf 'DT_AGENT_BIN=%s\\n' \"$p\"; "
         "printf 'DT_AGENT_VERSION_BEGIN\\n'; "
-        "if [ -n \"$p\" ]; then \"$p\" --version 2>&1; rc=$?; else rc=127; fi; "
+        "if [ -n \"$run\" ]; then \"$run\" --version 2>&1; rc=$?; else rc=127; fi; "
         "printf 'DT_AGENT_VERSION_END\\n'; exit $rc"
     )
 
