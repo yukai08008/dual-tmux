@@ -7,8 +7,8 @@
 
 | 维度 | 数量 | 通过 | 失败 | 待执行 |
 |---|---:|---:|---:|---:|
-| Python 自动化 | 320 | 319 | 0 | 1（opt-in） |
-| 独热聚焦测试 | 50 | 49 | 0 | 1（opt-in） |
+| Python 自动化 | 321 | 320 | 0 | 1（opt-in） |
+| 独热聚焦测试 | 57 | 56 | 0 | 1（opt-in） |
 | Ruff（变更文件） | 6 files | 6 | 0 | 0 |
 | 构建 | 2 artifacts | 2 | 0 | 0 |
 | 真实 SSH Hub | 3 | 3 | 0 | 0 |
@@ -17,7 +17,7 @@
 
 | ID | 用例 | 结果 | 备注 |
 |---|---|---|---|
-| B-01 | 全量 Python 回归 | PASS | 默认门禁 `319 passed, 1 skipped`；opt-in Hub 用例另行通过 |
+| B-01 | 全量 Python 回归 | PASS | 默认门禁 `320 passed, 1 skipped`；opt-in Hub 用例另行通过 |
 | B-02 | 静态检查 | PASS（变更范围） | 变更文件 Ruff 全绿；仓库全量仍有 24 个父版本既有问题，本版未机械扩修 |
 | B-03 | 运行时数据未追踪 | PASS | `git ls-files data/` 为 0 |
 | B-04 | 构建 | PASS | wheel + sdist，版本 0.4.55 |
@@ -34,8 +34,9 @@
 | E-01 | 前台 attach 返回 shell | PASS | macOS 真实 tmux + PTY，返回后执行 shell marker |
 | E-02 | 双隔离 HOME 独热接管 | PASS（本机集成） | 原子 transfer 前断言旧 op/run 已不存在；耗时 <10 秒 |
 | E-03 | binding/persist/memory 不删除 | PASS | 接管前后 byte-for-byte 一致 |
+| E-04 | 完整 resume 到 Trigger 输入就绪 | PASS | `ControlService.resume → restore → verify → send → INPUT_ACK` 全链路；本机重复 5 次通过，真实 Hub 为 5.930 秒 |
 | D-01 | 隔离 daemon + 真实 SSH Hub | PASS | tom7r 随机 `dte2e_*` 租户，完成后精确清理 |
-| D-02 | 双隔离 Client 显式 handoff | PASS | 真实 daemon/tmux/PTY/persist，复跑 6.771 / 5.605 / 5.258 / 5.976 秒；旧 attach 返回 shell |
+| D-02 | 双隔离 Client 显式 handoff | PASS | ownership 接管复跑 6.771 / 5.605 / 5.258 / 5.976 秒；完整 ControlService resume + 输入确认 5.930 秒；旧 attach 返回 shell |
 | D-03 | 重复 Hub 原子协议与 fence | PASS | 5 次最大 2.138 秒；late commit 保留旧 owner；stale release 被拒 |
 
 ## 遗留问题

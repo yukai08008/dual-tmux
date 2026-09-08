@@ -29,8 +29,9 @@
 | ID | 用例 | → acceptance | 自动化 |
 |---|---|---|---|
 | E-01 | 前台 attach 被 `detach-client` + `kill-session` 后进程返回 | A-2 | real tmux subprocess |
-| E-02 | 双隔离 HOME 接管总耗时 <= 10 秒且只有新端 writer | A-1/A-3 | integration |
+| E-02 | 双隔离 HOME 接管总耗时 <= 10 秒且 transfer 后只允许新 owner 恢复 | A-1/A-3 | integration |
 | E-03 | park 后 tunnel JSON、persist snapshot、memory hash 不变 | A-5 | integration |
+| E-04 | 完整 `ControlService.resume` 恢复 Trigger 并实际处理输入，总耗时 <= 10 秒 | A-1/A-2 | real Hub + tmux + input probe |
 
 ## 3. 部署验证
 
