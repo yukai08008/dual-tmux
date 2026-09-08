@@ -603,8 +603,8 @@ class DualTmuxDaemon:
                 for role in ("trigger", "bullet"):
                     if not ownership.persistence_supported(data, role):
                         reasons.append(f"{role}_snapshot_persistence_unsupported")
-                    if facts["attached"][role] is not False:
-                        reasons.append(f"{role}_attached_or_unknown")
+                    if facts["attached"][role] is None:
+                        reasons.append(f"{role}_attachment_unknown")
                     if facts["progress"][role] != "idle":
                         reasons.append(f"{role}_{facts['progress'][role]}")
                     if facts["writers"][role]["status"] != "ok":

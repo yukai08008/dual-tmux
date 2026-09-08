@@ -92,6 +92,68 @@ def test_foreign_idle_detached_can_request_handoff(monkeypatch):
     assert result["action"] == "request_handoff"
 
 
+def test_foreign_idle_attached_can_request_explicit_handoff(monkeypatch):
+    evidence = {
+        "sampled_at": 100,
+        "sides": {
+            role: {
+                "runtime": "agent",
+                "attached": True,
+                "state": "idle",
+                "writers": {"status": "ok", "count": 1, "pids": [1], "reason": ""},
+            }
+            for role in ("trigger", "bullet")
+        },
+    }
+    monkeypatch.setattr(
+        ownership.hub,
+        "read_ownership",
+        lambda _name: {
+            "state": "foreign",
+            "holder": "tm_other",
+            "generation": 8,
+            "source": "v2",
+            "evidence": evidence,
+            "conflict": False,
+        },
+    )
+    monkeypatch.setattr(ownership.time, "time", lambda: 120)
+    result = ownership.plan_resume(_data())
+    assert result["safe"] is True
+    assert result["action"] == "request_handoff"
+
+
+def test_foreign_unknown_attachment_still_fails_closed(monkeypatch):
+    evidence = {
+        "sampled_at": 100,
+        "sides": {
+            role: {
+                "runtime": "agent",
+                "attached": None if role == "trigger" else False,
+                "state": "idle",
+                "writers": {"status": "ok", "count": 1, "pids": [1], "reason": ""},
+            }
+            for role in ("trigger", "bullet")
+        },
+    }
+    monkeypatch.setattr(
+        ownership.hub,
+        "read_ownership",
+        lambda _name: {
+            "state": "foreign",
+            "holder": "tm_other",
+            "generation": 8,
+            "source": "v2",
+            "evidence": evidence,
+            "conflict": False,
+        },
+    )
+    monkeypatch.setattr(ownership.time, "time", lambda: 120)
+    result = ownership.plan_resume(_data())
+    assert result["safe"] is False
+    assert result["reason"] == "trigger_attachment_unknown"
+
+
 def test_probe_failure_is_unknown_not_zero(monkeypatch):
     monkeypatch.setattr(
         ownership.subprocess,

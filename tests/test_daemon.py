@@ -371,6 +371,65 @@ def test_handoff_orders_persist_park_ack_release(monkeypatch, tmp_path):
     ]
 
 
+def test_handoff_detaches_known_attached_idle_owner(monkeypatch, tmp_path):
+    from dual_tmux import cli, hotfix, ownership
+
+    hub = _handoff_setup(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        ownership,
+        "snapshot",
+        lambda _data, **_kwargs: {
+            "attached": {"trigger": True, "bullet": True},
+            "progress": {"trigger": "idle", "bullet": "idle"},
+            "writers": {
+                "trigger": {"status": "ok"},
+                "bullet": {"status": "ok"},
+            },
+        },
+    )
+    calls = []
+    monkeypatch.setattr(cli, "_export_local_snapshots", lambda *_a: [])
+    monkeypatch.setattr(cli, "_verify_local_snapshot_exports", lambda *_a: None)
+    monkeypatch.setattr(hotfix, "sync_persist", lambda *_a: None)
+    monkeypatch.setattr("dual_tmux.daemon.tmux_ops.has_session", lambda _name: False)
+    monkeypatch.setattr(hub, "push", lambda *_a: None)
+    monkeypatch.setattr(hub, "park_local", lambda *_a: calls.append("park"))
+    monkeypatch.setattr(hub, "decide_handoff", lambda *_a, **_kw: calls.append("ack"))
+    monkeypatch.setattr(hub, "release", lambda *_a, **_kw: calls.append("release"))
+
+    DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
+    assert calls == ["park", "ack", "release"]
+
+
+def test_handoff_unknown_attachment_never_parks(monkeypatch, tmp_path):
+    from dual_tmux import ownership
+
+    hub = _handoff_setup(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        ownership,
+        "snapshot",
+        lambda _data, **_kwargs: {
+            "attached": {"trigger": None, "bullet": False},
+            "progress": {"trigger": "idle", "bullet": "idle"},
+            "writers": {
+                "trigger": {"status": "ok"},
+                "bullet": {"status": "ok"},
+            },
+        },
+    )
+    calls = []
+    monkeypatch.setattr(hub, "park_local", lambda *_a: calls.append("park"))
+    monkeypatch.setattr(
+        hub,
+        "decide_handoff",
+        lambda *_a, **kwargs: calls.append(("reject", kwargs.get("reason"))),
+    )
+    monkeypatch.setattr(hub, "release", lambda *_a, **_kw: calls.append("release"))
+
+    DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
+    assert calls == [("reject", "trigger_attachment_unknown")]
+
+
 def test_handoff_persist_failure_never_parks_or_releases(monkeypatch, tmp_path):
     from dual_tmux import cli, hotfix
 
