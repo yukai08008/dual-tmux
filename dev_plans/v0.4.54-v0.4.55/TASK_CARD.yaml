@@ -97,6 +97,6 @@ deployment_checklist:
   - "session binding/persist/memory 未删除"
 
 notes:
-  - "奇数 API 版默认不发布；未经用户明确要求不 merge/push/release"
+  - "独热与故障接管要求多 Client 同步升级；经用户明确授权，作为奇数 API 版安全能力例外发布"
 
 签名: Agent-PM-0.4.55
