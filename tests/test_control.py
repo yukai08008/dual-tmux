@@ -353,5 +353,6 @@ def test_cached_foreign_evidence_expires_independently_of_cache(tmp_path, monkey
     monkeypatch.setattr(ownership.time, "time", lambda: 260)
     monkeypatch.setattr("dual_tmux.control.time.time", lambda: 400)
     plan = ControlService().cached_resume_plan("dt-msg").data
-    assert plan["safe"] is False
+    assert plan["safe"] is True
+    assert plan["action"] == "request_handoff"
     assert plan["reason"] == "owner_evidence_stale"

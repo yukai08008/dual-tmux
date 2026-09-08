@@ -150,7 +150,7 @@ dt ownership dt-msg --json
 dt resume dt-msg --plan
 ```
 
-The v0.4.54 Web Ownership panel exposes the same frozen decision model for OpenCode, Codex and Claude. Background daemon/tick work writes an atomic local cache; browser GET requests read that cache only, so loading or refreshing the page does not probe SSH or automatically resume a tunnel. Lease and per-side runtime/attached/progress/writer/native-snapshot facts remain separate. Local-only mode is first-class and is shown without a fictitious Hub lease. Handoff and Resume require explicit actions; Force requires the exact tunnel name and cannot bypass unknown/duplicate writers, stale evidence, or native snapshot conflicts. See [Web Ownership and safe takeover](docs/web.md#ownership-and-safe-takeover-v0454).
+The v0.4.54 Web Ownership panel exposes the same frozen decision model for OpenCode, Codex and Claude. Background daemon/tick work writes an atomic local cache; browser GET requests read that cache only, so loading or refreshing the page does not probe SSH or automatically resume a tunnel. Lease and per-side runtime/attached/progress/writer/native-snapshot facts remain separate. Local-only mode is first-class and is shown without a fictitious Hub lease. Handoff and Resume require explicit actions; Force requires the exact tunnel name and cannot bypass unknown/duplicate writers or native snapshot conflicts. Stale owner evidence requests a coordinated handoff instead of rejecting Resume. See [Web Ownership and safe takeover](docs/web.md#ownership-and-safe-takeover-v0454).
 
 For Codex and Claude, cross-Client resume transfers only the JSONL whose UUID
 was recorded by `dt freeze`. The snapshot contains per-file SHA-256, source
@@ -163,7 +163,7 @@ before it parks or releases; the receiver rechecks the lease generation before
 commit. In local-only mode the same machinery can restore a locally persisted
 snapshot without requiring a Hub.
 
-A foreign idle owner receives a handoff request when another Client explicitly runs Resume, even if a terminal is still attached to the owner's tmux. A resident owner daemon persists snapshots, detaches and parks local panes, acknowledges and releases before the claimant resumes. If the owner only has the default minute tick, the claimant safely transfers the Hub lock after preflight and waits through a tick cycle; the old Client sees the foreign lock and drops its local panes, preserving the original lock-driven takeover behavior. Working, stalled, unknown attachment, stale evidence, or an invalid writer count is rejected. Background refresh and tick never initiate a takeover. To leave explicitly, use `dt drop dt-msg`.
+A foreign owner receives a handoff request when another Client explicitly runs Resume, including when its latest evidence is stale. A resident owner daemon persists snapshots, detaches and parks local panes, acknowledges and releases before the claimant resumes. If the owner only has the default minute tick, the claimant safely transfers the Hub lock after preflight and waits through a tick cycle; the old Client sees the foreign lock and drops its local panes, preserving the original lock-driven takeover behavior. Working, stalled, unknown attachment, or an invalid writer count is rejected when current evidence proves it unsafe; stale evidence alone no longer bricks Resume. Background refresh and tick never initiate a takeover. To leave explicitly, use `dt drop dt-msg`.
 
 To **branch** (two live tunnels, not steal the lock):
 

@@ -420,10 +420,10 @@ class ControlService:
                     not sampled or int(time.time()) - sampled > ownership.EVIDENCE_TTL
                 ):
                     plan.update(
-                        safe=False,
-                        action="stop",
+                        safe=True,
+                        action="request_handoff",
                         reason="owner_evidence_stale",
-                        steps=[],
+                        steps=["request_handoff", "prepare", "restore", "verify"],
                     )
         plan["cache"] = {
             key: cached.get(key) for key in ("cached_at", "age_seconds", "freshness")
