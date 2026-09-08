@@ -21,6 +21,8 @@ AGENTS = {"opencode", "codex", "claude"}
 SHELLS = {"zsh", "bash", "sh", "fish", "dash", "ksh"}
 TRANSPORTS = {"ssh", "docker", "tmux"}
 EVIDENCE_TTL = 180
+HANDOFF_ACK_GRACE = 5
+OWNER_TICK_GRACE = 65
 
 
 def persistence_supported(data: dict, role: str) -> bool:
@@ -370,7 +372,7 @@ def acquire_for_resume(data: dict, plan: dict, *, force: bool = False) -> dict:
             raise SystemExit(
                 f"[err] handoff request failed: {result.get('code') or 'unknown'}"
             )
-        deadline = time.monotonic() + 30
+        deadline = time.monotonic() + HANDOFF_ACK_GRACE
         while time.monotonic() < deadline:
             current = hub.read_ownership(str(data.get("name") or ""))
             if current.get("state") in {"free", "expired"}:
@@ -389,9 +391,21 @@ def acquire_for_resume(data: dict, plan: dict, *, force: bool = False) -> dict:
                     f"[err] handoff rejected: {handoff.get('reason') or 'owner declined'}"
                 )
             time.sleep(0.5)
-        raise SystemExit(
-            f"[err] handoff pending ({request}); owner did not release within 30s"
-        )
+        # The original protocol uses the Hub lock as the takeover signal. A
+        # Client with only the default minute tick has no resident handoff
+        # worker, but its tick will see the new holder and drop local panes.
+        # Preserve that path after the v2 safety preflight and a short window
+        # for newer owner daemons to perform the richer persist/ack sequence.
+        name = str(data.get("name") or "")
+        hub.claim(name, force=True)
+        acquired = hub.read_ownership(name)
+        if acquired.get("state") != "owned" or acquired.get("holder") != load_config().client:
+            raise SystemExit("[err] ownership acquisition could not be verified")
+        time.sleep(OWNER_TICK_GRACE)
+        return {
+            "generation": int(acquired.get("generation") or 0),
+            "newly_acquired": True,
+        }
     was_owned = lease.get("state") == "owned"
     hub.claim(str(data.get("name") or ""), force=force)
     current = hub.read_ownership(str(data.get("name") or ""))

@@ -176,6 +176,51 @@ def test_unsafe_plan_never_claims(monkeypatch):
     assert called == []
 
 
+def test_pending_handoff_falls_back_to_lock_transfer_and_tick_fence(monkeypatch):
+    states = iter(
+        [
+            {
+                "state": "foreign",
+                "holder": "tm_other",
+                "generation": 8,
+                "handoff": {"request_id": "req-1", "status": "pending"},
+            },
+            {"state": "owned", "holder": "tm_here", "generation": 9},
+        ]
+    )
+    claims = []
+    sleeps = []
+    clock = iter([0, 0, ownership.HANDOFF_ACK_GRACE + 1])
+    monkeypatch.setattr(
+        ownership.hub,
+        "request_handoff",
+        lambda *_a, **_kw: {
+            "ok": True,
+            "handoff": {"request_id": "req-1", "status": "pending"},
+        },
+    )
+    monkeypatch.setattr(ownership.hub, "read_ownership", lambda _name: next(states))
+    monkeypatch.setattr(
+        ownership.hub,
+        "claim",
+        lambda name, force=False: claims.append((name, force)),
+    )
+    monkeypatch.setattr(ownership, "load_config", lambda: type("Cfg", (), {"client": "tm_here"})())
+    monkeypatch.setattr(ownership.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(ownership.time, "sleep", lambda seconds: sleeps.append(seconds))
+    plan = {
+        "safe": True,
+        "action": "request_handoff",
+        "ownership": {"lease": {"state": "foreign"}},
+    }
+
+    token = ownership.acquire_for_resume(_data(), plan)
+
+    assert claims == [("dt-a", True)]
+    assert sleeps == [0.5, ownership.OWNER_TICK_GRACE]
+    assert token == {"generation": 9, "newly_acquired": True}
+
+
 def test_stale_foreign_evidence_is_never_takeover_safe(monkeypatch):
     evidence = {
         "sampled_at": 100,
