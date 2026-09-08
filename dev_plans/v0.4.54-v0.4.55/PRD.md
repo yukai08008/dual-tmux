@@ -17,6 +17,8 @@
 - 保持 `persist → commit → park(detach + kill) → atomic transfer → restore` 顺序。
 - claimant 使用单一总时限等待明确的原子 transfer，不再固定等待 65 秒。
 - 旧 owner 一旦观察到更高 generation/外部 holder，必须立即 park 本地两侧 tmux。
+- `committing` 是可重入恢复点；daemon 重启或瞬时写失败后继续 park + transfer。
+- v2 handoff 使用显式协议状态；新旧版本混跑时在 park 前拒绝，避免旧协议绕过 deadline/cancel。
 - 用单调时钟测试 10 秒预算，用真实前台 tmux Client 测试旧端回到 shell。
 
 ### 1.2 Out-of-scope
@@ -51,9 +53,9 @@ sequenceDiagram
         O->>H: read lease + handoff
     end
     O->>O: export + durable sync
+    O->>H: commit(request_id, deadline)
     O->>T: detach-client + kill-session
     T-->>T: attach 退出，返回原 shell
-    O->>H: commit(request_id, deadline)
     O->>H: finish: ack + atomic transfer(new generation)
     N->>H: observe itself as new owner
     N->>N: restore + verify writers
@@ -65,6 +67,8 @@ sequenceDiagram
 - 协作接管只有观察到 Hub 已原子转让给自己的新 generation 才进入 restore；无可抢占的 `free` 窗口。
 - 10 秒内未完成 persist/commit/park/transfer：返回明确超时；cancel 胜出时保持旧 owner，不得先开放新端再等待旧端退出。
 - claimant 超时 cancel 与 owner commit 在同一 Hub 锁内竞争；cancel 赢则旧端不 park，commit 赢则 owner 必须完成 park + transfer。
+- commit 后事务可由后续 daemon tick 重入完成；不会因最后一次 Hub RPC 失败卡到 300 秒 Lease 过期。
+- v0.4.54 与 v0.4.55 混跑不执行接管：双方均保留当前 owner 并提示升级；两端升级后恢复 10 秒 SLA。
 - Hub 不可达、generation 冲突、附件探针未知或持久化失败均 fail-closed。
 - daemon 观察到外部 holder 时执行本地 fence；它不需要等 minute tick。
 
@@ -77,6 +81,7 @@ sequenceDiagram
 | R3 | high | 旧 generation 晚到的 ack/release 破坏新 owner | Hub 端 generation + instance fencing；finish 原子转让，增加无副作用测试 | Coder |
 | R4 | medium | 2 秒巡检增加 Hub SSH 压力 | worker 串行、只读快照缓存、后续可迁移成长连接；本版测量资源占用 | Coder |
 | R5 | high | 误删 session 数据 | park 只 detach/kill tmux；binding/persist/native store 纳入回归 | Tester |
+| R6 | high | 滚动升级期间旧协议破坏 deadline/cancel | v2 使用旧 daemon 不识别的状态；新 daemon 在 park 前拒绝 legacy 请求 | Coder/Tester |
 
 ## 5. 签名
 

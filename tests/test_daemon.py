@@ -322,7 +322,7 @@ def _handoff_setup(monkeypatch, tmp_path):
             "state": "owned",
             "holder": "tm_a",
             "generation": 3,
-            "handoff": {"status": "pending", "request_id": "req-1"},
+            "handoff": {"protocol": 2, "status": "pending_v2", "request_id": "req-1"},
         },
     )
     monkeypatch.setattr(
@@ -554,3 +554,76 @@ def test_handoff_stale_generation_ack_never_releases(monkeypatch, tmp_path):
     DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
 
     assert calls == ["park"]
+
+
+def test_committing_handoff_resumes_after_daemon_restart(monkeypatch, tmp_path):
+    from dual_tmux import activity, daemon, hub, ownership
+    from dual_tmux.store import save, tunnels_dir
+
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
+    cfg = AppConfig(client="tm_a", server="tom7r", user="andy")
+    save(tunnels_dir() / "dt-a.json", {"name": "dt-a", "op": "op_a", "run": "run_a"})
+    monkeypatch.setattr(daemon, "load_config", lambda: cfg)
+    monkeypatch.setattr(
+        activity,
+        "activity_evidence",
+        lambda *_a: (_ for _ in ()).throw(AssertionError("must not re-persist")),
+    )
+    monkeypatch.setattr(
+        ownership,
+        "snapshot",
+        lambda *_a, **_kw: (_ for _ in ()).throw(
+            AssertionError("must not re-probe")
+        ),
+    )
+    monkeypatch.setattr(
+        hub,
+        "read_ownership",
+        lambda *_a, **_kw: {
+            "state": "owned",
+            "holder": "tm_a",
+            "generation": 3,
+            "handoff": {
+                "protocol": 2,
+                "status": "committing",
+                "request_id": "req-1",
+            },
+        },
+    )
+    calls = []
+    monkeypatch.setattr(hub, "park_local", lambda *_a: calls.append("park"))
+    monkeypatch.setattr("dual_tmux.daemon.tmux_ops.has_session", lambda _name: False)
+    monkeypatch.setattr(
+        hub,
+        "finish_handoff",
+        lambda *_a, **_kw: calls.append("finish") or {"ok": True},
+    )
+
+    DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
+
+    assert calls == ["park", "finish"]
+
+
+def test_legacy_claimant_is_rejected_before_owner_parks(monkeypatch, tmp_path):
+    hub = _handoff_setup(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        hub,
+        "read_ownership",
+        lambda *_a, **_kw: {
+            "state": "owned",
+            "holder": "tm_a",
+            "generation": 3,
+            "handoff": {"status": "pending", "request_id": "legacy-req"},
+        },
+    )
+    calls = []
+    monkeypatch.setattr(
+        hub,
+        "decide_handoff",
+        lambda *_a, **kw: calls.append(("reject", kw["reason"])) or {"ok": True},
+    )
+    monkeypatch.setattr(hub, "park_local", lambda *_a: calls.append(("park", "")))
+
+    DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
+
+    assert calls == [("reject", "handoff_protocol_upgrade_required")]

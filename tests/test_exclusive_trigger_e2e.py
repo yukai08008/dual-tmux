@@ -115,7 +115,11 @@ def test_two_client_handoff_is_exclusive_under_ten_seconds(monkeypatch, tmp_path
 
     def request_handoff(_name, **_kwargs):
         with state_lock:
-            state["handoff"] = {"request_id": "req-e2e", "status": "pending"}
+            state["handoff"] = {
+                "protocol": 2,
+                "request_id": "req-e2e",
+                "status": "pending_v2",
+            }
             return {"ok": True, "handoff": dict(state["handoff"])}
 
     def finish_handoff(_name, _request, generation, **_kwargs):
@@ -129,7 +133,7 @@ def test_two_client_handoff_is_exclusive_under_ten_seconds(monkeypatch, tmp_path
     def begin_handoff(_name, _request, generation, **_kwargs):
         with state_lock:
             assert generation == state["generation"]
-            assert state["handoff"]["status"] == "pending"
+            assert state["handoff"]["status"] == "pending_v2"
             state["handoff"]["status"] = "committing"
             return {"ok": True, "handoff": dict(state["handoff"])}
 

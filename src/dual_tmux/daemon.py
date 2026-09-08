@@ -566,7 +566,7 @@ class DualTmuxDaemon:
         sync_client_if_pending(cfg)
 
     def _ownership_step(self, *, force: bool = False) -> None:
-        """Serve safe handoff requests in persist→park→ack→release order."""
+        """Serve safe handoffs in persist→commit→park→atomic-transfer order."""
         now = time.monotonic()
         if not force and now - self._ownership_last < self.ownership_interval:
             return
@@ -646,10 +646,11 @@ class DualTmuxDaemon:
                         pass
                 continue
             handoff = lease.get("handoff") or {}
+            handoff_status = str(handoff.get("status") or "")
             if (
                 lease.get("state") != "owned"
                 or lease.get("holder") != cfg.client
-                or handoff.get("status") != "pending"
+                or handoff_status not in {"pending", "pending_v2", "committing"}
             ):
                 if refresh_cache:
                     try:
@@ -663,62 +664,106 @@ class DualTmuxDaemon:
             request_id = str(handoff.get("request_id") or "")
             generation = int(lease.get("generation") or 0)
             try:
-                activity.activity_evidence(data)
-                facts = ownership.snapshot(data, lease=lease)
-                try:
-                    ownership.write_cache(facts)
-                except (OSError, ValueError):
-                    pass
-                reasons = []
-                for role in ("trigger", "bullet"):
-                    if not ownership.persistence_supported(data, role):
-                        reasons.append(f"{role}_snapshot_persistence_unsupported")
-                    if facts["attached"][role] is None:
-                        reasons.append(f"{role}_attachment_unknown")
-                    if facts["progress"][role] != "idle":
-                        reasons.append(f"{role}_{facts['progress'][role]}")
-                    if facts["writers"][role]["status"] != "ok":
-                        reasons.append(f"{role}_{facts['writers'][role]['status']}")
-                if reasons:
+                protocol_v2 = handoff.get("protocol") == 2
+                if handoff_status == "committing" and not protocol_v2:
                     hub.decide_handoff(
                         name,
                         request_id,
                         generation,
                         accept=False,
-                        reason=",".join(reasons),
+                        reason="handoff_protocol_invalid",
                         cfg=cfg,
                     )
                     log.emit(
-                        "ownership.handoff.reject", name=name, reason=",".join(reasons)
-                    )
-                    continue
-                from .cli import _export_local_snapshots, _verify_local_snapshot_exports
-                from .hotfix import sync_persist
-
-                _export_local_snapshots(data, cfg.client)
-                with ThreadPoolExecutor(
-                    max_workers=3, thread_name_prefix="dt-handoff-persist"
-                ) as pool:
-                    futures = [
-                        pool.submit(sync_persist, "opencode", cfg),
-                        pool.submit(sync_persist, "native", cfg),
-                        pool.submit(hub.push, cfg),
-                    ]
-                    for future in futures:
-                        future.result()
-                _verify_local_snapshot_exports(data, cfg.client)
-                log.emit("ownership.handoff.persist", name=name, generation=generation)
-                committed = hub.begin_handoff(
-                    name, request_id, generation, cfg=cfg
-                )
-                if not committed.get("ok"):
-                    log.emit(
-                        "ownership.handoff.expired",
+                        "ownership.handoff.reject",
                         name=name,
-                        generation=generation,
+                        reason="handoff_protocol_invalid",
                     )
                     continue
-                log.emit("ownership.handoff.commit", name=name, generation=generation)
+                if handoff_status in {"pending", "pending_v2"}:
+                    if not protocol_v2 or handoff_status != "pending_v2":
+                        hub.decide_handoff(
+                            name,
+                            request_id,
+                            generation,
+                            accept=False,
+                            reason="handoff_protocol_upgrade_required",
+                            cfg=cfg,
+                        )
+                        log.emit(
+                            "ownership.handoff.reject",
+                            name=name,
+                            reason="handoff_protocol_upgrade_required",
+                        )
+                        continue
+                    activity.activity_evidence(data)
+                    facts = ownership.snapshot(data, lease=lease)
+                    try:
+                        ownership.write_cache(facts)
+                    except (OSError, ValueError):
+                        pass
+                    reasons = []
+                    for role in ("trigger", "bullet"):
+                        if not ownership.persistence_supported(data, role):
+                            reasons.append(f"{role}_snapshot_persistence_unsupported")
+                        if facts["attached"][role] is None:
+                            reasons.append(f"{role}_attachment_unknown")
+                        if facts["progress"][role] != "idle":
+                            reasons.append(f"{role}_{facts['progress'][role]}")
+                        if facts["writers"][role]["status"] != "ok":
+                            reasons.append(f"{role}_{facts['writers'][role]['status']}")
+                    if reasons:
+                        hub.decide_handoff(
+                            name,
+                            request_id,
+                            generation,
+                            accept=False,
+                            reason=",".join(reasons),
+                            cfg=cfg,
+                        )
+                        log.emit(
+                            "ownership.handoff.reject",
+                            name=name,
+                            reason=",".join(reasons),
+                        )
+                        continue
+                    from .cli import (
+                        _export_local_snapshots,
+                        _verify_local_snapshot_exports,
+                    )
+                    from .hotfix import sync_persist
+
+                    _export_local_snapshots(data, cfg.client)
+                    with ThreadPoolExecutor(
+                        max_workers=3, thread_name_prefix="dt-handoff-persist"
+                    ) as pool:
+                        futures = [
+                            pool.submit(sync_persist, "opencode", cfg),
+                            pool.submit(sync_persist, "native", cfg),
+                            pool.submit(hub.push, cfg),
+                        ]
+                        for future in futures:
+                            future.result()
+                    _verify_local_snapshot_exports(data, cfg.client)
+                    log.emit(
+                        "ownership.handoff.persist", name=name, generation=generation
+                    )
+                    if protocol_v2:
+                        committed = hub.begin_handoff(
+                            name, request_id, generation, cfg=cfg
+                        )
+                        if not committed.get("ok"):
+                            log.emit(
+                                "ownership.handoff.expired",
+                                name=name,
+                                generation=generation,
+                            )
+                            continue
+                        log.emit(
+                            "ownership.handoff.commit",
+                            name=name,
+                            generation=generation,
+                        )
                 hub.park_local(data)
                 if any(
                     tmux_ops.has_session(str(data.get(key) or ""))
@@ -726,15 +771,24 @@ class DualTmuxDaemon:
                 ):
                     raise SystemExit("[err] handoff park did not stop all local panes")
                 log.emit("ownership.handoff.park", name=name, generation=generation)
-                hub.finish_handoff(
-                    name,
-                    request_id,
-                    generation,
-                    reason="persisted_and_parked",
-                    cfg=cfg,
-                )
-                log.emit("ownership.handoff.ack", name=name, generation=generation)
-                log.emit("ownership.handoff.transfer", name=name, generation=generation + 1)
+                if protocol_v2:
+                    finished = hub.finish_handoff(
+                        name,
+                        request_id,
+                        generation,
+                        reason="persisted_and_parked",
+                        cfg=cfg,
+                    )
+                    if not finished.get("ok"):
+                        raise RuntimeError(
+                            f"handoff finish failed: {finished.get('code') or 'unknown'}"
+                        )
+                    log.emit("ownership.handoff.ack", name=name, generation=generation)
+                    log.emit(
+                        "ownership.handoff.transfer",
+                        name=name,
+                        generation=generation + 1,
+                    )
             except (OSError, RuntimeError, SystemExit) as exc:
                 log.emit(
                     "ownership.handoff.fail",

@@ -1,13 +1,13 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-07 14:55 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-08 15:30 +08:00 | 更新者: Codex PM
 
 ## 状态树
 
 ### v0.4.55 (ACTIVE) — Trigger 独热接管 API
 
 - 三件套：`dev_plans/v0.4.54-v0.4.55/`。
-- **feature/v0.4.55-exclusive-trigger** (CODE_COMPLETE): 基于 `v0.4.54.post3` 建立独立 worktree；已移除 force-claim 后固定等待 65 秒路径，实现 2 秒轻量 watchdog / 15 秒事实缓存、handoff deadline、cancel/commit 两阶段竞态和 `persist → commit → park → atomic transfer`。默认 316 tests + 1 opt-in、变更范围 Ruff、build 全绿；真实 tom7r 隔离 Hub + 双 HOME + daemon + tmux PTY + persist E2E 两次为 6.771 / 5.605 秒，旧 attach 返回 shell，5 次原子协议最大 2.138 秒，late commit/stale generation 均被 fence。待 review；不 merge/push/release。
+- **feature/v0.4.55-exclusive-trigger** (MERGE_PENDING): 基于 `v0.4.54.post3` 建立独立 worktree；已移除 force-claim 后固定等待 65 秒路径，实现 2 秒轻量 watchdog / 15 秒事实缓存、handoff deadline、cancel/commit 两阶段竞态和 `persist → commit → park → atomic transfer`。独立 review 补齐 `committing` 崩溃重入、双向滚动升级协议门和 SSH remote-shell 参数 quoting：新旧版本混跑在 park 前 fail-closed，两端升级后才恢复接管。默认 319 tests + 1 opt-in、变更范围 Ruff、build 全绿；真实 tom7r 隔离 Hub + 双 HOME + daemon + tmux PTY + persist E2E 四次为 6.771 / 5.605 / 5.258 / 5.976 秒，旧 attach 返回 shell，5 次原子协议最大 2.138 秒，late commit/stale generation 均被 fence。review 通过；不 merge/push/release。
 
 ### v0.4.54 (RELEASED) — Ownership 与安全接管 Web
 
@@ -126,7 +126,7 @@
 
 ## 当前焦点
 
-- 推进 **feature/v0.4.55-exclusive-trigger** review：复核 Hub shell transaction、安全边界和兼容性；未经用户明确授权不 merge/push/release。
+- **feature/v0.4.55-exclusive-trigger** 已通过 review，等待用户决定是否创建 PR/合并；未经用户明确授权不 merge/push/release。
 
 ## Backlog
 

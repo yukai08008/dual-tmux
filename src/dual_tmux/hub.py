@@ -593,16 +593,20 @@ handoff=data.get('handoff') if isinstance(data.get('handoff'),dict) else None
 now=int(time.time())
 ok=True; code=''
 if action=='request':
- if handoff and handoff.get('request_id') != request and handoff.get('status')=='pending':
+ if holder == claimant and (not data.get('instance_id') or data.get('instance_id') == instance):
+  print(json.dumps({'ok':False,'code':'already_owner','generation':current})); raise SystemExit(12)
+ if handoff and handoff.get('status') in ('pending','pending_v2','committing'):
+  if handoff.get('claimant') == claimant and handoff.get('claimant_instance_id') == instance:
+   print(json.dumps({'ok':True,'code':'idempotent','handoff':handoff,'generation':current})); raise SystemExit(0)
   print(json.dumps({'ok':False,'code':'handoff_pending','handoff':handoff})); raise SystemExit(4)
  detail=base64.b64decode(reason).decode('utf-8','replace') if reason != '-' else ''
- handoff={'request_id':request,'status':'pending','claimant':claimant,'claimant_instance_id':instance,'requested_at':now,'deadline_at':now+max(1,int(timeout or 1)),'reason':detail}
+ handoff={'protocol':2,'request_id':request,'status':'pending_v2','claimant':claimant,'claimant_instance_id':instance,'requested_at':now,'deadline_at':now+max(1,int(timeout or 1)),'reason':detail}
 elif not handoff or handoff.get('request_id') != request:
  print(json.dumps({'ok':False,'code':'request_not_found'})); raise SystemExit(5)
 elif action=='commit':
  if claimant != holder or (data.get('instance_id') and data.get('instance_id') != instance):
   print(json.dumps({'ok':False,'code':'not_owner'})); raise SystemExit(7)
- if handoff.get('status') != 'pending':
+ if handoff.get('status') != 'pending_v2':
   print(json.dumps({'ok':False,'code':'invalid_state','handoff':handoff})); raise SystemExit(8)
  if now >= int(handoff.get('deadline_at') or 0):
   handoff['status']='rejected'; handoff['decided_at']=now; handoff['reason']='handoff_deadline_expired'
@@ -612,7 +616,7 @@ elif action=='commit':
 elif action=='cancel':
  if claimant != handoff.get('claimant') or instance != handoff.get('claimant_instance_id'):
   print(json.dumps({'ok':False,'code':'not_claimant'})); raise SystemExit(9)
- if handoff.get('status') == 'pending':
+ if handoff.get('status') == 'pending_v2':
   handoff['status']='cancelled'; handoff['decided_at']=now; handoff['reason']='claimant_timeout'
  elif handoff.get('status') == 'committing':
   print(json.dumps({'ok':False,'code':'too_late','handoff':handoff})); raise SystemExit(10)
@@ -629,7 +633,6 @@ elif action=='finish':
  if not target or not target_instance:
   print(json.dumps({'ok':False,'code':'invalid_claimant'})); raise SystemExit(11)
  current+=1
- with open(lock,'w') as f: f.write(f'{target}@{now}@{current}\n')
  data={'schema':2,'name':name,'holder':target,'instance_id':target_instance,'generation':current,'renewed_at':now,'expires_at':now+int(lease_ttl),'evidence':{},'handoff':handoff}
 elif action in ('ack','reject'):
  if claimant != holder or (data.get('instance_id') and data.get('instance_id') != instance):
@@ -645,18 +648,35 @@ else:
 data['handoff']=handoff
 fd,tmp=tempfile.mkstemp(prefix='.ownership-',dir=os.path.dirname(path))
 with os.fdopen(fd,'w') as f: json.dump(data,f,separators=(',',':')); f.write('\n')
-os.replace(tmp,path); print(json.dumps({'ok':ok,'code':code,'handoff':handoff,'generation':current}))
+os.replace(tmp,path)
+# Publish the legacy lock last.  It remains the authority, so a crash between
+# the two writes leaves the old generation active instead of exposing a new
+# holder without its instance/generation fence.
+if action=='finish':
+ with open(lock,'w') as f: f.write(f'{data["holder"]}@{now}@{current}\n')
+print(json.dumps({'ok':ok,'code':code,'handoff':handoff,'generation':current}))
 PY
 """
-    result = _run(
-        ssh_argv(cfg)
-        + [
-            "bash", "-s", "--", remote_root(cfg), name, action, request_id,
-            cfg.client, instance_id(), str(generation), payload,
-            str(int(timeout or 0)), str(LOCK_TTL),
-        ],
-        input=script,
-    )
+    # SSH flattens argv into one remote-shell command.  Quote every value read
+    # from local config or the Hub sidecar (notably request_id) before it
+    # reaches that shell.  A relative root preserves the login-home semantics
+    # of remote_root() without relying on unquoted tilde expansion.
+    remote_args = [
+        "bash",
+        "-s",
+        "--",
+        f"{cfg.user}/dual-tmux",
+        name,
+        action,
+        request_id,
+        cfg.client,
+        instance_id(),
+        str(generation),
+        payload,
+        str(int(timeout or 0)),
+        str(LOCK_TTL),
+    ]
+    result = _run(ssh_argv(cfg) + [shlex.join(remote_args)], input=script)
     lines = (result.stdout or "").strip().splitlines()
     try:
         value = json.loads(lines[-1]) if lines else {}
@@ -682,7 +702,7 @@ def request_handoff(
     pending = (lease or {}).get("handoff") or {}
     cfg = cfg or load_config()
     if (
-        pending.get("status") == "pending"
+        pending.get("status") == "pending_v2"
         and pending.get("claimant") == cfg.client
         and pending.get("claimant_instance_id") == instance_id()
     ):
@@ -692,9 +712,7 @@ def request_handoff(
             "generation": int((lease or {}).get("generation") or generation),
             "idempotent": True,
         }
-    request_id = hashlib.sha256(
-        f"{name}:{cfg.client}:{instance_id()}:{int((lease or {}).get('generation') or generation)}".encode()
-    ).hexdigest()[:32]
+    request_id = uuid.uuid4().hex
     return _handoff_remote(
         name, "request", request_id=request_id,
         generation=int((lease or {}).get("generation") or generation),

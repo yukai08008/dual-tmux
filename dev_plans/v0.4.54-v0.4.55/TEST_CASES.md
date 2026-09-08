@@ -20,6 +20,9 @@
 | O-05 | daemon 看见 foreign generation 即 park 本地 pane | A-2 | unit |
 | O-06 | persist→commit→park→atomic transfer 顺序不变 | A-2/A-3 | unit |
 | O-07 | stale generation finish/release 被拒且状态不变 | A-4 | fault/unit |
+| O-08 | daemon 在 `committing` 中重启后跳过重复 persist 并完成 transfer | A-1/A-3 | unit |
+| O-09 | v0.4.54/v0.4.55 混跑在 park 前拒绝，不触发旧协议接管 | A-3 | compatibility |
+| O-10 | handoff 动态参数经 SSH remote shell 前逐项 quoting | A-3/A-4 | security/unit |
 
 ## 2. 真实终端 E2E
 
