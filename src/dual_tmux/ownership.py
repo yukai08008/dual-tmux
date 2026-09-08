@@ -142,11 +142,14 @@ def _takeover(lease: dict, sides: dict, writers: dict) -> dict:
     if lease["state"] == "foreign":
         for role in ("trigger", "bullet"):
             fact = sides[role]
-            if fact["attached"] is not False:
+            # An explicit resume asks the owner daemon to persist and park its
+            # panes. A known attached client is safe to detach after idle and
+            # writer checks pass; only an unknown attachment probe is unsafe.
+            if fact["attached"] is None:
                 return {
                     "safe": False,
                     "action": "stop",
-                    "reason": f"{role}_attached_or_unknown",
+                    "reason": f"{role}_attachment_unknown",
                 }
             if fact["progress"] != "idle":
                 return {
