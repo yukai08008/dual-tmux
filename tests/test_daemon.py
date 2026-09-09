@@ -1,5 +1,7 @@
 import time
 
+import pytest
+
 from dual_tmux.config import AppConfig, write_config
 from dual_tmux.daemon import (
     ConnectorManager,
@@ -422,7 +424,15 @@ def test_foreign_owner_fence_parks_local_tmux(monkeypatch, tmp_path):
 
     monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
     cfg = AppConfig(client="tm_old", server="tom7r", user="andy")
-    save(tunnels_dir() / "dt-a.json", {"name": "dt-a", "op": "op_a", "run": "run_a"})
+    save(
+        tunnels_dir() / "dt-a.json",
+        {
+            "name": "dt-a",
+            "op": "op_a",
+            "run": "run_a",
+            "ownership_generation": 3,
+        },
+    )
     monkeypatch.setattr(daemon, "load_config", lambda: cfg)
     monkeypatch.setattr(activity, "activity_evidence", lambda _data: {})
     monkeypatch.setattr(
@@ -431,10 +441,14 @@ def test_foreign_owner_fence_parks_local_tmux(monkeypatch, tmp_path):
         lambda *_args: {
             "state": "foreign",
             "holder": "tm_new",
+            "instance_id": "new-instance",
             "generation": 4,
             "handoff": None,
+            "source": "v2",
+            "conflict": False,
         },
     )
+    monkeypatch.setattr(hub, "existing_instance_id", lambda: "old-instance")
     monkeypatch.setattr(
         hub,
         "renew_ownership",
@@ -453,6 +467,46 @@ def test_foreign_owner_fence_parks_local_tmux(monkeypatch, tmp_path):
     DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
 
     assert parked == ["dt-a"]
+
+
+@pytest.mark.parametrize(
+    "lease",
+    [
+        {"state": "free", "holder": "", "generation": 8},
+        {"state": "expired", "holder": "", "generation": 8},
+        {
+            "state": "foreign",
+            "holder": "tm_new",
+            "instance_id": "new-instance",
+            "generation": 7,
+            "source": "v2",
+            "conflict": False,
+        },
+        {
+            "state": "foreign",
+            "holder": "tm_new",
+            "instance_id": "new-instance",
+            "generation": 8,
+            "source": "v1",
+            "conflict": False,
+        },
+        {
+            "state": "foreign",
+            "holder": "tm_new",
+            "instance_id": "new-instance",
+            "generation": 8,
+            "source": "v2",
+            "conflict": True,
+        },
+    ],
+)
+def test_fencing_requires_positive_superseding_generation(monkeypatch, lease):
+    from dual_tmux import hub
+
+    monkeypatch.setattr(hub, "existing_instance_id", lambda: "old-instance")
+    data = {"ownership_generation": 7}
+
+    assert DualTmuxDaemon._superseding_owner(data, lease) is False
 
 
 def test_ownership_watchdog_does_not_compete_with_lease_worker(monkeypatch, tmp_path):
@@ -492,7 +546,7 @@ def test_ownership_watchdog_does_not_compete_with_lease_worker(monkeypatch, tmp_
     assert renewals == []
 
 
-def test_hub_failure_self_fences_after_last_confirmed_lease(monkeypatch, tmp_path):
+def test_hub_failure_never_parks_local_tmux(monkeypatch, tmp_path):
     from dual_tmux import daemon, hub
     from dual_tmux.store import save, tunnels_dir
 
@@ -512,27 +566,59 @@ def test_hub_failure_self_fences_after_last_confirmed_lease(monkeypatch, tmp_pat
     monkeypatch.setattr(
         hub, "park_local", lambda data: parked.append(data["name"]) or ["op_a"]
     )
-    clock = iter(
-        [
-            100.0,
-            100.0 + hub.OWNERSHIP_LEASE_TTL - 0.1,
-            101.0,
-            100.0 + hub.OWNERSHIP_LEASE_TTL,
-        ]
-    )
-    monkeypatch.setattr(daemon.time, "monotonic", lambda: next(clock))
     worker = DualTmuxDaemon(ownership_interval=0)
     worker._ownership_confirmed_at["dt-a"] = 100.0
 
     worker._ownership_step(force=True)
-    assert parked == []
     worker._ownership_step(force=True)
-    assert parked == ["dt-a"]
+    assert parked == []
+    assert worker._ownership_degraded["dt-a"] == "hub_unreachable"
 
 
-def test_ownership_watchdog_recovers_exact_expired_generation(
-    monkeypatch, tmp_path
-):
+def test_free_lease_never_parks_live_local_tmux(monkeypatch, tmp_path):
+    from dual_tmux import activity, daemon, hub, ownership
+    from dual_tmux.store import save, tunnels_dir
+
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
+    cfg = AppConfig(client="tm_a", server="tom7r", user="andy")
+    save(
+        tunnels_dir() / "dt-a.json",
+        {
+            "name": "dt-a",
+            "op": "op_a",
+            "run": "run_a",
+            "ownership_generation": 7,
+        },
+    )
+    monkeypatch.setattr(daemon, "load_config", lambda: cfg)
+    monkeypatch.setattr(activity, "activity_evidence", lambda _data: {})
+    monkeypatch.setattr(daemon.tmux_ops, "has_session", lambda name: name == "op_a")
+    monkeypatch.setattr(
+        hub,
+        "read_ownership",
+        lambda *_a, **_kw: {
+            "state": "free",
+            "holder": "",
+            "generation": 7,
+            "handoff": None,
+        },
+    )
+    monkeypatch.setattr(
+        ownership,
+        "snapshot",
+        lambda _data, **_kwargs: {"name": "dt-a", "takeover": {}},
+    )
+    parked = []
+    monkeypatch.setattr(hub, "park_local", lambda data: parked.append(data))
+
+    worker = DualTmuxDaemon(ownership_interval=0)
+    worker._ownership_step(force=True)
+
+    assert parked == []
+    assert worker._ownership_degraded["dt-a"] == "lease_free"
+
+
+def test_ownership_watchdog_recovers_exact_expired_generation(monkeypatch, tmp_path):
     from dual_tmux import daemon, hub
     from dual_tmux.store import save, tunnels_dir
 
@@ -744,9 +830,7 @@ def test_lease_worker_renews_saved_generation_for_live_tunnel(monkeypatch, tmp_p
     )
     cfg = AppConfig(client="tm_a", server="tom7r", user="andy")
     monkeypatch.setattr(daemon, "load_config", lambda: cfg)
-    monkeypatch.setattr(
-        daemon.tmux_ops, "has_session", lambda name: name == "op_a"
-    )
+    monkeypatch.setattr(daemon.tmux_ops, "has_session", lambda name: name == "op_a")
     renewals = []
     monkeypatch.setattr(
         hub,
@@ -775,9 +859,7 @@ def test_lease_worker_fences_live_stale_generation(monkeypatch, tmp_path):
     save(tunnels_dir() / "dt-a.json", data)
     cfg = AppConfig(client="tm_a", server="tom7r", user="andy")
     monkeypatch.setattr(daemon, "load_config", lambda: cfg)
-    monkeypatch.setattr(
-        daemon.tmux_ops, "has_session", lambda name: name == "op_a"
-    )
+    monkeypatch.setattr(daemon.tmux_ops, "has_session", lambda name: name == "op_a")
     monkeypatch.setattr(
         hub,
         "renew_ownership",
@@ -786,14 +868,60 @@ def test_lease_worker_fences_live_stale_generation(monkeypatch, tmp_path):
     monkeypatch.setattr(
         hub,
         "read_ownership",
-        lambda *_a, **_kw: {"state": "foreign", "holder": "tm_b", "generation": 8},
+        lambda *_a, **_kw: {
+            "state": "foreign",
+            "holder": "tm_b",
+            "instance_id": "new-instance",
+            "generation": 8,
+            "source": "v2",
+            "conflict": False,
+        },
     )
+    monkeypatch.setattr(hub, "existing_instance_id", lambda: "old-instance")
     parked = []
     monkeypatch.setattr(hub, "park_local", lambda item: parked.append(item) or ["op_a"])
 
     DualTmuxDaemon()._lease_step()
 
     assert parked == [data]
+
+
+@pytest.mark.parametrize("state", ["free", "expired"])
+def test_lease_worker_retains_tmux_without_superseding_generation(
+    monkeypatch, tmp_path, state
+):
+    from dual_tmux import daemon, hub
+    from dual_tmux.store import save, tunnels_dir
+
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
+    data = {
+        "name": "dt-a",
+        "op": "op_a",
+        "run": "run_a",
+        "ownership_generation": 7,
+    }
+    save(tunnels_dir() / "dt-a.json", data)
+    cfg = AppConfig(client="tm_a", server="tom7r", user="andy")
+    monkeypatch.setattr(daemon, "load_config", lambda: cfg)
+    monkeypatch.setattr(daemon.tmux_ops, "has_session", lambda name: name == "op_a")
+    monkeypatch.setattr(
+        hub,
+        "renew_ownership",
+        lambda *_a, **_kw: (_ for _ in ()).throw(SystemExit("unconfirmed")),
+    )
+    monkeypatch.setattr(
+        hub,
+        "read_ownership",
+        lambda *_a, **_kw: {"state": state, "holder": "", "generation": 7},
+    )
+    parked = []
+    monkeypatch.setattr(hub, "park_local", lambda item: parked.append(item))
+
+    worker = DualTmuxDaemon()
+    worker._lease_step()
+
+    assert parked == []
+    assert worker._ownership_degraded["dt-a"] == f"lease_{state}"
 
 
 def test_committing_handoff_resumes_after_daemon_restart(monkeypatch, tmp_path):
