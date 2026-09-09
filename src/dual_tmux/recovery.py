@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import shlex
 import subprocess
@@ -22,6 +23,136 @@ MAX_ATTEMPTS = 5
 BACKOFF_SECONDS = (60, 120, 300, 600, 1800)
 CIRCUIT_SECONDS = 300
 Runner = Callable[..., subprocess.CompletedProcess]
+
+
+def remote_session_locations(
+    data: dict, *, runner: Runner = subprocess.run
+) -> list[dict[str, str]] | None:
+    """Locate the bound OpenCode session on a host and its running containers.
+
+    The result is exact-session evidence, never a "latest session" guess.
+    None means the host could not be inspected; an empty list means inspection
+    succeeded and the session was absent everywhere checked.
+    """
+    bullet = data.get("bullet") or {}
+    sid = str(bullet.get("session_id") or "").strip()
+    runtime = data.get("runtime") or {}
+    if (
+        not runtime.get("server")
+        or (bullet.get("tool") or "opencode") != "opencode"
+        or not sid
+    ):
+        return []
+    query = (
+        "import os,sqlite3,sys; "
+        "db=os.environ.get('OPENCODE_DB') or os.path.expanduser('~/.local/share/opencode/opencode.db'); "
+        "sid=sys.argv[1]; "
+        "c=sqlite3.connect('file:'+db+'?mode=ro',uri=True); "
+        'r=c.execute("SELECT directory FROM session WHERE id=? LIMIT 1",(sid,)).fetchone(); '
+        "print(r[0] if r else '') if r else None"
+    )
+    encoded_query = base64.b64encode(query.encode()).decode()
+    q = shlex.quote(f"import base64;exec(base64.b64decode('{encoded_query}'))")
+    session = shlex.quote(sid)
+    script = "\n".join(
+        [
+            "set +e",
+            (
+                f"dir=$(python3 -c {q} {session} 2>/dev/null); "
+                'if [ -n "$dir" ]; then printf "DT_SESSION_LOCATION=host\\t%s\\n" "$dir"; fi'
+            ),
+            "if command -v docker >/dev/null 2>&1; then",
+            "  docker ps --format '{{.Names}}' 2>/dev/null | while IFS= read -r container; do",
+            f'    dir=$(docker exec "$container" python3 -c {q} {session} 2>/dev/null)',
+            "    rc=$?",
+            '    if [ "$rc" -eq 0 ] && [ -n "$dir" ]; then printf "DT_SESSION_LOCATION=%s\\t%s\\n" "$container" "$dir"; fi',
+            "  done",
+            "fi",
+        ]
+    )
+    try:
+        result = _remote_command(data, script, runner=runner, use_container=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode == 255:
+        return None
+    matches: list[dict[str, str]] = []
+    for line in (result.stdout or "").splitlines():
+        if not line.startswith("DT_SESSION_LOCATION="):
+            continue
+        location, _, directory = line.partition("=")[2].partition("\t")
+        if location and not any(item["location"] == location for item in matches):
+            matches.append(
+                {
+                    "location": location,
+                    "container": "" if location == "host" else location,
+                    "directory": directory,
+                }
+            )
+    return matches
+
+
+def reconcile_remote_runtime(
+    data: dict, *, runner: Runner = subprocess.run
+) -> dict[str, Any]:
+    """Repair a stale host/container route only when exact evidence is unique."""
+    runtime = data.get("runtime") or {}
+    configured = str(runtime.get("container") or "")
+    # Keep the normal path fast. Inventory every running container only after
+    # the configured endpoint fails to prove the exact bound session.
+    if (_remote_probe(data, runner=runner).get("session") or {}).get("ok"):
+        return {
+            "status": "healthy",
+            "changed": False,
+            "locations": [
+                {
+                    "location": configured or "host",
+                    "container": configured,
+                    "directory": str(runtime.get("directory") or ""),
+                }
+            ],
+        }
+    locations = remote_session_locations(data, runner=runner)
+    if locations is None:
+        return {"status": "unavailable", "changed": False, "locations": []}
+    expected = configured or "host"
+    if any(item["location"] == expected for item in locations):
+        return {"status": "healthy", "changed": False, "locations": locations}
+    if not locations:
+        return {"status": "missing", "changed": False, "locations": []}
+    if len(locations) != 1:
+        return {"status": "ambiguous", "changed": False, "locations": locations}
+    match = locations[0]
+    from .runtime import build_cmd
+
+    runtime["container"] = match["container"]
+    if match["directory"]:
+        runtime["directory"] = match["directory"]
+    runtime["cmd"] = build_cmd(
+        str(runtime.get("server") or ""),
+        str(runtime.get("container") or ""),
+        str(runtime.get("directory") or "/workspace"),
+        int(runtime.get("ssh_port") or 22),
+    )
+    data["runtime"] = runtime
+    point = data.setdefault("run_point", {})
+    point.update(
+        kind="docker" if match["container"] else "ssh",
+        ssh=runtime.get("server") or "",
+        container=match["container"],
+        directory=runtime.get("directory") or "",
+        cwd=runtime.get("directory") or "",
+        resume_cmd=runtime["cmd"],
+    )
+    client = (data.get("bullet") or {}).get("agent_client") or {}
+    client.update(
+        location="docker" if match["container"] else "ssh",
+        host=runtime.get("server") or "",
+        container=match["container"],
+    )
+    data["bullet"]["agent_client"] = client
+    data["updated_at"] = now_iso()
+    return {"status": "repaired", "changed": True, "locations": locations}
 
 
 def state_path(name: str) -> Path:

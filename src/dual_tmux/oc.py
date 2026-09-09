@@ -93,6 +93,9 @@ class OcSession:
     tool: str = "opencode"
     model: str = ""
     agent: str = ""
+    # Empty means the host namespace.  A non-empty value is proof that the
+    # session database was reached through that Docker container.
+    container: str = ""
 
 
 @dataclass(frozen=True)
@@ -458,9 +461,17 @@ for raw in glob.glob('/proc/[0-9]*/cmdline'):
    if sep: env[key.decode('utf-8','replace')]=value.decode('utf-8','replace')
   db=env.get('OPENCODE_DB') or os.path.join(env.get('HOME','/root'),'.local/share/opencode/opencode.db')
   if os.path.isabs(db): db='/proc/%s/root'%pid+db
-  found.append((sid,cwd,pid,db))
+  container_id=''
+  try:
+   cgroup=open('/proc/%s/cgroup'%pid).read()
+   import re
+   match=re.search(r'(?:docker[-/]|docker/)([0-9a-f]{12,64})(?:\\.scope)?',cgroup)
+   if not match: match=re.search(r'/([0-9a-f]{64})(?:\\.scope)?(?:\\n|$)',cgroup)
+   if match: container_id=match.group(1)
+  except OSError: pass
+  found.append((sid,cwd,pid,db,container_id))
  except (OSError,ValueError): pass
-for sid,cwd,pid,db in sorted(found,key=lambda x:x[2],reverse=True):
+for sid,cwd,pid,db,container_id in sorted(found,key=lambda x:x[2],reverse=True):
  try:
   if not os.path.isfile(db): continue
   c=sqlite3.connect('file:'+db+'?mode=ro',uri=True)
@@ -470,7 +481,7 @@ for sid,cwd,pid,db in sorted(found,key=lambda x:x[2],reverse=True):
    row=c.execute("SELECT id,slug,IFNULL(title,''),directory,IFNULL(model,''),IFNULL(agent,'') FROM session WHERE directory=? AND time_archived IS NULL ORDER BY time_updated DESC LIMIT 1",(cwd,)).fetchone()
   c.close()
   if row:
-   print('\\t'.join(str(x or '') for x in row)); raise SystemExit(0)
+   print('\\t'.join([*(str(x or '') for x in row),container_id])); raise SystemExit(0)
  except sqlite3.Error: pass
 raise SystemExit(1)
 """
@@ -485,6 +496,21 @@ raise SystemExit(1)
     parts = result.stdout.strip().splitlines()[-1].split("\t")
     if len(parts) < 4:
         return None
+    discovered_container = container
+    container_id = parts[6] if len(parts) > 6 else ""
+    if not discovered_container and container_id:
+        resolved = subprocess.run(
+            [
+                *ssh_argv,
+                f"docker inspect --format '{{{{.Name}}}}' {shlex.quote(container_id)}",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if resolved.returncode != 0 or not (resolved.stdout or "").strip():
+            return None
+        discovered_container = resolved.stdout.strip().splitlines()[-1].lstrip("/")
     return OcSession(
         session_id=parts[0],
         slug=parts[1],
@@ -493,6 +519,7 @@ raise SystemExit(1)
         tool="opencode",
         model=parse_model(parts[4] if len(parts) > 4 else ""),
         agent=parts[5] if len(parts) > 5 else "",
+        container=discovered_container,
     )
 
 

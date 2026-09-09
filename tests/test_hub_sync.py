@@ -56,6 +56,23 @@ def test_rsync_can_disable_cross_host_uid_gid_preservation(monkeypatch):
     assert "--no-group" in seen[0]
 
 
+def test_hub_lock_has_bounded_rpc_timeout(monkeypatch):
+    seen = []
+
+    def run(argv, **kwargs):
+        seen.append(kwargs.get("timeout"))
+        raise subprocess.TimeoutExpired(argv, kwargs.get("timeout"))
+
+    monkeypatch.setattr(hub, "_run", run)
+    with pytest.raises(SystemExit, match="hub lock timed out after 8s"):
+        hub._lock_remote(
+            "claim",
+            "dt-a",
+            cfg=AppConfig(client="tm_a", server="tom7r", user="andy"),
+        )
+    assert seen == [8]
+
+
 def _tunnel(root: Path, name: str, updated_at: str, run: str, marker: str) -> Path:
     path = root / f"{name}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -191,9 +208,7 @@ def test_v2_sidecar_uses_short_lease_while_legacy_keeps_compatibility(monkeypatc
     assert value["lease_ttl"] == hub.OWNERSHIP_LEASE_TTL
 
 
-def test_legacy_owner_can_renew_once_and_upgrade_to_short_lease(
-    monkeypatch, tmp_path
-):
+def test_legacy_owner_can_renew_once_and_upgrade_to_short_lease(monkeypatch, tmp_path):
     cfg = AppConfig(client="tm_old", server="fake", user="tenant")
     root = tmp_path / "hub"
     _install_test_flock(monkeypatch, tmp_path)
@@ -315,6 +330,7 @@ def test_renew_retries_same_generation_flock_contention(monkeypatch):
         "holder": "tm_a",
         "generation": 7,
     }
+
 
 def test_fault_takeover_reserves_then_atomically_advances_generation(
     monkeypatch, tmp_path
