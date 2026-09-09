@@ -389,6 +389,94 @@ def test_expired_owner_is_fenced_before_atomic_fault_takeover(monkeypatch):
     assert token == {"holder": "tm_here", "generation": 9}
 
 
+def test_expired_same_instance_renews_without_fencing(monkeypatch):
+    calls = []
+    lease = {
+        "state": "expired",
+        "generation": 8,
+        "lease_protocol": 2,
+        "instance_id": "instance-here",
+    }
+    monkeypatch.setattr(ownership.hub, "existing_instance_id", lambda: "instance-here")
+    monkeypatch.setattr(
+        ownership.hub,
+        "renew_ownership",
+        lambda name, generation: (
+            calls.append(("renew", name, generation))
+            or {"holder": "tm_here", "generation": generation}
+        ),
+    )
+    monkeypatch.setattr(
+        ownership,
+        "_claim_after_service_fence",
+        lambda *_a, **_kw: pytest.fail("must not fence this instance's bullet"),
+    )
+
+    token = ownership._acquire_expired(_data(), lease)
+
+    assert calls == [("renew", "dt-a", 8)]
+    assert token == {"holder": "tm_here", "generation": 8}
+
+
+def test_resume_rechecks_lease_that_expires_after_preflight(monkeypatch):
+    lease = {
+        "state": "expired",
+        "holder": "",
+        "generation": 8,
+        "lease_protocol": 2,
+        "instance_id": "instance-here",
+    }
+    reads = iter(
+        [
+            lease,
+            {
+                **lease,
+                "state": "owned",
+                "holder": "tm_here",
+                "age_seconds": 0,
+            },
+        ]
+    )
+    calls = []
+    monkeypatch.setattr(ownership.hub, "read_ownership", lambda _name: next(reads))
+    monkeypatch.setattr(ownership.hub, "existing_instance_id", lambda: "instance-here")
+    monkeypatch.setattr(
+        ownership.hub,
+        "renew_ownership",
+        lambda name, generation: (
+            calls.append((name, generation))
+            or {"holder": "tm_here", "generation": generation}
+        ),
+    )
+    monkeypatch.setattr(
+        ownership,
+        "load_config",
+        lambda: type("Cfg", (), {"client": "tm_here"})(),
+    )
+    monkeypatch.setattr(
+        ownership.hub,
+        "claim",
+        lambda *_a, **_kw: pytest.fail("must use exact-generation renewal"),
+    )
+    plan = {
+        "safe": True,
+        "action": "resume",
+        "ownership": {
+            "lease": {
+                "state": "owned",
+                "holder": "tm_here",
+                "generation": 8,
+                "lease_protocol": 2,
+            }
+        },
+    }
+
+    token = ownership.acquire_for_resume(_data(), plan)
+
+    assert calls == [("dt-a", 8)]
+    assert token == {"generation": 8, "newly_acquired": True}
+
+
 def test_failed_service_cleanup_cancels_reservation_without_claim(monkeypatch):
     calls = []
     monkeypatch.setattr(
