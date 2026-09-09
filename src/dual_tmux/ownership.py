@@ -97,12 +97,18 @@ def probe_writers(data: dict, side: str) -> dict[str, Any]:
         pane = str(data.get("run" if side == "bullet" else "op") or "")
         pane_info = tmux_ops.pane_info(pane)
         if remote:
-            from .cli import _ssh_argv
+            # A database match is not a writer unless this exact tmux pane is
+            # still carrying the remote transport.  Otherwise stale TUI text
+            # in a returned shell can make a failed SSH resume look healthy.
+            if pane_info.get("cmd") not in TRANSPORTS:
+                session = None
+            else:
+                from .cli import _ssh_argv
 
-            runtime = data.get("runtime") or {}
-            session = oc_ops.active_remote(
-                _ssh_argv(data), str(runtime.get("container") or "")
-            )
+                runtime = data.get("runtime") or {}
+                session = oc_ops.active_remote(
+                    _ssh_argv(data), str(runtime.get("container") or "")
+                )
         else:
             session = oc_ops.from_pane(
                 str(pane_info.get("pid") or ""),
