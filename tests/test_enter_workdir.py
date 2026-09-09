@@ -43,8 +43,8 @@ def test_ensure_session_cwd_aligns_existing_idle_shell(monkeypatch, tmp_path):
 
     assert tmux.ensure_session_cwd("op_gate", str(target))
     assert sent == [
-        ["tmux", "send-keys", "-t", "op_gate", "C-c"],
-        ["tmux", "send-keys", "-t", "op_gate", "--", f"cd {target}", "Enter"]
+        ["tmux", "send-keys", "-t", "=op_gate:", "C-c"],
+        ["tmux", "send-keys", "-t", "=op_gate:", "--", f"cd {target}", "Enter"]
     ]
 
 

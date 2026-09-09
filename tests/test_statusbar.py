@@ -86,14 +86,14 @@ class FakeTmux:
             opt = cmd[-1]
             if "-g" in cmd:
                 return R(0, self.global_right + "\n")
-            sess = cmd[cmd.index("-t") + 1]
+            sess = cmd[cmd.index("-t") + 1].removeprefix("=")
             if opt == statusbar.MARKER:
                 val = self.session_opts.get((sess, opt), "")
                 return R(0 if val else 1, val + "\n" if val else "")
             val = self.session_opts.get((sess, opt), self.global_right)
             return R(0, val + "\n")
         if cmd[1] == "set-option":
-            sess = cmd[cmd.index("-t") + 1]
+            sess = cmd[cmd.index("-t") + 1].removeprefix("=")
             self.set_calls.append(cmd)
             self.session_opts[(sess, cmd[-2])] = cmd[-1]
             return R()
@@ -116,6 +116,7 @@ def test_apply_sets_chip_and_marker(monkeypatch, tmp_path: Path):
         "op_x", "dt-x", {"ok": True, "ts": "2026-09-02T10:01:00+08:00"}
     )
     right = fake.session_opts[("op_x", "status-right")]
+    assert all(call[call.index("-t") + 1] == "=op_x" for call in fake.set_calls)
     assert "dt:x" in right and "已同步" in right
     assert fake.global_right in right
     assert fake.session_opts[("op_x", statusbar.MARKER)] == "1"
