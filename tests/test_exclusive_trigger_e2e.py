@@ -395,6 +395,7 @@ def test_control_resume_restores_input_ready_trigger_under_ten_seconds(
     monkeypatch.setattr(hotfix, "sync_persist", lambda *_a: None)
     monkeypatch.setattr(hub, "push", lambda *_a: None)
     monkeypatch.setattr(hub, "push_best_effort", lambda *_a, **_kw: None)
+    monkeypatch.setattr(hub, "read_tunnel_binding", lambda _name: dict(tunnel))
     monkeypatch.setattr(hub, "read_ownership", read_ownership)
     monkeypatch.setattr(
         hub,
