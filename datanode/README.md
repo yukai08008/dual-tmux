@@ -1,5 +1,9 @@
 # dual-tmux DataNode 抽象
 
+> 业务节点的完整盘点、当前第一稿的缺口与下一步调整，见
+> [`BUSINESS_NODES.md`](BUSINESS_NODES.md)。本文主要说明当前已经实现并测试的第一版
+> 模型。
+
 这里定义 dual-tmux 的第一版运行时领域节点。它的目的不是给现有 JSON
 换一个类型外壳，而是建立稳定的事实边界，让 CLI、Web 和后续服务共同调用同一套
 领域语义。
