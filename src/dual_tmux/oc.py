@@ -105,6 +105,71 @@ class SnapshotRevision:
     digest: str
 
 
+def _discardable_failed_local_messages(
+    session_id: str, persisted_ids: frozenset[str]
+) -> tuple[str, ...]:
+    """Return local-only failed assistant leaves that are safe to merge past.
+
+    OpenCode can leave one assistant row behind after a provider stream timeout.
+    The row has no user-visible text or tool part, but its generated id makes a
+    later snapshot from another Client look divergent. Import is merge-based,
+    so accepting this shape preserves the failed row while advancing the main
+    session tail. Anything with user text, tool activity, or descendants stays
+    a hard conflict.
+    """
+    db = db_path()
+    if not session_id or not db.is_file():
+        return ()
+    try:
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            rows = conn.execute(
+                "SELECT id, data FROM message WHERE session_id=?", (session_id,)
+            ).fetchall()
+            missing = [
+                (str(mid), raw)
+                for mid, raw in rows
+                if str(mid) not in persisted_ids
+            ]
+            if not missing:
+                return ()
+            missing_ids = {mid for mid, _raw in missing}
+            for mid, raw in rows:
+                try:
+                    message = json.loads(raw)
+                except (TypeError, json.JSONDecodeError):
+                    return ()
+                if str(message.get("parentID") or "") in missing_ids:
+                    return ()
+            allowed_parts = {"step-start", "step-finish", "reasoning", "text"}
+            for mid, raw in missing:
+                try:
+                    message = json.loads(raw)
+                except (TypeError, json.JSONDecodeError):
+                    return ()
+                if message.get("role") != "assistant" or not message.get("error"):
+                    return ()
+                parts = conn.execute(
+                    "SELECT data FROM part WHERE session_id=? AND message_id=?",
+                    (session_id, mid),
+                ).fetchall()
+                for (part_raw,) in parts:
+                    try:
+                        part = json.loads(part_raw)
+                    except (TypeError, json.JSONDecodeError):
+                        return ()
+                    kind = str(part.get("type") or "")
+                    if kind not in allowed_parts:
+                        return ()
+                    if kind == "text" and str(part.get("text") or "").strip():
+                        return ()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return ()
+    return tuple(sorted(missing_ids))
+
+
 def have_opencode() -> bool:
     import shutil
 
@@ -797,6 +862,7 @@ def ensure_local(
     backupper=None,
     prepare_replace=None,
     role: str = "trigger",
+    dry_run: bool = False,
 ) -> bool:
     """Converge a local OpenCode session to the freshest persisted revision.
 
@@ -838,10 +904,15 @@ def ensure_local(
                 )
             return False
     if local_tail and local_tail not in snapshot.message_ids:
-        raise SystemExit(
-            f"[err] snapshot_conflict: newer {role} snapshot does not contain local "
-            f"tail {local_tail}; refusing to overwrite"
-        )
+        discardable = _discardable_failed_local_messages(sid, snapshot.message_ids)
+        if not discardable:
+            raise SystemExit(
+                f"[err] snapshot_conflict: newer {role} snapshot does not contain local "
+                f"tail {local_tail}; refusing to overwrite"
+            )
+
+    if dry_run:
+        return True
 
     if prepare_replace:
         prepare_replace()
@@ -859,3 +930,8 @@ def ensure_local(
             f"[err] imported {snapshot.path.name} but tail verification failed{recovery}"
         )
     return True
+
+
+def preflight_local(info: dict, *, role: str = "trigger") -> None:
+    """Validate OpenCode snapshot convergence without changing panes or data."""
+    ensure_local(info, role=role, dry_run=True)

@@ -718,6 +718,74 @@ def test_handoff_stale_generation_ack_never_releases(monkeypatch, tmp_path):
     assert calls == ["park"]
 
 
+def test_lease_worker_renews_saved_generation_for_live_tunnel(monkeypatch, tmp_path):
+    from dual_tmux import daemon, hub
+    from dual_tmux.store import save, tunnels_dir
+
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
+    save(
+        tunnels_dir() / "dt-a.json",
+        {
+            "name": "dt-a",
+            "op": "op_a",
+            "run": "run_a",
+            "ownership_generation": 7,
+        },
+    )
+    cfg = AppConfig(client="tm_a", server="tom7r", user="andy")
+    monkeypatch.setattr(daemon, "load_config", lambda: cfg)
+    monkeypatch.setattr(
+        daemon.tmux_ops, "has_session", lambda name: name == "op_a"
+    )
+    renewals = []
+    monkeypatch.setattr(
+        hub,
+        "renew_ownership",
+        lambda name, generation, **_kw: renewals.append((name, generation)),
+    )
+
+    worker = DualTmuxDaemon()
+    worker._lease_step()
+
+    assert renewals == [("dt-a", 7)]
+    assert "dt-a" in worker._ownership_confirmed_at
+
+
+def test_lease_worker_fences_live_stale_generation(monkeypatch, tmp_path):
+    from dual_tmux import daemon, hub
+    from dual_tmux.store import save, tunnels_dir
+
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
+    data = {
+        "name": "dt-a",
+        "op": "op_a",
+        "run": "run_a",
+        "ownership_generation": 7,
+    }
+    save(tunnels_dir() / "dt-a.json", data)
+    cfg = AppConfig(client="tm_a", server="tom7r", user="andy")
+    monkeypatch.setattr(daemon, "load_config", lambda: cfg)
+    monkeypatch.setattr(
+        daemon.tmux_ops, "has_session", lambda name: name == "op_a"
+    )
+    monkeypatch.setattr(
+        hub,
+        "renew_ownership",
+        lambda *_a, **_kw: (_ for _ in ()).throw(SystemExit("stale")),
+    )
+    monkeypatch.setattr(
+        hub,
+        "read_ownership",
+        lambda *_a, **_kw: {"state": "foreign", "holder": "tm_b", "generation": 8},
+    )
+    parked = []
+    monkeypatch.setattr(hub, "park_local", lambda item: parked.append(item) or ["op_a"])
+
+    DualTmuxDaemon()._lease_step()
+
+    assert parked == [data]
+
+
 def test_committing_handoff_resumes_after_daemon_restart(monkeypatch, tmp_path):
     from dual_tmux import activity, daemon, hub, ownership
     from dual_tmux.store import save, tunnels_dir

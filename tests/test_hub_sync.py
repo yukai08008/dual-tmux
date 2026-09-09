@@ -240,6 +240,23 @@ def test_renew_requires_same_client_instance_and_generation(monkeypatch, tmp_pat
     assert (root / "ownership" / "dt-a.json").read_bytes() == before
 
 
+def test_renew_retries_same_generation_flock_contention(monkeypatch):
+    cfg = AppConfig(client="tm_a", server="fake", user="tenant")
+    replies = iter(
+        [
+            ("HELD", "tm_a", 0, 7),
+            ("HELD", "tm_a", 0, 7),
+            ("OK", "tm_a", 0, 7),
+        ]
+    )
+    monkeypatch.setattr(hub, "_lock_remote", lambda *_a, **_kw: next(replies))
+    monkeypatch.setattr(hub.time, "sleep", lambda _seconds: None)
+
+    assert hub.renew_ownership("dt-a", 7, cfg=cfg) == {
+        "holder": "tm_a",
+        "generation": 7,
+    }
+
 def test_fault_takeover_reserves_then_atomically_advances_generation(
     monkeypatch, tmp_path
 ):

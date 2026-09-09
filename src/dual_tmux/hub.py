@@ -1010,13 +1010,31 @@ def renew_ownership(
     cfg = cfg or load_config()
     if not cfg.hub_enabled:
         return {"holder": cfg.client, "generation": 1}
-    kind, holder, _age, current = _lock_remote(
-        "renew",
-        name,
-        cfg=cfg,
-        ttl=OWNERSHIP_LEASE_TTL,
-        expected_generation=generation,
-    )
+    kind = "ERR"
+    holder = ""
+    current = 0
+    for attempt in range(5):
+        kind, holder, _age, current = _lock_remote(
+            "renew",
+            name,
+            cfg=cfg,
+            ttl=OWNERSHIP_LEASE_TTL,
+            expected_generation=generation,
+        )
+        if kind == "OK":
+            break
+        # Hub flock is deliberately non-blocking. Another local renewer or the
+        # cache reader can hold it for a few milliseconds; that is contention,
+        # not proof that this generation was fenced. Retry only the exact same
+        # owner/generation, and still fail closed for every other response.
+        if (
+            kind != "HELD"
+            or holder != cfg.client
+            or int(current or 0) != int(generation or 0)
+            or attempt == 4
+        ):
+            break
+        time.sleep(0.1)
     if (
         kind != "OK"
         or holder != cfg.client
