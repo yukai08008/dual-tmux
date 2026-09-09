@@ -127,9 +127,7 @@ def _discardable_failed_local_messages(
                 "SELECT id, data FROM message WHERE session_id=?", (session_id,)
             ).fetchall()
             missing = [
-                (str(mid), raw)
-                for mid, raw in rows
-                if str(mid) not in persisted_ids
+                (str(mid), raw) for mid, raw in rows if str(mid) not in persisted_ids
             ]
             if not missing:
                 return ()
@@ -322,15 +320,21 @@ def _agent_process(pid: str) -> tuple[str, int]:
             continue
         seen.add(current)
         result = subprocess.run(
-            ["ps", "-p", current, "-o", "command=", "-o", "etime="],
+            ["ps", "-ww", "-p", current, "-o", "command="],
             capture_output=True,
             text=True,
             check=False,
         )
-        line = (result.stdout or "").strip()
-        command, _, elapsed = line.rpartition(" ")
+        command = (result.stdout or "").strip()
         tokens = command.split()
         if tokens and Path(tokens[0]).name == "opencode":
+            elapsed_result = subprocess.run(
+                ["ps", "-p", current, "-o", "etime="],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            elapsed = (elapsed_result.stdout or "").strip()
             started_ms = int((time.time() - _elapsed_seconds(elapsed)) * 1000)
             return command, started_ms
         children = subprocess.run(
