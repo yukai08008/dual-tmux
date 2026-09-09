@@ -240,6 +240,65 @@ def test_renew_requires_same_client_instance_and_generation(monkeypatch, tmp_pat
     assert (root / "ownership" / "dt-a.json").read_bytes() == before
 
 
+def test_exact_v2_owner_can_recover_expired_lease_before_takeover(
+    monkeypatch, tmp_path
+):
+    cfg = AppConfig(client="tm_a", server="fake", user="tenant")
+    root = tmp_path / "hub"
+    _install_test_flock(monkeypatch, tmp_path)
+    monkeypatch.setattr(hub, "_run", _local_remote_runner)
+    monkeypatch.setattr(hub, "remote_root", lambda _cfg=None: str(root))
+    monkeypatch.setattr(hub, "instance_id", lambda: "instance-a")
+    monkeypatch.setattr(hub, "existing_instance_id", lambda: "instance-a")
+    _, _, _, generation = hub._lock_remote(
+        "claim", "dt-a", cfg=cfg, ttl=hub.OWNERSHIP_LEASE_TTL
+    )
+    expired = int(time.time()) - hub.OWNERSHIP_LEASE_TTL - 20
+    (root / "locks" / "dt-a").write_text(
+        f"tm_a@{expired}@{generation}\n", encoding="utf-8"
+    )
+    side = root / "ownership" / "dt-a.json"
+    payload = json.loads(side.read_text(encoding="utf-8"))
+    payload.update(renewed_at=expired, expires_at=expired + hub.OWNERSHIP_LEASE_TTL)
+    side.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+
+    assert hub.renew_ownership("dt-a", generation, cfg=cfg) == {
+        "holder": "tm_a",
+        "generation": generation,
+    }
+    assert hub.read_ownership("dt-a", cfg)["state"] == "owned"
+
+
+def test_expired_v2_owner_cannot_renew_after_takeover_reservation(
+    monkeypatch, tmp_path
+):
+    old_cfg = AppConfig(client="tm_old", server="fake", user="tenant")
+    new_cfg = AppConfig(client="tm_new", server="fake", user="tenant")
+    root = tmp_path / "hub"
+    _install_test_flock(monkeypatch, tmp_path)
+    monkeypatch.setattr(hub, "_run", _local_remote_runner)
+    monkeypatch.setattr(hub, "remote_root", lambda _cfg=None: str(root))
+    monkeypatch.setattr(hub, "instance_id", lambda: "old-instance")
+    _, _, _, generation = hub._lock_remote(
+        "claim", "dt-a", cfg=old_cfg, ttl=hub.OWNERSHIP_LEASE_TTL
+    )
+    expired = 1
+    (root / "locks" / "dt-a").write_text(
+        f"tm_old@{expired}@{generation}\n", encoding="utf-8"
+    )
+    side = root / "ownership" / "dt-a.json"
+    payload = json.loads(side.read_text(encoding="utf-8"))
+    payload.update(renewed_at=expired, expires_at=expired + hub.OWNERSHIP_LEASE_TTL)
+    side.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+    monkeypatch.setattr(hub, "load_config", lambda: new_cfg)
+    monkeypatch.setattr(hub, "instance_id", lambda: "new-instance")
+    hub.reserve_fault_takeover("dt-a", generation)
+
+    monkeypatch.setattr(hub, "instance_id", lambda: "old-instance")
+    with pytest.raises(SystemExit, match="renewal fenced"):
+        hub.renew_ownership("dt-a", generation, cfg=old_cfg)
+
+
 def test_renew_retries_same_generation_flock_contention(monkeypatch):
     cfg = AppConfig(client="tm_a", server="fake", user="tenant")
     replies = iter(

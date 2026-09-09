@@ -152,8 +152,14 @@ def test_tick_immediately_syncs_changed_native_snapshot(monkeypatch, tmp_path):
         },
     )
     monkeypatch.setattr(hub, "enforce_local", lambda: None)
-    monkeypatch.setattr(hub, "read_lock", lambda _name: ("tm_laptop", 0))
-    monkeypatch.setattr(hub, "claim", lambda _name: "tm_laptop")
+    monkeypatch.setattr(
+        hub,
+        "read_ownership",
+        lambda *_a, **_kw: {"state": "owned", "holder": "tm_laptop"},
+    )
+    monkeypatch.setattr(
+        hub, "claim", lambda _name: pytest.fail("tick must not claim ownership")
+    )
     monkeypatch.setattr(hub, "sync_best_effort", lambda **_kw: None)
     monkeypatch.setattr(cli.tmux_ops, "has_session", lambda _name: True)
     monkeypatch.setattr(activity, "append_sample", lambda _data: None)

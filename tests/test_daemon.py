@@ -455,7 +455,7 @@ def test_foreign_owner_fence_parks_local_tmux(monkeypatch, tmp_path):
     assert parked == ["dt-a"]
 
 
-def test_owned_live_tunnel_renews_on_watchdog_step(monkeypatch, tmp_path):
+def test_ownership_watchdog_does_not_compete_with_lease_worker(monkeypatch, tmp_path):
     from dual_tmux import activity, daemon, hub
     from dual_tmux.store import save, tunnels_dir
 
@@ -489,7 +489,7 @@ def test_owned_live_tunnel_renews_on_watchdog_step(monkeypatch, tmp_path):
 
     DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
 
-    assert renewals == [("dt-a", 7, "tm_a")]
+    assert renewals == []
 
 
 def test_hub_failure_self_fences_after_last_confirmed_lease(monkeypatch, tmp_path):
@@ -530,7 +530,7 @@ def test_hub_failure_self_fences_after_last_confirmed_lease(monkeypatch, tmp_pat
     assert parked == ["dt-a"]
 
 
-def test_failed_renewal_uses_hub_lease_age_not_a_fresh_local_grace(
+def test_ownership_watchdog_recovers_exact_expired_generation(
     monkeypatch, tmp_path
 ):
     from dual_tmux import daemon, hub
@@ -538,29 +538,38 @@ def test_failed_renewal_uses_hub_lease_age_not_a_fresh_local_grace(
 
     monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
     cfg = AppConfig(client="tm_a", server="tom7r", user="andy")
-    save(tunnels_dir() / "dt-a.json", {"name": "dt-a", "op": "op_a", "run": "run_a"})
+    save(
+        tunnels_dir() / "dt-a.json",
+        {
+            "name": "dt-a",
+            "op": "op_a",
+            "run": "run_a",
+            "ownership_generation": 7,
+        },
+    )
     monkeypatch.setattr(daemon, "load_config", lambda: cfg)
     monkeypatch.setattr(
         "dual_tmux.daemon.tmux_ops.has_session", lambda name: name == "op_a"
     )
-    monkeypatch.setattr(
-        hub,
-        "read_ownership",
-        lambda *_a, **_kw: {
-            "state": "owned",
-            "holder": "tm_a",
-            "generation": 7,
-            "age_seconds": hub.OWNERSHIP_LEASE_TTL - 0.01,
-            "handoff": None,
-        },
+    reads = iter(
+        [
+            {"state": "expired", "holder": "", "generation": 7, "handoff": None},
+            {
+                "state": "owned",
+                "holder": "tm_a",
+                "generation": 7,
+                "age_seconds": 0,
+                "handoff": None,
+            },
+        ]
     )
+    monkeypatch.setattr(hub, "read_ownership", lambda *_a, **_kw: next(reads))
+    renewals = []
     monkeypatch.setattr(
         hub,
         "renew_ownership",
-        lambda *_a, **_kw: (_ for _ in ()).throw(SystemExit("renew failed")),
+        lambda name, generation, **_kw: renewals.append((name, generation)),
     )
-    clock = iter([100.0, 100.02])
-    monkeypatch.setattr(daemon.time, "monotonic", lambda: next(clock))
     parked = []
     monkeypatch.setattr(
         hub, "park_local", lambda data: parked.append(data["name"]) or ["op_a"]
@@ -568,7 +577,8 @@ def test_failed_renewal_uses_hub_lease_age_not_a_fresh_local_grace(
 
     DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
 
-    assert parked == ["dt-a"]
+    assert renewals == [("dt-a", 7)]
+    assert parked == []
 
 
 def test_handoff_unknown_attachment_never_parks(monkeypatch, tmp_path):
@@ -642,7 +652,7 @@ def test_handoff_persist_keeps_short_lease_alive(monkeypatch, tmp_path):
 
     DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
 
-    assert len(renewals) >= 2
+    assert len(renewals) >= 1
 
 
 def test_handoff_native_upload_failure_never_parks_or_releases(monkeypatch, tmp_path):
