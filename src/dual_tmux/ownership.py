@@ -410,6 +410,28 @@ def _claim_after_service_fence(data: dict, lease: dict) -> dict:
     }
 
 
+def _acquire_expired(data: dict, lease: dict) -> dict:
+    """Recover an expired lease without fencing this installation's own work.
+
+    Lease v2 intentionally has a short deadline.  A sleeping Client or a
+    resume command that spans that deadline may observe its *own* exact
+    generation as expired.  Renewing that Client+instance+generation tuple is
+    already atomic with fault takeover on the Hub, so killing the service-side
+    bullet would be both unnecessary and destructive.  Only an expired lease
+    from another installation needs the fenced cleanup path.
+    """
+    generation = int(lease.get("generation") or 0)
+    same_instance = bool(
+        lease.get("lease_protocol") == 2
+        and generation > 0
+        and lease.get("instance_id")
+        and lease.get("instance_id") == hub.existing_instance_id()
+    )
+    if same_instance:
+        return hub.renew_ownership(str(data.get("name") or ""), generation)
+    return _claim_after_service_fence(data, lease)
+
+
 def acquire_for_resume(data: dict, plan: dict, *, force: bool = False) -> dict:
     if not plan.get("safe"):
         raise SystemExit(
@@ -445,7 +467,7 @@ def acquire_for_resume(data: dict, plan: dict, *, force: bool = False) -> dict:
                 }
             if current.get("state") in {"free", "expired"}:
                 acquired = (
-                    _claim_after_service_fence(data, current)
+                    _acquire_expired(data, current)
                     if current.get("state") == "expired"
                     else hub.claim_generation(str(data.get("name") or ""))
                 )
@@ -485,7 +507,7 @@ def acquire_for_resume(data: dict, plan: dict, *, force: bool = False) -> dict:
                 "expired",
             }:
                 acquired = (
-                    _claim_after_service_fence(data, current)
+                    _acquire_expired(data, current)
                     if current.get("state") == "expired"
                     else hub.claim_generation(str(data.get("name") or ""))
                 )
@@ -497,13 +519,40 @@ def acquire_for_resume(data: dict, plan: dict, *, force: bool = False) -> dict:
             "[err] handoff timed out before the old Trigger was persisted and "
             "parked; ownership was not changed"
         )
-    was_owned = lease.get("state") == "owned"
-    if lease.get("state") == "expired":
-        _claim_after_service_fence(data, lease)
-    elif lease.get("state") == "free":
+    # The four-second v2 lease may cross its deadline after plan_resume() but
+    # before this commit point.  Decide from a fresh Hub fact; passing the
+    # stale "owned" plan into hub.claim() makes its safety gate reject a normal
+    # same-instance resume.
+    current = hub.read_ownership(str(data.get("name") or ""))
+    was_owned = current.get("state") == "owned"
+    if current.get("state") == "expired":
+        _acquire_expired(data, current)
+    elif current.get("state") == "free":
         hub.claim_generation(str(data.get("name") or ""))
+    elif current.get("state") == "foreign":
+        # Ownership changed after preflight.  Re-evaluate attachment, progress
+        # and writer evidence before entering the cooperative handoff path.
+        refreshed = plan_resume(data)
+        if refreshed.get("action") != "request_handoff":
+            raise SystemExit(
+                "[err] ownership changed during resume; current owner is not "
+                "safe to hand off"
+            )
+        return acquire_for_resume(data, refreshed, force=force)
     else:
-        hub.claim(str(data.get("name") or ""), force=force)
+        # Exact renewal keeps a long resume operation alive and is fenced by
+        # Client instance and generation.  Legacy/local ownership retains its
+        # established claim behavior.
+        if (
+            current.get("lease_protocol") == 2
+            and int(current.get("generation") or 0) > 0
+        ):
+            hub.renew_ownership(
+                str(data.get("name") or ""),
+                int(current.get("generation") or 0),
+            )
+        else:
+            hub.claim(str(data.get("name") or ""), force=force)
     current = hub.read_ownership(str(data.get("name") or ""))
     if current.get("state") != "owned" or current.get("holder") != load_config().client:
         raise SystemExit("[err] ownership acquisition could not be verified")
