@@ -757,6 +757,57 @@ def test_handoff_live_freeze_failure_never_exports_or_parks(monkeypatch, tmp_pat
     assert calls == []
 
 
+def test_handoff_persists_refreshed_live_bindings_before_export(
+    monkeypatch, tmp_path
+):
+    from dual_tmux import cli, hotfix
+    from dual_tmux.store import load, tunnels_dir
+
+    hub = _handoff_setup(monkeypatch, tmp_path)
+    tunnel_path = tunnels_dir() / "dt-a.json"
+    observed = []
+
+    def freeze(data, sides, _tool, wait=False):
+        assert sides == ["trigger", "bullet"]
+        assert wait is False
+        data["trigger"] = {"session_id": "ses_live_trigger"}
+        data["bullet"] = {"session_id": "ses_live_bullet"}
+        return {"trigger": True, "bullet": True}
+
+    def export(data, client):
+        persisted = load(tunnel_path)
+        observed.append(
+            (
+                client,
+                data["trigger"]["session_id"],
+                data["bullet"]["session_id"],
+                persisted["trigger"]["session_id"],
+                persisted["bullet"]["session_id"],
+            )
+        )
+        return []
+
+    monkeypatch.setattr(cli, "freeze_sides", freeze)
+    monkeypatch.setattr(cli, "_export_local_snapshots", export)
+    monkeypatch.setattr(cli, "_verify_local_snapshot_exports", lambda *_a: None)
+    monkeypatch.setattr(hotfix, "sync_persist", lambda *_a: None)
+    monkeypatch.setattr("dual_tmux.daemon.tmux_ops.has_session", lambda _name: False)
+    monkeypatch.setattr(hub, "push", lambda *_a: None)
+    monkeypatch.setattr(hub, "park_local", lambda *_a: [])
+
+    DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
+
+    assert observed == [
+        (
+            "tm_a",
+            "ses_live_trigger",
+            "ses_live_bullet",
+            "ses_live_trigger",
+            "ses_live_bullet",
+        )
+    ]
+
+
 def test_handoff_persist_keeps_short_lease_alive(monkeypatch, tmp_path):
     from dual_tmux import cli, hotfix
 
