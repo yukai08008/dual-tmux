@@ -153,6 +153,26 @@ def test_active_remote_does_not_fall_back_to_latest(monkeypatch):
     assert oc.active_remote(["ssh", "box"]) is None
 
 
+def test_active_remote_resolves_container_identity_from_process_cgroup(monkeypatch):
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append(argv)
+        if len(calls) == 1:
+            return subprocess.CompletedProcess(
+                argv,
+                0,
+                "ses_live\tlive-slug\tLive\t/workspace\tprovider/model\tbuild\tdeadbeef1234\n",
+                "",
+            )
+        return subprocess.CompletedProcess(argv, 0, "/work_box\n", "")
+
+    monkeypatch.setattr(oc.subprocess, "run", run)
+    session = oc.active_remote(["ssh", "box"])
+    assert session and session.container == "work_box"
+    assert "docker inspect" in calls[1][-1]
+
+
 def test_blank_local_tui_does_not_bind_session_older_than_process(monkeypatch):
     seen = []
     monkeypatch.setattr(oc, "_agent_process", lambda _pid: ("opencode --auto", 123_000))
