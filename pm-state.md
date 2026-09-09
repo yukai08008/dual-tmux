@@ -4,10 +4,10 @@
 
 ## 状态树
 
-### v0.4.55.post4 (ACTIVE) — 跨 Client 快照自动 Union
+### v0.4.55.post4 (RELEASED) — 跨 Client 快照自动 Union
 
-- **hotfix/v0.4.55-post4-snapshot-union** (DEVELOPING)
-  - **issue-valid-session-branches-block-resume** (FIXING): `dt-alex-serp` 的本机 292 条与 `tm_andy_home` 284 条共享 278 条，各有 14/6 条有效独有消息，旧单 tail 判定误报冲突。真实会话已双备份后无损 union 为 298 条并恢复 generation 3；机制改为收集全部 `tm_*` 快照、校验 immutable graph identity、一次备份后 merge import，原本地与各快照 tail 全部验存。
+- **hotfix/v0.4.55-post4-snapshot-union** (MERGED): PR #44 合并至 `main`（merge `0b575d4`），`v0.4.55.post4` Release、wheel 与 sdist 已发布。本机已升级正式 post4、重启 daemon，并再次成功恢复 `dt-alex-serp` generation 4。350 collected、348 passed、2 skipped；聚焦 Ruff、build 和真实旧库回放通过。
+  - **issue-valid-session-branches-block-resume** (CLOSED): `dt-alex-serp` 的本机 292 条与 `tm_andy_home` 284 条共享 278 条，各有 14/6 条有效独有消息，旧单 tail 判定误报冲突。真实会话已双备份后无损 union 为 298 条；现收集全部 `tm_*` 快照、校验 immutable graph identity、一次备份后 merge import，原本地与各快照 tail 全部验存。
 
 ### v0.4.55.post3 (RELEASED) — Lease 误踢 P0 hotfix
 
@@ -151,7 +151,7 @@
 
 ## 当前焦点
 
-- 让所有参与独热接管的 Client 升级至 v0.4.55.post3，再进入 v0.4.56 Web 体验演进。
+- 让所有参与独热接管的 Client 升级至 v0.4.55.post4，再进入 v0.4.56 Web 体验演进。
 
 ## Backlog
 
