@@ -4,6 +4,9 @@
 运行节点、值对象、转换边界、关键不变量和后续演进。代码以
 `datanode/models.py`、`datanode/adapters.py` 为准。
 
+运行节点的 FSM 候选设计、状态/事件/迁移矩阵及待确认项见
+[`RUNTIME_FSM.md`](RUNTIME_FSM.md)。该设计在用户确认前不会固化为 Graph/Machine。
+
 ## 1. 设计目标
 
 DataNode 是程序在内存中实际使用的领域对象或运行对象，不等于数据库行、JSON、缓存、
