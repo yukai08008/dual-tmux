@@ -1,8 +1,15 @@
+import json
+
 import pytest
 
 from dual_tmux.config import AppConfig
 from dual_tmux.control import ControlError, ControlService, operation_catalog
 from dual_tmux.store import save, tunnels_dir
+
+
+@pytest.fixture(autouse=True)
+def _isolate_control_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path / "dual-tmux-home"))
 
 
 def _tunnel(tool: str = "opencode") -> dict:
@@ -146,7 +153,15 @@ def test_control_wraps_legacy_freeze_resume_and_model(monkeypatch):
         lambda *_a, **_kw: {"generation": 1, "newly_acquired": False},
     )
     monkeypatch.setattr(
-        ownership, "verify_resume", lambda *_a, **_kw: {"generation": 1, "writers": {}}
+        ownership,
+        "verify_resume",
+        lambda *_a, **_kw: {
+            "generation": 1,
+            "writers": {
+                "trigger": {"status": "ok", "count": 1, "pids": [10]},
+                "bullet": {"status": "ok", "count": 1, "pids": [11]},
+            },
+        },
     )
     monkeypatch.setattr("dual_tmux.hub.renew_ownership", lambda *_a, **_kw: None)
     monkeypatch.setattr("dual_tmux.store.save", lambda *_a, **_kw: None)
@@ -158,6 +173,11 @@ def test_control_wraps_legacy_freeze_resume_and_model(monkeypatch):
         "auto",
     ]
     assert service.resume("msg", True).data["call"] == ["msg", True]
+    shadow_files = list(
+        (tunnels_dir().parent / "fsm-shadow" / "resume").glob("*.json")
+    )
+    assert len(shadow_files) == 1
+    assert json.loads(shadow_files[0].read_text())["state"] == "completed"
     assert service.model("msg", "p/m", ["trigger"]).data["call"] == [
         "msg",
         "p/m",

@@ -13,8 +13,9 @@
 领域语义。
 
 当前阶段是兼容式抽象：现有 CLI 仍按原路径工作，`adapters.py` 只在边界把旧 tunnel
-JSON 转成节点。待节点经过真实数据验证后，再逐入口迁移到 `src/dual_tmux`。根目录
-`datanode/` 暂不进入 wheel，避免本阶段改变线上行为。
+JSON 转成节点。根目录 `datanode/` 已作为过渡包进入 wheel，供 Resume shadow FSM
+导入；业务领域模型尚未替换现行 CLI 的 tunnel dict。稳定后再逐入口迁移到
+`src/dual_tmux`。
 
 ## 节点关系
 
@@ -120,7 +121,8 @@ flowchart LR
 1. 在加载/保存边界启用 shadow validation，只记录不合法旧数据，不阻断用户。
 2. 让 Control Service 接受节点，CLI 与 Web 继续作为薄适配层。
 3. 将 ownership、pane observation、snapshot revision 分别切换为运行节点。
-4. 稳定后迁入 `src/dual_tmux/datanode/` 并加入 wheel，再逐步移除平行 dict 表示。
+4. 根目录包已进入 wheel；稳定后迁入 `src/dual_tmux/datanode/`，再逐步移除平行 dict
+   表示。
 
 接入时必须维持既有体验：正常 DT 和 DST 都可直接使用；新 trigger 在 10 秒内通过
 handoff 或 fenced fault takeover 获得控制权；只有明确的更高 generation/交接证据才能

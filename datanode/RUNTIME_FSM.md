@@ -652,13 +652,18 @@ FaultTakeover 只更新 Lease，不修改 RoleBinding，也不删除 ClientInsta
 
 - 使用严格 Pydantic 事件载荷和节点不变量；
 - Guard 无副作用，失败迁移回滚内存状态且不覆盖已保存快照；
-- 每次成功迁移保存 Machine 快照；Machine 内保持只追加的 transition history，独立的
-  append-only 审计 Store 留到 shadow 接入阶段实现；
+- 每次成功迁移保存 Machine 快照；Machine 内保持只追加的 transition history，shadow
+  接入层同时将迁移摘要写入现有 append-only 事件日志；
 - restore 校验 schema、graph、节点 state 和迁移路径一致性；
 - 覆盖 happy path、revision 漂移、ownership token 错配、writer 非独热、补偿不完整和
   `ATTENTION` 等测试。
 
-当前实现位于根目录 `datanode/`，未加入 wheel，也没有调用 Hub、tmux、SSH 或 snapshot
-I/O；因此它是机制验证和后续 shadow validation 基础，不改变现有 CLI 行为。下一步是为
-事件补齐稳定 evidence DTO，再将现有 `ControlService.resume()` 的决策结果旁路投喂给 FSM
-对比，确认状态轨迹一致后才考虑接管编排。
+`datanode` 已加入 wheel，`ControlService.resume()` 会将现有流程已经产生的结果旁路投喂
+给 FSM，并在 `~/.dual-tmux/fsm-shadow/resume/` 保存原子快照、在事件日志记录迁移或
+violation。观察器不执行额外探测，也不调用 Hub、tmux、SSH 或 snapshot I/O；观察器自身
+的校验或存储失败不会改变现有 Resume 的返回、异常和回滚行为。快照按 attempt 独立，
+仅保留最近 200 份，避免长期运行无界占用磁盘。
+
+这仍是 shadow validation，不由 FSM 驱动外部副作用。下一步先用真实 Resume 轨迹确认
+evidence 完整性并修复 violation，再将恢复编排从旧条件分支逐阶段迁入 Machine；在这
+之前不能删除旧路径或让 FSM 改变用户行为。
