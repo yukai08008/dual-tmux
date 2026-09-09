@@ -1,5 +1,7 @@
 # dual-tmux DataNode 抽象
 
+> 当前 DataNode 的统一说明见 [`DATANODE.md`](DATANODE.md)。
+>
 > 业务节点的完整盘点、当前第一稿的缺口与下一步调整，见
 > [`BUSINESS_NODES.md`](BUSINESS_NODES.md)。本文主要说明当前已经实现并测试的第一版
 > 模型。
