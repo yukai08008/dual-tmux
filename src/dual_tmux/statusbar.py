@@ -61,7 +61,7 @@ def _show(option: str, session: str = "", global_: bool = False) -> str:
     if global_:
         cmd.append("-g")
     elif session:
-        cmd.extend(["-t", session])
+        cmd.extend(["-t", tmux_ops.exact_session(session)])
     else:
         return ""
     cmd.append(option)
@@ -73,7 +73,14 @@ def _show(option: str, session: str = "", global_: bool = False) -> str:
 
 def _set(session: str, option: str, value: str) -> None:
     subprocess.run(
-        [tmux_ops.bin(), "set-option", "-t", session, option, value],
+        [
+            tmux_ops.bin(),
+            "set-option",
+            "-t",
+            tmux_ops.exact_session(session),
+            option,
+            value,
+        ],
         capture_output=True,
         check=False,
     )

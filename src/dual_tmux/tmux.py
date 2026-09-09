@@ -10,6 +10,22 @@ FALLBACK_BINS = ("/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux
 SHELL_COMMANDS = {"bash", "csh", "dash", "fish", "ksh", "sh", "tcsh", "zsh"}
 
 
+def exact_session(name: str) -> str:
+    """Return a tmux session target that disables implicit prefix matching.
+
+    Without the leading ``=``, targeting ``op_a`` may select
+    ``op_alex_serp`` when the shorter session does not currently exist.  That
+    is especially dangerous for fencing, where cleaning one tunnel could
+    otherwise kill an unrelated longer-named session.
+    """
+    return f"={name}"
+
+
+def exact_pane(name: str) -> str:
+    """Return the active pane of an exactly named session."""
+    return f"={name}:"
+
+
 def bin() -> str:
     """Resolve the tmux binary; cron/launchd run with a minimal PATH."""
     found = shutil.which("tmux")
@@ -27,7 +43,9 @@ def have_tmux() -> bool:
 
 def has_session(name: str) -> bool:
     r = subprocess.run(
-        [bin(), "has-session", "-t", name], capture_output=True, check=False
+        [bin(), "has-session", "-t", exact_session(name)],
+        capture_output=True,
+        check=False,
     )
     return r.returncode == 0
 
@@ -37,7 +55,7 @@ def attached_clients(name: str) -> int | None:
     if not name:
         return 0
     result = subprocess.run(
-        [bin(), "list-clients", "-t", name, "-F", "#{client_pid}"],
+        [bin(), "list-clients", "-t", exact_session(name), "-F", "#{client_pid}"],
         capture_output=True,
         text=True,
         check=False,
@@ -52,22 +70,23 @@ def attached_clients(name: str) -> int | None:
 def kill_session(name: str) -> bool:
     if not name or not has_session(name):
         return False
-    subprocess.run([bin(), "kill-session", "-t", name], check=False)
+    subprocess.run([bin(), "kill-session", "-t", exact_session(name)], check=False)
     return True
 
 
 def quit_opencode(name: str) -> bool:
     if pane_command(name) != "opencode":
         return False
-    subprocess.run([bin(), "send-keys", "-t", name, "Escape"], check=False)
+    target = exact_pane(name)
+    subprocess.run([bin(), "send-keys", "-t", target, "Escape"], check=False)
     time.sleep(0.15)
-    subprocess.run([bin(), "send-keys", "-t", name, "C-x", "q"], check=False)
+    subprocess.run([bin(), "send-keys", "-t", target, "C-x", "q"], check=False)
     deadline = time.time() + 8
     while time.time() < deadline:
         if pane_command(name) != "opencode":
             return True
         time.sleep(0.25)
-    subprocess.run([bin(), "send-keys", "-t", name, "C-c"], check=False)
+    subprocess.run([bin(), "send-keys", "-t", target, "C-c"], check=False)
     time.sleep(0.2)
     return pane_command(name) != "opencode"
 
@@ -76,7 +95,9 @@ def drop_session(name: str) -> bool:
     if not name or not has_session(name):
         return False
     subprocess.run(
-        [bin(), "detach-client", "-s", name], capture_output=True, check=False
+        [bin(), "detach-client", "-s", exact_session(name)],
+        capture_output=True,
+        check=False,
     )
     return kill_session(name)
 
@@ -107,10 +128,11 @@ def ensure_session_cwd(name: str, cwd: str) -> bool:
     command = os.path.basename(info.get("cmd") or "")
     if command not in SHELL_COMMANDS:
         return False
-    subprocess.run([bin(), "send-keys", "-t", name, "C-c"], check=False)
+    target = exact_pane(name)
+    subprocess.run([bin(), "send-keys", "-t", target, "C-c"], check=False)
     time.sleep(0.05)
     subprocess.run(
-        [bin(), "send-keys", "-t", name, "--", f"cd {shlex.quote(wanted)}", "Enter"],
+        [bin(), "send-keys", "-t", target, "--", f"cd {shlex.quote(wanted)}", "Enter"],
         check=False,
     )
     deadline = time.time() + 2
@@ -125,7 +147,7 @@ def ensure_session_cwd(name: str, cwd: str) -> bool:
 
 def attach(name: str) -> None:
     ensure_session(name)
-    subprocess.run([bin(), "attach", "-t", name], check=False)
+    subprocess.run([bin(), "attach", "-t", exact_session(name)], check=False)
 
 
 def pane_info(name: str) -> dict[str, str]:
@@ -134,7 +156,7 @@ def pane_info(name: str) -> dict[str, str]:
             bin(),
             "list-panes",
             "-t",
-            name,
+            exact_pane(name),
             "-F",
             "#{pane_pid}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_title}",
         ],
@@ -145,12 +167,17 @@ def pane_info(name: str) -> dict[str, str]:
     if r.returncode != 0 or not r.stdout.strip():
         return {"pid": "", "cmd": "", "cwd": "", "title": ""}
     pid, cmd, cwd, title, *_ = (r.stdout.splitlines()[0] + "\t\t\t").split("\t")
-    return {"pid": pid.strip(), "cmd": cmd.strip(), "cwd": cwd.strip(), "title": title.strip()}
+    return {
+        "pid": pid.strip(),
+        "cmd": cmd.strip(),
+        "cwd": cwd.strip(),
+        "title": title.strip(),
+    }
 
 
 def capture_pane(name: str, start: int = -200) -> str:
     r = subprocess.run(
-        [bin(), "capture-pane", "-t", name, "-p", "-S", str(start)],
+        [bin(), "capture-pane", "-t", exact_pane(name), "-p", "-S", str(start)],
         capture_output=True,
         text=True,
         check=False,
@@ -202,7 +229,10 @@ def replay_hops(name: str, hops: list[dict]) -> None:
         cmd = (hop.get("command") or "").strip()
         if not cmd:
             continue
-        subprocess.run([bin(), "send-keys", "-t", name, "--", cmd, "Enter"], check=False)
+        subprocess.run(
+            [bin(), "send-keys", "-t", exact_pane(name), "--", cmd, "Enter"],
+            check=False,
+        )
         time.sleep(1.2)
 
 
@@ -214,9 +244,10 @@ def reconnect(name: str, cmd: str) -> None:
 
         skip(f"{name} already on the jump (cmd={current})")
         return
-    subprocess.run([bin(), "send-keys", "-t", name, "C-c"], check=False)
+    target = exact_pane(name)
+    subprocess.run([bin(), "send-keys", "-t", target, "C-c"], check=False)
     time.sleep(0.2)
-    subprocess.run([bin(), "send-keys", "-t", name, cmd, "Enter"], check=False)
+    subprocess.run([bin(), "send-keys", "-t", target, cmd, "Enter"], check=False)
     from .ui import ok
 
     ok(f"resent {name} <- {cmd}")
@@ -225,7 +256,9 @@ def reconnect(name: str, cmd: str) -> None:
 def send_keys(name: str, text: str) -> None:
     if not has_session(name):
         raise SystemExit(f"[err] 无此会话: {name}")
-    subprocess.run([bin(), "send-keys", "-t", name, "--", text, "Enter"], check=False)
+    subprocess.run(
+        [bin(), "send-keys", "-t", exact_pane(name), "--", text, "Enter"], check=False
+    )
 
 
 def start_opencode(name: str, extra: str = "") -> None:
@@ -234,7 +267,9 @@ def start_opencode(name: str, extra: str = "") -> None:
     if current == "opencode":
         return
     cmd = "opencode" if not extra else extra
-    subprocess.run([bin(), "send-keys", "-t", name, "--", cmd, "Enter"], check=False)
+    subprocess.run(
+        [bin(), "send-keys", "-t", exact_pane(name), "--", cmd, "Enter"], check=False
+    )
 
 
 def ensure_agent(name: str, cmd: str, cwd: str = "") -> bool:
@@ -252,7 +287,20 @@ def ensure_agent(name: str, cmd: str, cwd: str = "") -> bool:
     if cwd:
         current = pane_info(name).get("cwd") or ""
         if current.rstrip("/") != str(cwd).rstrip("/"):
-            subprocess.run([bin(), "send-keys", "-t", name, "--", f"cd {cwd}", "Enter"], check=False)
+            subprocess.run(
+                [
+                    bin(),
+                    "send-keys",
+                    "-t",
+                    exact_pane(name),
+                    "--",
+                    f"cd {cwd}",
+                    "Enter",
+                ],
+                check=False,
+            )
             time.sleep(0.15)
-    subprocess.run([bin(), "send-keys", "-t", name, "--", cmd, "Enter"], check=False)
+    subprocess.run(
+        [bin(), "send-keys", "-t", exact_pane(name), "--", cmd, "Enter"], check=False
+    )
     return True
