@@ -1,7 +1,10 @@
+import ast
 import json
 from importlib.metadata import version
+from pathlib import Path
 
 import pytest
+import tomllib
 
 from dual_tmux import __version__, upgrade
 
@@ -25,6 +28,29 @@ class Response:
 
 def test_cli_version_matches_package_metadata():
     assert __version__ == version("dual-tmux")
+
+
+def test_source_version_markers_match():
+    root = Path(__file__).resolve().parents[1]
+    project_version = tomllib.loads(
+        (root / "pyproject.toml").read_text(encoding="utf-8")
+    )["project"]["version"]
+    module = ast.parse(
+        (root / "src/dual_tmux/__init__.py").read_text(encoding="utf-8")
+    )
+    marker = next(
+        node.value.value
+        for node in module.body
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id == "__version__"
+            for target in node.targets
+        )
+        and isinstance(node.value, ast.Constant)
+        and isinstance(node.value.value, str)
+    )
+
+    assert marker == project_version
 
 
 def release(
