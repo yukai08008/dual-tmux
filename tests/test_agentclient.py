@@ -23,18 +23,30 @@ def test_resolve_name_prefers_foreground_and_supports_aliases():
     assert agentclient.resolve_name("codex", "opencode") == "codex"
     assert agentclient.resolve_name("ssh", "claude-code") == "claude"
     assert agentclient.resolve_name("bash", "unknown") == ""
-    assert agentclient.detect_name(["node /opt/homebrew/lib/node_modules/@openai/codex/bin/codex.js"]) == "codex"
-    assert agentclient.detect_name(["node /usr/local/lib/claude/claude.mjs --resume"]) == "claude"
+    assert (
+        agentclient.detect_name(
+            ["node /opt/homebrew/lib/node_modules/@openai/codex/bin/codex.js"]
+        )
+        == "codex"
+    )
+    assert (
+        agentclient.detect_name(["node /usr/local/lib/claude/claude.mjs --resume"])
+        == "claude"
+    )
     assert agentclient.detect_name(["ssh box", "bash -lc opencode"]) == "opencode"
 
 
 def test_collect_local_records_path_and_version(monkeypatch):
-    monkeypatch.setattr("dual_tmux.agentclient.shutil.which", lambda name: f"/opt/bin/{name}")
+    monkeypatch.setattr(
+        "dual_tmux.agentclient.shutil.which", lambda name: f"/opt/bin/{name}"
+    )
     calls = []
 
     def run(argv, **kwargs):
         calls.append((argv, kwargs))
-        return subprocess.CompletedProcess(argv, 0, stdout="codex-cli 0.151.0\n", stderr="")
+        return subprocess.CompletedProcess(
+            argv, 0, stdout="codex-cli 0.151.0\n", stderr=""
+        )
 
     got = agentclient.collect_local("codex", runner=run)
     assert got["name"] == "codex"
@@ -159,6 +171,26 @@ def test_elapsed_seconds_supports_long_lived_processes():
     assert oc._elapsed_seconds("3-02:01:02") == 266462
 
 
+def test_agent_process_reads_untruncated_command_separately_from_elapsed(monkeypatch):
+    sid = "ses_f9a125dbdffelXmINuIVU0D7CT"
+    calls = []
+
+    def run(argv, **_kwargs):
+        calls.append(argv)
+        output = f"opencode --auto -s {sid}\n" if "command=" in argv else "22:47\n"
+        return subprocess.CompletedProcess(argv, 0, output, "")
+
+    monkeypatch.setattr(oc.subprocess, "run", run)
+    command, started_ms = oc._agent_process("24355")
+
+    assert command == f"opencode --auto -s {sid}"
+    assert started_ms > 0
+    assert calls == [
+        ["ps", "-ww", "-p", "24355", "-o", "command="],
+        ["ps", "-p", "24355", "-o", "etime="],
+    ]
+
+
 def test_empty_side_is_backward_compatible_shape():
     from dual_tmux.oc import empty_side
 
@@ -195,7 +227,11 @@ def test_freeze_opencode_keeps_session_and_client_metadata(monkeypatch):
     }
     monkeypatch.setattr(cli.wp, "discover", lambda _name: _point())
     monkeypatch.setattr(cli.wp, "walk_commands", lambda _pid: [])
-    monkeypatch.setattr(cli.tmux_ops, "pane_info", lambda _name: {"pid": "1", "cmd": "opencode", "cwd": "/workspace"})
+    monkeypatch.setattr(
+        cli.tmux_ops,
+        "pane_info",
+        lambda _name: {"pid": "1", "cmd": "opencode", "cwd": "/workspace"},
+    )
     monkeypatch.setattr(
         "dual_tmux.agentclient.collect",
         lambda *args, **kwargs: {
@@ -217,7 +253,9 @@ def test_freeze_opencode_keeps_session_and_client_metadata(monkeypatch):
 
 
 @pytest.mark.parametrize("name", ["codex", "claude"])
-def test_freeze_non_opencode_records_client_without_fake_session(monkeypatch, name: str):
+def test_freeze_non_opencode_records_client_without_fake_session(
+    monkeypatch, name: str
+):
     from dual_tmux import cli
     from dual_tmux.oc import empty_side
 
@@ -232,7 +270,11 @@ def test_freeze_non_opencode_records_client_without_fake_session(monkeypatch, na
     data["trigger"].update(session_id="ses_old", slug="old", model="old/model")
     monkeypatch.setattr(cli.wp, "discover", lambda _name: _point())
     monkeypatch.setattr(cli.wp, "walk_commands", lambda _pid: [])
-    monkeypatch.setattr(cli.tmux_ops, "pane_info", lambda _name: {"pid": "1", "cmd": name, "cwd": "/workspace"})
+    monkeypatch.setattr(
+        cli.tmux_ops,
+        "pane_info",
+        lambda _name: {"pid": "1", "cmd": name, "cwd": "/workspace"},
+    )
     monkeypatch.setattr(
         "dual_tmux.agentclient.collect",
         lambda *args, **kwargs: {
@@ -272,12 +314,21 @@ def test_freeze_remote_bullet_collects_inside_docker(monkeypatch):
     monkeypatch.setattr(cli.wp, "walk_commands", lambda _pid: [])
     monkeypatch.setattr(cli.wp, "apply_runtime", lambda *_args: None)
     monkeypatch.setattr(cli.wp, "remote_docker_exec_containers", lambda *_args: [])
-    monkeypatch.setattr(cli.tmux_ops, "pane_info", lambda _name: {"pid": "1", "cmd": "ssh", "cwd": "/workspace"})
+    monkeypatch.setattr(
+        cli.tmux_ops,
+        "pane_info",
+        lambda _name: {"pid": "1", "cmd": "ssh", "cwd": "/workspace"},
+    )
     monkeypatch.setattr(cli, "_ssh_argv", lambda _data: ["ssh", "box"])
 
     def collect(name, **kwargs):
         seen.update(name=name, **kwargs)
-        return {**agentclient.empty(), "name": name, "version": "2.1.169", "location": kwargs["location"]}
+        return {
+            **agentclient.empty(),
+            "name": name,
+            "version": "2.1.169",
+            "location": kwargs["location"],
+        }
 
     monkeypatch.setattr("dual_tmux.agentclient.collect", collect)
     monkeypatch.setattr(cli.ev, "emit", lambda *args, **kwargs: None)
@@ -303,15 +354,32 @@ def test_freeze_disconnected_shell_does_not_bind_latest_or_mutate_runtime(monkey
     }
     monkeypatch.setattr(cli.wp, "discover", lambda _name: _point("ssh"))
     monkeypatch.setattr(cli.wp, "walk_commands", lambda _pid: [])
-    monkeypatch.setattr(cli.tmux_ops, "pane_info", lambda _name: {"pid": "1", "cmd": "zsh", "cwd": "/Users/andy"})
-    monkeypatch.setattr("dual_tmux.agentclient.collect", lambda *a, **k: {**agentclient.empty(), "name": "opencode", "location": "ssh"})
+    monkeypatch.setattr(
+        cli.tmux_ops,
+        "pane_info",
+        lambda _name: {"pid": "1", "cmd": "zsh", "cwd": "/Users/andy"},
+    )
+    monkeypatch.setattr(
+        "dual_tmux.agentclient.collect",
+        lambda *a, **k: {**agentclient.empty(), "name": "opencode", "location": "ssh"},
+    )
     monkeypatch.setattr(cli.oc_ops, "from_pane", lambda *a, **k: None)
-    monkeypatch.setattr(cli.oc_ops, "active_remote", lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not probe stale transport")))
+    monkeypatch.setattr(
+        cli.oc_ops,
+        "active_remote",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("must not probe stale transport")
+        ),
+    )
     monkeypatch.setattr(cli.ev, "emit", lambda *a, **k: None)
 
     assert cli._freeze_one(data, "bullet", "run_test", "auto", False) is False
     assert data["bullet"]["session_id"] == ""
-    assert data["runtime"] == {"server": "tom7r", "directory": "/workspace", "cmd": "ssh tom7r"}
+    assert data["runtime"] == {
+        "server": "tom7r",
+        "directory": "/workspace",
+        "cmd": "ssh tom7r",
+    }
 
 
 def test_freeze_remote_probe_failure_does_not_commit_candidate_runtime(monkeypatch):
