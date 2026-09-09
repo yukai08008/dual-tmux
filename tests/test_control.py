@@ -148,6 +148,7 @@ def test_control_wraps_legacy_freeze_resume_and_model(monkeypatch):
     monkeypatch.setattr(
         ownership, "verify_resume", lambda *_a, **_kw: {"generation": 1, "writers": {}}
     )
+    monkeypatch.setattr("dual_tmux.hub.renew_ownership", lambda *_a, **_kw: None)
     monkeypatch.setattr("dual_tmux.store.save", lambda *_a, **_kw: None)
     monkeypatch.setattr("dual_tmux.store.find_dt", lambda *_a, **_kw: None)
     monkeypatch.setattr("dual_tmux.hub.push_best_effort", lambda *_a, **_kw: None)
@@ -281,6 +282,69 @@ def test_native_pull_failure_releases_new_generation_before_commit(monkeypatch):
     with pytest.raises(ControlError, match="native pull failed"):
         service.resume("dt-msg")
     assert released == [("dt-msg", 13)]
+
+
+def test_resume_snapshot_preflight_rejects_before_claim_or_tmux(monkeypatch):
+    from dual_tmux import cli, ownership
+
+    data = _tunnel()
+    service = ControlService()
+    monkeypatch.setattr(ControlService, "_get_tunnel_readonly", lambda *_a: data)
+    monkeypatch.setattr(
+        cli,
+        "_preflight_resume_snapshots",
+        lambda _data: (_ for _ in ()).throw(SystemExit("snapshot_conflict")),
+    )
+    monkeypatch.setattr(
+        ownership,
+        "acquire_for_resume",
+        lambda *_a, **_kw: pytest.fail("must not claim before snapshot preflight"),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_apply_resume_legacy",
+        lambda *_a, **_kw: pytest.fail("must not mutate tmux before preflight"),
+    )
+
+    with pytest.raises(ControlError, match="snapshot_conflict"):
+        service.resume("dt-msg")
+
+
+def test_resume_keeps_short_lease_alive_during_restore(monkeypatch):
+    import time
+
+    from dual_tmux import cli, hub, ownership
+
+    data = _tunnel()
+    service = ControlService()
+    renewals = []
+    monkeypatch.setattr(ControlService, "_get_tunnel_readonly", lambda *_a: data)
+    monkeypatch.setattr(cli, "_preflight_resume_snapshots", lambda _data: None)
+    monkeypatch.setattr(ownership, "plan_resume", lambda _data: {"safe": True})
+    monkeypatch.setattr(
+        ownership,
+        "acquire_for_resume",
+        lambda *_a, **_kw: {"generation": 21, "newly_acquired": False},
+    )
+    monkeypatch.setattr(ownership, "verify_resume", lambda *_a: {"generation": 21})
+    monkeypatch.setattr(hub, "enabled", lambda: True)
+    monkeypatch.setattr(
+        hub,
+        "renew_ownership",
+        lambda name, generation: renewals.append((name, generation)),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_apply_resume_legacy",
+        lambda *_a, **_kw: (time.sleep(1.1) or data.copy()),
+    )
+    monkeypatch.setattr("dual_tmux.store.save", lambda *_a: None)
+    monkeypatch.setattr("dual_tmux.store.find_dt", lambda *_a: None)
+    monkeypatch.setattr(hub, "push_best_effort", lambda: None)
+
+    assert service.resume("dt-msg").data["ownership_generation"] == 21
+    assert len(renewals) >= 2
+    assert set(renewals) == {("dt-msg", 21)}
 
 
 def test_cached_web_preflight_never_runs_live_snapshot(tmp_path, monkeypatch):

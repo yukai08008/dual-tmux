@@ -1,4 +1,5 @@
 import json
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -11,7 +12,11 @@ from dual_tmux.identity import (
     remote_dt_root,
     remote_sessions_root,
 )
-from dual_tmux.oc import ensure_local, persist_snapshot
+from dual_tmux.oc import (
+    _discardable_failed_local_messages,
+    ensure_local,
+    persist_snapshot,
+)
 
 
 def test_tenant_paths_not_login_home():
@@ -230,6 +235,62 @@ def test_ensure_local_rejects_non_ancestral_newer_snapshot(tmp_path: Path, monke
 
     with pytest.raises(SystemExit, match="snapshot_conflict"):
         ensure_local({"session_id": "ses_fdbe", "slug": "eager-orchid"})
+
+
+def test_failed_empty_assistant_leaf_is_safe_to_merge_past(tmp_path: Path, monkeypatch):
+    db = tmp_path / "opencode.db"
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        """
+        CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, data TEXT);
+        CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, session_id TEXT, data TEXT);
+        """
+    )
+    conn.execute(
+        "INSERT INTO message VALUES (?, ?, ?)",
+        ("msg_common", "ses_test", json.dumps({"role": "user"})),
+    )
+    conn.execute(
+        "INSERT INTO message VALUES (?, ?, ?)",
+        (
+            "msg_failed",
+            "ses_test",
+            json.dumps(
+                {
+                    "role": "assistant",
+                    "parentID": "msg_common",
+                    "error": {"name": "APIError"},
+                }
+            ),
+        ),
+    )
+    conn.execute(
+        "INSERT INTO part VALUES (?, ?, ?, ?)",
+        (
+            "part_empty",
+            "msg_failed",
+            "ses_test",
+            json.dumps({"type": "text", "text": ""}),
+        ),
+    )
+    conn.commit()
+    conn.close()
+    monkeypatch.setenv("OPENCODE_DB", str(db))
+
+    assert _discardable_failed_local_messages(
+        "ses_test", frozenset({"msg_common", "msg_remote"})
+    ) == ("msg_failed",)
+
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "UPDATE part SET data=? WHERE id='part_empty'",
+        (json.dumps({"type": "text", "text": "valuable output"}),),
+    )
+    conn.commit()
+    conn.close()
+    assert not _discardable_failed_local_messages(
+        "ses_test", frozenset({"msg_common", "msg_remote"})
+    )
 
 
 def test_hotfix_identity_and_trees(tmp_path: Path, monkeypatch):
