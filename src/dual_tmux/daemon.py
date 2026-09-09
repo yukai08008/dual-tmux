@@ -642,7 +642,7 @@ class DualTmuxDaemon:
             # Client owns the tunnel, stop both local tmux sessions now so any
             # foreground `tmux attach` returns to its invoking shell.  This is
             # the fast watchdog path; the minute tick remains only a fallback.
-            if lease.get("state") in {"foreign", "free", "expired"}:
+            if lease.get("state") in {"foreign", "free"}:
                 try:
                     parked = hub.park_local(data)
                     if parked:
@@ -664,18 +664,28 @@ class DualTmuxDaemon:
                     except (OSError, SystemExit, ValueError):
                         pass
                 continue
+            if lease.get("state") == "expired":
+                # The Lease deadline is not itself proof of a competing
+                # owner. An exact Client+instance+generation renewal races
+                # atomically with fault takeover on the Hub. Recover if it
+                # wins; otherwise fail closed below.
+                generation = int(data.get("ownership_generation") or 0)
+                try:
+                    hub.renew_ownership(name, generation, cfg=cfg)
+                    self._ownership_confirmed_at[name] = time.monotonic()
+                    lease = hub.read_ownership(name, cfg)
+                except (OSError, SystemExit, ValueError):
+                    if live:
+                        self._park_unconfirmed(
+                            data, now=time.monotonic(), reason="expired_lease_fenced"
+                        )
+                    continue
             self._ownership_confirmed_at.setdefault(
                 name, now - float(lease.get("age_seconds") or 0)
             )
-            try:
-                hub.renew_ownership(name, int(lease.get("generation") or 0), cfg=cfg)
-                self._ownership_confirmed_at[name] = now
-            except (OSError, SystemExit, ValueError):
-                if live:
-                    self._park_unconfirmed(
-                        data, now=time.monotonic(), reason="renewal_failed"
-                    )
-                continue
+            # The dedicated Lease worker is the steady-state writer. This
+            # slower ownership/cache worker only reads facts and serves
+            # handoffs, avoiding competing renew RPCs for the same tunnel.
             handoff = lease.get("handoff") or {}
             handoff_status = str(handoff.get("status") or "")
             if (
