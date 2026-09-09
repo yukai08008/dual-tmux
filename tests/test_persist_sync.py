@@ -20,6 +20,28 @@ from dual_tmux.oc import (
 )
 
 
+def test_read_tunnel_binding_uses_remote_value_without_local_merge(
+    tmp_path: Path, monkeypatch
+):
+    from dual_tmux import hub
+    from dual_tmux.config import AppConfig
+
+    remote = {
+        "name": "dt-msg",
+        "trigger": {"session_id": "ses_live"},
+    }
+
+    def rsync(_src, dest, _cfg, **_kwargs):
+        Path(dest).write_text(json.dumps(remote), encoding="utf-8")
+
+    monkeypatch.setattr(hub, "_rsync", rsync)
+    got = hub.read_tunnel_binding(
+        "dt-msg", AppConfig(client="tm_a", server="tom7r", user="andy")
+    )
+
+    assert got == remote
+
+
 def test_tenant_paths_not_login_home():
     assert remote_sessions_root("andy") == "~/andy/sessions"
     assert remote_dt_root("andy") == "~/andy/dual-tmux"

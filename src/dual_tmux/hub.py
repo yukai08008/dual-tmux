@@ -176,6 +176,31 @@ def pull(cfg: AppConfig | None = None) -> str:
     return f"{host}:{root}"
 
 
+def read_tunnel_binding(name: str, cfg: AppConfig | None = None) -> dict:
+    """Read one owner-committed binding without merging local timestamps."""
+    from .store import normalize_dt
+
+    cfg = cfg or load_config()
+    _require_hub(cfg)
+    normalized = normalize_dt(name)
+    if normalized != name or "/" in normalized or normalized in {"dt-.", "dt-.."}:
+        raise SystemExit(f"[err] invalid tunnel name: {name}")
+    root = remote_root(cfg)
+    host = SshTarget(cfg.server, cfg.ssh_port).dest
+    with tempfile.TemporaryDirectory(prefix="dual-tmux-binding-") as raw:
+        dest = Path(raw) / f"{normalized}.json"
+        _rsync(f"{host}:{root}/tunnels/{normalized}.json", str(dest), cfg)
+        try:
+            data = json.loads(dest.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise SystemExit(
+                f"[err] invalid owner-committed binding for {normalized}"
+            ) from exc
+    if data.get("name") != normalized:
+        raise SystemExit(f"[err] owner-committed binding identity mismatch: {normalized}")
+    return data
+
+
 def _tunnel_time(path: Path) -> float:
     """Use the binding's logical clock, falling back to its file mtime."""
     try:

@@ -16,6 +16,9 @@
 ## 实现约束
 
 - `freeze_sides()` 必须在 handoff export 前运行，刷新后的数据必须先写入 tunnel JSON。
+- claimant 成功取得 handoff generation 后，必须从 Hub 重新读取 old owner 提交的单隧道
+  binding，主动同步 OpenCode persist，再对刷新后的 session 做 preflight/import；不得继续
+  使用 handoff 请求前载入的内存副本。
 - remote OpenCode 按 `/proc/<pid>/stat` field 22 启动 ticks 排序，不按 PID；自动发现只接收
   `parent_id IS NULL` 的顶层 session。
 - 本地接管后，旧 owner 的 Trigger pane 和旧 Bullet 写进程必须退出，保持单一 owner。
@@ -67,6 +70,8 @@ gpt-5.6-sol -> grok-4.6 -> gpt-5.6-terra -> gpt-5.5
 | 失效模式 | 自动化回归 |
 |---|---|
 | 交接导出旧 binding | `test_handoff_persists_refreshed_live_bindings_before_export` |
+| claimant 用请求前旧 binding 覆盖 owner 新值 | `test_resume_reloads_owner_committed_binding_after_handoff` |
+| 单隧道权威读取被本地时间戳合并覆盖 | `test_read_tunnel_binding_uses_remote_value_without_local_merge` |
 | live side 无法证明仍继续交接 | `test_handoff_live_freeze_failure_never_exports_or_parks` |
 | persist/commit/park 顺序错误 | `test_handoff_orders_persist_park_ack_release` |
 | persist 期间 Lease 过期 | `test_handoff_persist_keeps_short_lease_alive` |
@@ -81,4 +86,3 @@ gpt-5.6-sol -> grok-4.6 -> gpt-5.6-terra -> gpt-5.5
 
 `v0.4.55.post12` 发布时全量结果为 `380 passed, 2 skipped`。本案例新增回归后应继续执行
 完整 `pytest`、变更文件 Ruff 和 `git diff --check`；任一矩阵用例失败均不得发布。
-

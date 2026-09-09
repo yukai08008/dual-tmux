@@ -34,6 +34,11 @@ OUC 侧已经替换了 live Bullet OpenCode，但隧道保存的仍是约 18:13-
 session ID。旧 handoff 直接按保存值导出，没有在 persist/park 前重新识别 live pane，
 因此成功交接也可能恢复旧历史。
 
+post12 上的后续复现又确认了第二个时序缺口：claimant 在请求 handoff 之前已经把 tunnel
+JSON 读入内存；old owner 随后虽按新逻辑 freeze、save、push 了 live binding，claimant
+取得 ownership 后却继续使用请求前的内存副本启动 pane，并最终把旧 binding 推回 Hub。
+因此“owner 已正确冻结”仍不足以保证 claimant 恢复该冻结结果。
+
 修复后确认的 live binding 为：
 
 | 隧道 | Bullet session | slug | directory |
@@ -73,10 +78,12 @@ Grok 4.6，旧 loop 仍可能在重试处于 16 小时 cooldown 的 `gpt-5.6-sol
 2. OpenCode 不互斥同 session 的 `--auto` 进程，snapshot git 又与对话 loop 同步耦合；
    dual-tmux 重复 resume 放大了这一客户端缺陷。
 3. handoff 信任持久化 binding，没有先冻结并保存当前 live Trigger/Bullet。
-4. remote discovery 把 PID 当时间，可能把旧进程或 child session 当作现役 Bullet。
-5. Lease worker 与 handoff worker 独立；后者死亡时，前者仍可持续续租，形成“有 owner
+4. claimant 在等待 handoff 时持有旧 binding 内存副本，成功接管后没有重载 old owner
+   刚提交的 Hub binding，形成一次 lost update。
+5. remote discovery 把 PID 当时间，可能把旧进程或 child session 当作现役 Bullet。
+6. Lease worker 与 handoff worker 独立；后者死亡时，前者仍可持续续租，形成“有 owner
    但不能交接”的假健康状态。
-6. 发布流程先暴露版本、后上传 wheel，并允许同一版本 URL 重建，导致 404 与缓存旧包。
+7. 发布流程先暴露版本、后上传 wheel，并允许同一版本 URL 重建，导致 404 与缓存旧包。
 
 这不是 `intro_v2` 业务代码或 CLIProxy 导致，也不能仅归因于 Grok/网关假死。主因是
 OpenCode 的多实例与 snapshot-git 行为缺少隔离和可见错误；dual-tmux 在 live binding、
@@ -89,4 +96,3 @@ OpenCode 的多实例与 snapshot-git 行为缺少隔离和可见错误；dual-t
 - 交接宣称成功但导出的不是 live session，违反单一 owner 和无损恢复语义。
 - Trigger 因轮询本身耗尽上下文，随后无法继续监督 Bullet。
 - 发布版本不可安装，或显示新版本但执行的仍是缓存中的旧代码。
-

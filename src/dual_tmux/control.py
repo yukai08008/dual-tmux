@@ -341,8 +341,25 @@ class ControlService:
                 )
             )
             hub.sync_best_effort()
-        _translate(lambda: _preflight_resume_snapshots(original))
         plan = _translate(lambda: ownership.plan_resume(original))
+
+        def sync_opencode_snapshots(data: dict) -> None:
+            local_opencode = any(
+                ((data.get(role) or {}).get("tool") or "opencode") == "opencode"
+                and not (
+                    role == "bullet" and (data.get("runtime") or {}).get("server")
+                )
+                for role in ("trigger", "bullet")
+            )
+            if local_opencode and hub.enabled():
+                from .config import load_config
+                from .hotfix import sync_persist
+
+                _translate(lambda: sync_persist("opencode", load_config()))
+
+        if plan.get("action") != "request_handoff":
+            sync_opencode_snapshots(original)
+            _translate(lambda: _preflight_resume_snapshots(original))
         token = _translate(
             lambda: ownership.acquire_for_resume(original, plan, force=force)
         )
@@ -364,15 +381,32 @@ class ControlService:
                 name=f"dt-resume-lease-{original.get('name') or 'tunnel'}",
             )
             keepalive_thread.start()
-        native_sides = [
-            role
-            for role in ("trigger", "bullet")
-            if (original.get(role) or {}).get("tool") in {"codex", "claude"}
-            and not (role == "bullet" and (original.get("runtime") or {}).get("server"))
-        ]
         commit_started = False
         committed_data = original
         try:
+            if (
+                plan.get("action") == "request_handoff"
+                and plan.get("reason") != "owner_evidence_stale"
+            ):
+                # The old owner freezes and publishes its live binding while
+                # this Client is waiting.  The object loaded before requesting
+                # handoff is therefore stale by construction.
+                original = _translate(
+                    lambda: hub.read_tunnel_binding(str(original.get("name") or ""))
+                )
+                committed_data = original
+            if plan.get("action") == "request_handoff":
+                sync_opencode_snapshots(original)
+                _translate(lambda: _preflight_resume_snapshots(original))
+            native_sides = [
+                role
+                for role in ("trigger", "bullet")
+                if (original.get(role) or {}).get("tool") in {"codex", "claude"}
+                and not (
+                    role == "bullet"
+                    and (original.get("runtime") or {}).get("server")
+                )
+            ]
             if native_sides:
                 from .config import load_config
 
