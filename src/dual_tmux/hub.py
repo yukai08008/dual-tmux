@@ -80,7 +80,8 @@ LOCK_TTL = 300
 # the service-side writer and restore an input-ready Trigger.  The daemon
 # renews every second, so a healthy owner gets multiple opportunities.
 OWNERSHIP_LEASE_TTL = 4
-FAULT_TAKEOVER_TTL = 10
+FAULT_TAKEOVER_TTL = 30
+STALLED_OWNER_EVIDENCE_TTL = 300
 
 
 def enabled(cfg: AppConfig | None = None) -> bool:
@@ -1089,13 +1090,13 @@ def _fault_takeover_remote(
         return {"ok": True, "generation": 1, "holder": cfg.client}
     script = r"""
 set -e
-ROOT="$1"; NAME="$2"; ACTION="$3"; REQUEST="$4"; CLAIMANT="$5"; INSTANCE="$6"; EXPECTED="$7"; LEASE_TTL="$8"; TAKEOVER_TTL="$9"; LEGACY_TTL="${10}"
+ROOT="$1"; NAME="$2"; ACTION="$3"; REQUEST="$4"; CLAIMANT="$5"; INSTANCE="$6"; EXPECTED="$7"; LEASE_TTL="$8"; TAKEOVER_TTL="$9"; LEGACY_TTL="${10}"; STALLED_TTL="${11}"
 lock="$ROOT/locks/$NAME"; side="$ROOT/ownership/$NAME.json"
 mkdir -p "$ROOT/locks" "$ROOT/ownership"; exec 9>>"$lock"; flock -x 9
-python3 - "$lock" "$side" "$NAME" "$ACTION" "$REQUEST" "$CLAIMANT" "$INSTANCE" "$EXPECTED" "$LEASE_TTL" "$TAKEOVER_TTL" "$LEGACY_TTL" <<'PY'
+python3 - "$lock" "$side" "$NAME" "$ACTION" "$REQUEST" "$CLAIMANT" "$INSTANCE" "$EXPECTED" "$LEASE_TTL" "$TAKEOVER_TTL" "$LEGACY_TTL" "$STALLED_TTL" <<'PY'
 import json,os,sys,tempfile,time
-lock,path,name,action,request,claimant,instance,expected,lease_ttl,takeover_ttl,legacy_ttl=sys.argv[1:]
-expected=int(expected); lease_ttl=int(lease_ttl); takeover_ttl=int(takeover_ttl); legacy_ttl=int(legacy_ttl); now=int(time.time())
+lock,path,name,action,request,claimant,instance,expected,lease_ttl,takeover_ttl,legacy_ttl,stalled_ttl=sys.argv[1:]
+expected=int(expected); lease_ttl=int(lease_ttl); takeover_ttl=int(takeover_ttl); legacy_ttl=int(legacy_ttl); stalled_ttl=int(stalled_ttl); now=int(time.time())
 parts=open(lock).read().strip().split('@') if os.path.exists(lock) else []
 holder=parts[0] if parts else ''
 renewed=int(parts[1]) if len(parts)>1 and parts[1].isdigit() else 0
@@ -1124,18 +1125,23 @@ if generation != expected:
  print(json.dumps({'ok':False,'code':'generation_conflict','generation':generation})); raise SystemExit(4)
 if takeover and now-int(takeover.get('started_at') or 0)>takeover_ttl:
  takeover=None; data['takeover']=None
-if action=='begin':
+if action in ('begin','begin_stalled'):
  effective_ttl=lease_ttl if int(data.get('lease_protocol') or 1)==2 else legacy_ttl
- if renewed and (now-renewed < effective_ttl if effective_ttl != legacy_ttl else now-renewed <= effective_ttl):
-  print(json.dumps({'ok':False,'code':'lease_active','generation':generation})); raise SystemExit(5)
+ lease_active=renewed and (now-renewed < effective_ttl if effective_ttl != legacy_ttl else now-renewed <= effective_ttl)
  handoff=data.get('handoff') if isinstance(data.get('handoff'),dict) else None
+ evidence=data.get('evidence') if isinstance(data.get('evidence'),dict) else {}
+ stalled_ok=(action=='begin_stalled' and int(data.get('lease_protocol') or 1)==2 and handoff and handoff.get('status')=='cancelled' and handoff.get('reason')=='claimant_timeout' and handoff.get('claimant')==claimant and handoff.get('claimant_instance_id')==instance and int(evidence.get('sampled_at') or 0)>0 and now-int(evidence.get('sampled_at') or 0)>=stalled_ttl and int(handoff.get('requested_at') or 0)>int(evidence.get('sampled_at') or 0))
+ if lease_active and not stalled_ok:
+  print(json.dumps({'ok':False,'code':'lease_active','generation':generation})); raise SystemExit(5)
+ if action=='begin_stalled' and not stalled_ok:
+  print(json.dumps({'ok':False,'code':'stalled_owner_not_proven','generation':generation})); raise SystemExit(11)
  if handoff and handoff.get('status') in ('pending_v2','committing') and now < int(handoff.get('deadline_at') or 0) and (handoff.get('claimant')!=claimant or handoff.get('claimant_instance_id')!=instance):
   print(json.dumps({'ok':False,'code':'handoff_claimant_conflict','generation':generation})); raise SystemExit(6)
  if takeover:
   if takeover.get('request_id')==request and takeover.get('claimant')==claimant and takeover.get('claimant_instance_id')==instance:
    print(json.dumps({'ok':True,'code':'idempotent','takeover':takeover,'generation':generation})); raise SystemExit(0)
   print(json.dumps({'ok':False,'code':'takeover_pending','generation':generation})); raise SystemExit(7)
- takeover={'protocol':1,'request_id':request,'status':'fencing','claimant':claimant,'claimant_instance_id':instance,'previous_holder':holder,'started_at':now}
+ takeover={'protocol':1,'request_id':request,'status':'fencing','claimant':claimant,'claimant_instance_id':instance,'previous_holder':holder,'started_at':now,'reason':'stalled_control_plane' if action=='begin_stalled' else 'lease_expired'}
  data['takeover']=takeover
 elif action=='finish':
  if not takeover or takeover.get('request_id')!=request or takeover.get('claimant')!=claimant or takeover.get('claimant_instance_id')!=instance:
@@ -1171,6 +1177,7 @@ PY
         str(OWNERSHIP_LEASE_TTL),
         str(FAULT_TAKEOVER_TTL),
         str(LOCK_TTL),
+        str(STALLED_OWNER_EVIDENCE_TTL),
     ]
     result = _run(
         ssh_argv(cfg, connect_timeout=2) + [shlex.join(remote_args)], input=script
@@ -1203,6 +1210,20 @@ def reserve_fault_takeover(name: str, generation: int) -> dict:
     if not value.get("ok"):
         raise SystemExit(
             f"[err] fault takeover rejected: {value.get('code') or 'unknown'}"
+        )
+    value["request_id"] = request_id
+    return value
+
+
+def reserve_stalled_takeover(name: str, generation: int) -> dict:
+    """Fence a renewing owner only after its own handoff deadline expired."""
+    request_id = uuid.uuid4().hex
+    value = _fault_takeover_remote(
+        name, "begin_stalled", request_id=request_id, generation=generation
+    )
+    if not value.get("ok"):
+        raise SystemExit(
+            f"[err] stalled takeover rejected: {value.get('code') or 'unknown'}"
         )
     value["request_id"] = request_id
     return value

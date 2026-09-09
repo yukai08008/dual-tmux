@@ -899,7 +899,24 @@ class DualTmuxDaemon:
     def _ownership_worker(self) -> None:
         """Collect potentially slow Hub/runtime facts away from connector supervision."""
         while not self.stop_event.is_set():
-            self._ownership_step()
+            try:
+                self._ownership_step()
+            except (
+                KeyError,
+                OSError,
+                RuntimeError,
+                SystemExit,
+                TypeError,
+                ValueError,
+            ) as exc:
+                # A single malformed pane, SSH timeout, or parser regression
+                # must not permanently kill handoff processing while the
+                # independent lease thread keeps advertising this owner alive.
+                log.emit(
+                    "ownership.worker.fail",
+                    reason=type(exc).__name__,
+                    detail=str(exc)[-300:],
+                )
             self.stop_event.wait(max(1.0, self.ownership_interval))
 
     def _lease_step(self) -> None:

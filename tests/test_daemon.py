@@ -418,6 +418,22 @@ def test_ownership_watchdog_defaults_to_one_second():
     assert daemon.ownership_cache_interval == 15.0
 
 
+def test_ownership_worker_survives_one_step_failure(monkeypatch):
+    worker = DualTmuxDaemon(ownership_interval=0)
+    calls = []
+
+    def step():
+        calls.append("step")
+        if len(calls) == 1:
+            raise RuntimeError("one bad probe")
+        worker.stop_event.set()
+
+    monkeypatch.setattr(worker, "_ownership_step", step)
+    worker._ownership_worker()
+
+    assert calls == ["step", "step"]
+
+
 def test_foreign_owner_fence_parks_local_tmux(monkeypatch, tmp_path):
     from dual_tmux import activity, daemon, hub, ownership
     from dual_tmux.store import save, tunnels_dir
