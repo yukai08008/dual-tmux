@@ -874,6 +874,72 @@ class DualTmuxDaemon:
             self._ownership_step()
             self.stop_event.wait(max(1.0, self.ownership_interval))
 
+    def _lease_step(self) -> None:
+        """Renew locally recorded live generations without waiting for fact scans."""
+        from . import hub
+        from .store import iter_dt_files, load
+
+        try:
+            cfg = load_config()
+        except (OSError, SystemExit):
+            return
+        if not cfg.hub_enabled:
+            return
+        live = []
+        for path in iter_dt_files():
+            try:
+                data = load(path)
+            except (OSError, SystemExit, ValueError):
+                continue
+            generation = int(data.get("ownership_generation") or 0)
+            if not generation or not any(
+                tmux_ops.has_session(str(data.get(key) or ""))
+                for key in ("op", "run")
+            ):
+                continue
+            live.append((data, generation))
+
+        def renew(item: tuple[dict, int]) -> None:
+            data, generation = item
+            name = str(data.get("name") or "")
+            try:
+                hub.renew_ownership(name, generation, cfg=cfg)
+                self._ownership_confirmed_at[name] = time.monotonic()
+                return
+            except (OSError, SystemExit, ValueError):
+                pass
+            try:
+                lease = hub.read_ownership(name, cfg)
+            except (OSError, SystemExit, ValueError):
+                self._park_unconfirmed(
+                    data, now=time.monotonic(), reason="lease_worker_unreachable"
+                )
+                return
+            if lease.get("state") in {"foreign", "free", "expired"}:
+                try:
+                    parked = hub.park_local(data)
+                except (OSError, SystemExit):
+                    parked = []
+                if parked:
+                    log.emit(
+                        "ownership.fence.park",
+                        name=name,
+                        holder=lease.get("holder") or "none",
+                        generation=int(lease.get("generation") or 0),
+                    )
+
+        if live:
+            with ThreadPoolExecutor(
+                max_workers=min(8, len(live)), thread_name_prefix="dt-lease"
+            ) as pool:
+                list(pool.map(renew, live))
+
+    def _lease_worker(self) -> None:
+        """Keep short leases independent from slower cache and handoff work."""
+        while not self.stop_event.is_set():
+            self._lease_step()
+            self.stop_event.wait(max(0.5, self.ownership_interval))
+
     def _write_status(self, connector: dict) -> None:
         previous = read_daemon_status()
         candidates = previous.pop("candidates", [])
@@ -907,6 +973,7 @@ class DualTmuxDaemon:
         log.emit("dt.daemon.start", pid=os.getpid())
         mailbox_thread = None
         ownership_thread = None
+        lease_thread = None
         if not once:
             mailbox_thread = threading.Thread(
                 target=self._mailbox_worker,
@@ -920,6 +987,12 @@ class DualTmuxDaemon:
                 name="dt-ownership-cache",
             )
             ownership_thread.start()
+            lease_thread = threading.Thread(
+                target=self._lease_worker,
+                daemon=True,
+                name="dt-ownership-lease",
+            )
+            lease_thread.start()
         else:
             try:
                 (self.mailbox_sync or self._sync_mailbox_once)()
@@ -940,6 +1013,8 @@ class DualTmuxDaemon:
                 mailbox_thread.join(timeout=min(self.mailbox_interval + 1, 6))
             if ownership_thread:
                 ownership_thread.join(timeout=2)
+            if lease_thread:
+                lease_thread.join(timeout=2)
             global_state = read_daemon_status()
             was_owner = (
                 self.manager.has_lease
