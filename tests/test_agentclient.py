@@ -173,6 +173,21 @@ def test_active_remote_resolves_container_identity_from_process_cgroup(monkeypat
     assert "docker inspect" in calls[1][-1]
 
 
+def test_active_remote_orders_by_process_start_and_ignores_child_sessions(monkeypatch):
+    seen = []
+
+    def run(argv, **kwargs):
+        seen.append(argv[-1])
+        return subprocess.CompletedProcess(argv, 1, "", "")
+
+    monkeypatch.setattr(oc.subprocess, "run", run)
+    assert oc.active_remote(["ssh", "box"], "work") is None
+    script = seen[0]
+    assert "/proc/%s/stat" in script
+    assert "key=lambda x:x[3]" in script
+    assert "parent_id IS NULL" in script
+
+
 def test_blank_local_tui_does_not_bind_session_older_than_process(monkeypatch):
     seen = []
     monkeypatch.setattr(oc, "_agent_process", lambda _pid: ("opencode --auto", 123_000))

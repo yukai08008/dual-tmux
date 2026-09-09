@@ -32,11 +32,17 @@ Resume bullet with `opencode --auto -s <id>`, never `-c`. Before any new `--auto
 
 ## Poll
 
-Sample every 15–30s with enough pane, not chrome only:
+Sample every 15–30s with a fixed, bounded tail:
 
 ```sh
-tmux capture-pane -t <run_*> -p -S -80
+tmux capture-pane -t <run_*> -p -S -60 | tail -n 60 | head -c 12000
 ```
+
+The poll window is a hard ceiling. Keep `-S -60`, `tail -n 60`, and the byte cap
+fixed for every round. Never widen it to `-80`, `-200`, `-500`, etc. Never paste
+the complete pane or previous poll results back into the trigger conversation.
+Repeated full-pane captures recursively copy bullet history into trigger tool
+results, producing duplicate-looking turns and exhausting trigger context.
 
 At dispatch, record a baseline: context tokens / `% used`, last tool line, chrome-stripped body, and any expected output file. Each round compare to the last baseline.
 
@@ -50,6 +56,11 @@ At dispatch, record a baseline: context tokens / `% used`, last tool line, chrom
 Spinner, `esc interrupt`, elapsed time, progress bar, and footer animation are **not** progress. Flat tokens across rounds means the session is not growing.
 
 **Quiet-round cap:** consecutive rounds with no evidence reset only when evidence moves. After **8** quiet rounds, stop waiting because it is spinning. Do not send more keys into a running or hung turn. Do not treat Escape as recovery. Run **Dead client** below. Pause and report only if that recovery fails.
+
+If the bounded tail does not expose enough evidence, inspect a specific artifact
+or run a targeted status command in bullet. Do not compensate by increasing the
+pane history depth. Summarize each poll in trigger as changed evidence plus a
+short hash/status; do not quote the captured tail unless the exact lines matter.
 
 Idle/done: `Build auto` (or equivalent idle) **and** a new assistant result after this dispatch, not merely one frame without a spinner.
 
