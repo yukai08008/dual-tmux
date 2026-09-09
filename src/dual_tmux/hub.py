@@ -940,10 +940,12 @@ def idle_enough(name: str, holder: str) -> bool:
     return frozen_last_ticks(text, name, TICKS)
 
 
-def _claim_ownership(name: str, force: bool = False) -> dict:
+def _claim_ownership(
+    name: str, force: bool = False, *, lease: dict | None = None
+) -> dict:
     if not enabled():
         return {"holder": load_config().client, "generation": 1}
-    lease = read_ownership(name)
+    lease = lease or read_ownership(name)
     holder = str(lease.get("holder") or "")
     age = int(lease.get("age_seconds") or 0)
     _generation = int(lease.get("generation") or 0)
@@ -1277,10 +1279,33 @@ def park_local(data: dict) -> list[str]:
     return drop_local(data)
 
 
-def require_active(data: dict, force: bool = False) -> None:
+def require_active(data: dict, force: bool = False) -> dict:
     # Acquiring ownership is a preflight.  A rejection must never mutate local
     # panes: they may contain the user's only live view of the session.
-    claim(data["name"], force=force)
+    name = str(data["name"])
+    lease = read_ownership(name) if enabled() else {"state": "local"}
+    if (
+        lease.get("state") == "expired"
+        and lease.get("lease_protocol") == 2
+        and lease.get("instance_id")
+        and lease.get("instance_id") == existing_instance_id()
+        and int(lease.get("generation") or 0) > 0
+    ):
+        # Sleep/lock or a slow command may outlive the four-second lease.  The
+        # same stable installation may renew its exact generation; this races
+        # atomically with fault takeover and cannot steal from another end.
+        generation = int(lease["generation"])
+        token = renew_ownership(name, generation)
+    else:
+        token = _claim_ownership(name, force=force, lease=lease)
+    generation = int(token.get("generation") or 0)
+    if generation and generation != int(data.get("ownership_generation") or 0):
+        from .store import find_dt, now_iso, save
+
+        data["ownership_generation"] = generation
+        data["updated_at"] = now_iso()
+        save(find_dt(name), data)
+    return token
 
 
 def enforce_local() -> None:

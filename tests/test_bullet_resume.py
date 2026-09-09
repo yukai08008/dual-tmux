@@ -1,3 +1,4 @@
+import json
 import subprocess
 
 import pytest
@@ -276,15 +277,82 @@ def test_claim_rejection_does_not_drop_local_panes(monkeypatch):
     from dual_tmux import hub
 
     dropped = []
+    monkeypatch.setattr(hub, "enabled", lambda: False)
     monkeypatch.setattr(
         hub,
-        "claim",
+        "_claim_ownership",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(SystemExit("held")),
     )
     monkeypatch.setattr(hub, "drop_local", lambda data: dropped.append(data))
     with pytest.raises(SystemExit, match="held"):
         hub.require_active(_dst())
     assert dropped == []
+
+
+def test_require_active_persists_claimed_generation(monkeypatch, tmp_path):
+    from dual_tmux import hub
+    from dual_tmux.store import save, tunnels_dir
+
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
+    data = _dst()
+    save(tunnels_dir() / "dt-msg.json", data)
+    monkeypatch.setattr(hub, "enabled", lambda: True)
+    monkeypatch.setattr(hub, "read_ownership", lambda _name: {"state": "free"})
+    monkeypatch.setattr(
+        hub,
+        "_claim_ownership",
+        lambda *_args, **_kwargs: {"holder": "tm_a", "generation": 7},
+    )
+
+    token = hub.require_active(data)
+
+    assert token["generation"] == 7
+    assert data["ownership_generation"] == 7
+    assert (
+        json.loads((tunnels_dir() / "dt-msg.json").read_text())["ownership_generation"]
+        == 7
+    )
+
+
+def test_require_active_renews_expired_lease_from_same_instance(monkeypatch, tmp_path):
+    from dual_tmux import hub
+    from dual_tmux.store import save, tunnels_dir
+
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
+    data = _dst()
+    save(tunnels_dir() / "dt-msg.json", data)
+    monkeypatch.setattr(hub, "enabled", lambda: True)
+    monkeypatch.setattr(hub, "existing_instance_id", lambda: "local-instance")
+    monkeypatch.setattr(
+        hub,
+        "read_ownership",
+        lambda _name: {
+            "state": "expired",
+            "lease_protocol": 2,
+            "instance_id": "local-instance",
+            "generation": 9,
+        },
+    )
+    renewed = []
+    monkeypatch.setattr(
+        hub,
+        "renew_ownership",
+        lambda name, generation: (
+            renewed.append((name, generation))
+            or {"holder": "tm_a", "generation": generation}
+        ),
+    )
+    monkeypatch.setattr(
+        hub,
+        "_claim_ownership",
+        lambda *_args, **_kwargs: pytest.fail("same instance must renew, not claim"),
+    )
+
+    token = hub.require_active(data)
+
+    assert token["generation"] == 9
+    assert renewed == [("dt-msg", 9)]
+    assert data["ownership_generation"] == 9
 
 
 def test_resume_rebinds_trigger_workspace(monkeypatch, tmp_path):
