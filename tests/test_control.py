@@ -244,6 +244,70 @@ def test_resume_commit_failure_releases_new_generation_without_save(monkeypatch)
     assert released == [("dt-msg", 12)]
 
 
+def test_resume_rejects_missing_remote_session_before_ownership(monkeypatch):
+    from dual_tmux import oc, ownership, recovery
+
+    data = _tunnel()
+    data["runtime"] = {"server": "box", "container": ""}
+    data["bullet"]["session_id"] = "ses_missing"
+    service = ControlService()
+    monkeypatch.setattr(ControlService, "_get_tunnel_readonly", lambda self, name: data)
+    monkeypatch.setattr(
+        recovery,
+        "reconcile_remote_runtime",
+        lambda _data: {"status": "missing", "changed": False, "locations": []},
+    )
+    monkeypatch.setattr(oc, "persist_snapshot", lambda _side: None)
+    monkeypatch.setattr(
+        ownership,
+        "plan_resume",
+        lambda _data: pytest.fail("must reject before ownership planning"),
+    )
+
+    with pytest.raises(ControlError) as caught:
+        service.resume("dt-msg")
+    assert caught.value.code == "session_missing"
+
+
+def test_resume_persists_unique_runtime_repair_before_ownership(monkeypatch):
+    from dual_tmux import cli, hub, ownership, recovery
+
+    data = _tunnel()
+    data.update(run="run_msg", runtime={"server": "box", "container": ""})
+    data["bullet"]["session_id"] = "ses_remote"
+    service = ControlService()
+    monkeypatch.setattr(ControlService, "_get_tunnel_readonly", lambda self, name: data)
+
+    def repair(value):
+        value["runtime"].update(container="work", cmd="ssh box docker exec work")
+        return {
+            "status": "repaired",
+            "changed": True,
+            "locations": [{"location": "work", "container": "work"}],
+        }
+
+    monkeypatch.setattr(recovery, "reconcile_remote_runtime", repair)
+    saved = []
+    entries = []
+    monkeypatch.setattr("dual_tmux.store.find_dt", lambda _name: "binding")
+    monkeypatch.setattr(
+        "dual_tmux.store.save", lambda path, value: saved.append((path, value.copy()))
+    )
+    monkeypatch.setattr(cli, "write_entry", lambda run, cmd: entries.append((run, cmd)))
+    monkeypatch.setattr(hub, "sync_best_effort", lambda: None)
+    monkeypatch.setattr(cli, "_preflight_resume_snapshots", lambda _data: None)
+    monkeypatch.setattr(
+        ownership,
+        "plan_resume",
+        lambda _data: (_ for _ in ()).throw(SystemExit("stop")),
+    )
+
+    with pytest.raises(ControlError, match="stop"):
+        service.resume("dt-msg")
+    assert saved and saved[0][0] == "binding"
+    assert entries == [("run_msg", "ssh box docker exec work")]
+
+
 def test_native_pull_failure_releases_new_generation_before_commit(monkeypatch):
     from dual_tmux import cli, hotfix, hub, ownership
 
@@ -336,7 +400,7 @@ def test_resume_keeps_short_lease_alive_during_restore(monkeypatch):
     monkeypatch.setattr(
         cli,
         "_apply_resume_legacy",
-        lambda *_a, **_kw: (time.sleep(1.1) or data.copy()),
+        lambda *_a, **_kw: time.sleep(1.1) or data.copy(),
     )
     monkeypatch.setattr("dual_tmux.store.save", lambda *_a: None)
     monkeypatch.setattr("dual_tmux.store.find_dt", lambda *_a: None)

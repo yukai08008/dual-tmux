@@ -398,6 +398,16 @@ def _fence_remote_bullet(data: dict, info: dict, tmux_name: str) -> bool:
     if _pane_shows_agent(tmux_name):
         ui.skip(f"{tmux_name} bullet TUI already attached; not starting a duplicate")
         return True
+    writers = recovery.remote_session_pids(data)
+    if writers is None:
+        ui.warn("remote bullet process check failed; refusing to start blind")
+        return True
+    if len(writers) == 1:
+        # OpenCode is a foreground child of the SSH/docker-exec chain. If that
+        # exact session still has one process, a repeated resume is already at
+        # the desired state even when its footer has not redrawn yet.
+        ui.skip(f"{tmux_name} already has the bound remote bullet; not restarting")
+        return True
     fenced = recovery.fence_remote_bullet(data)
     if fenced is None:
         ui.warn("remote bullet process check failed; refusing to start blind")
@@ -755,6 +765,17 @@ def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) ->
         )
         ui.warn(f"{error}. dt {'enter' if side == 'trigger' else 'work'} --oc first")
         return False
+    if side == "bullet" and live_transport and session.container:
+        point = {**point, "kind": "docker", "container": session.container, "hops": []}
+        wp.apply_runtime(candidate, point)
+        point = wp.canonical_runtime_point(candidate, point)
+        client_meta = agentclient.collect(
+            "opencode",
+            location="docker",
+            ssh_argv=_ssh_argv(candidate),
+            host=(candidate.get("runtime") or {}).get("server") or "",
+            container=session.container,
+        )
     commit_verified_bullet_runtime(session.directory)
     _bind_oc(data, side, session, client_name or "opencode")
     data[side]["agent_client"] = client_meta
@@ -1002,6 +1023,27 @@ def _apply_resume_legacy(
     data = _resolve(name)
     if not ownership_checked:
         hub.require_active(data, force=force)
+    runtime = data.get("runtime") or {}
+    if (
+        not ownership_checked
+        and runtime.get("server")
+        and ((data.get("bullet") or {}).get("tool") or "opencode") == "opencode"
+    ):
+        from .recovery import reconcile_remote_runtime
+
+        route = reconcile_remote_runtime(data)
+        if route["status"] == "ambiguous":
+            names = ", ".join(item["location"] for item in route["locations"])
+            raise SystemExit(
+                f"[err] bullet session exists in multiple remote locations ({names}); runtime was not changed"
+            )
+        if route["changed"]:
+            save(find_dt(data["name"]), data)
+            write_entry(data["run"], (data.get("runtime") or {}).get("cmd") or "")
+            ui.info(
+                "repaired bullet runtime → "
+                + (route["locations"][0]["container"] or "host")
+            )
     opsdir.prepare(data)
     if not oc_ops.is_dst(data):
         raise SystemExit("[err] not a DST. Freeze both oc sessions first: dt freeze")

@@ -95,9 +95,16 @@ def _require_hub(cfg: AppConfig) -> None:
         )
 
 
-def _run(argv: list[str], input: str | None = None) -> subprocess.CompletedProcess:
+def _run(
+    argv: list[str], input: str | None = None, timeout: float | None = None
+) -> subprocess.CompletedProcess:
     return subprocess.run(
-        argv, capture_output=True, text=True, input=input, check=False
+        argv,
+        capture_output=True,
+        text=True,
+        input=input,
+        timeout=timeout,
+        check=False,
     )
 
 
@@ -470,25 +477,31 @@ os.replace(tmp,path)
 PY
 echo "OK $ME 0 ${generation:-1}"
 """
-    result = _run(
-        ssh_argv(cfg, connect_timeout=2)
-        + [
-            "bash",
-            "-s",
-            "--",
-            remote_root(cfg),
-            name,
-            owner or cfg.client,
-            str(ttl),
-            action,
-            "1" if force else "0",
-            instance,
-            encoded_evidence,
-            str(int(expected_generation or 0)),
-            str(LOCK_TTL),
-        ],
-        input=script,
-    )
+    try:
+        result = _run(
+            ssh_argv(cfg, connect_timeout=2)
+            + [
+                "bash",
+                "-s",
+                "--",
+                remote_root(cfg),
+                name,
+                owner or cfg.client,
+                str(ttl),
+                action,
+                "1" if force else "0",
+                instance,
+                encoded_evidence,
+                str(int(expected_generation or 0)),
+                str(LOCK_TTL),
+            ],
+            input=script,
+            timeout=8,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SystemExit(
+            "[err] hub lock timed out after 8s; ownership was not changed"
+        ) from exc
     line = (result.stdout or "").strip().splitlines()
     text = line[-1] if line else ""
     parts = text.split()
@@ -598,9 +611,7 @@ printf 'V2 '; if [ -e "$side" ]; then base64 <"$side" | tr -d '\n'; fi; printf '
     except (json.JSONDecodeError, TypeError):
         sidecar = {}
     takeover = (
-        sidecar.get("takeover")
-        if isinstance(sidecar.get("takeover"), dict)
-        else {}
+        sidecar.get("takeover") if isinstance(sidecar.get("takeover"), dict) else {}
     )
     # finish_fault_takeover commits the sidecar before the legacy lock.  If
     # the SSH process dies between those two atomic writes, any Client may

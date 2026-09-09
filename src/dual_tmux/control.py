@@ -299,12 +299,48 @@ class ControlService:
         return ControlResult("session.freeze", data, _event("session.freeze"))
 
     def resume(self, name: str | None, force: bool = False) -> ControlResult:
-        from . import hub, ownership
+        from . import hub, ownership, recovery
         from . import log as ev
-        from .cli import _apply_resume_legacy, _preflight_resume_snapshots
+        from . import oc as oc_ops
+        from .cli import _apply_resume_legacy, _preflight_resume_snapshots, write_entry
         from .store import find_dt, save
 
         original = _translate(lambda: self._get_tunnel_readonly(name))
+        remote_opencode = bool((original.get("runtime") or {}).get("server")) and (
+            ((original.get("bullet") or {}).get("tool") or "opencode") == "opencode"
+        )
+        route = (
+            _translate(lambda: recovery.reconcile_remote_runtime(original))
+            if remote_opencode
+            else {"status": "not-applicable", "changed": False, "locations": []}
+        )
+        if route["status"] == "ambiguous":
+            names = ", ".join(item["location"] for item in route["locations"])
+            raise ControlError(
+                "runtime_ambiguous",
+                f"[err] bullet session exists in multiple remote locations ({names}); runtime was not changed",
+                status=409,
+            )
+        if (
+            remote_opencode
+            and route["status"] == "missing"
+            and oc_ops.persist_snapshot(original.get("bullet") or {}) is None
+        ):
+            sid = (original.get("bullet") or {}).get("session_id") or ""
+            raise ControlError(
+                "session_missing",
+                f"[err] bullet session {sid} missing remotely and no local persist JSON",
+                status=409,
+            )
+        if route["changed"]:
+            _translate(lambda: save(find_dt(str(original.get("name") or "")), original))
+            _translate(
+                lambda: write_entry(
+                    str(original.get("run") or ""),
+                    str((original.get("runtime") or {}).get("cmd") or ""),
+                )
+            )
+            hub.sync_best_effort()
         _translate(lambda: _preflight_resume_snapshots(original))
         plan = _translate(lambda: ownership.plan_resume(original))
         token = _translate(
@@ -318,9 +354,7 @@ class ControlService:
             def keepalive() -> None:
                 while not keepalive_stop.wait(1.0):
                     try:
-                        hub.renew_ownership(
-                            str(original.get("name") or ""), generation
-                        )
+                        hub.renew_ownership(str(original.get("name") or ""), generation)
                     except (OSError, SystemExit, ValueError):
                         pass
 
