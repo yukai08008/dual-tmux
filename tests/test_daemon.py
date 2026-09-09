@@ -311,7 +311,7 @@ def test_failover_message_fence_requires_same_owner_and_generation(
 
 
 def _handoff_setup(monkeypatch, tmp_path):
-    from dual_tmux import activity, daemon, hub, ownership
+    from dual_tmux import activity, cli, daemon, hub, ownership
     from dual_tmux.store import save, tunnels_dir
 
     monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
@@ -319,6 +319,11 @@ def _handoff_setup(monkeypatch, tmp_path):
     save(tunnels_dir() / "dt-a.json", {"name": "dt-a", "op": "op_a", "run": "run_a"})
     monkeypatch.setattr(daemon, "load_config", lambda: cfg)
     monkeypatch.setattr(activity, "activity_evidence", lambda _data: {})
+    monkeypatch.setattr(
+        cli,
+        "freeze_sides",
+        lambda _data, sides, _tool, wait=False: {side: True for side in sides},
+    )
     monkeypatch.setattr(
         hub,
         "read_ownership",
@@ -728,6 +733,27 @@ def test_handoff_persist_failure_never_parks_or_releases(monkeypatch, tmp_path):
     monkeypatch.setattr(hub, "release", lambda *_a, **_kw: calls.append("release"))
 
     DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
+    assert calls == []
+
+
+def test_handoff_live_freeze_failure_never_exports_or_parks(monkeypatch, tmp_path):
+    from dual_tmux import cli, hotfix
+
+    hub = _handoff_setup(monkeypatch, tmp_path)
+    calls = []
+    monkeypatch.setattr(
+        cli,
+        "freeze_sides",
+        lambda *_a, **_kw: {"trigger": True, "bullet": False},
+    )
+    monkeypatch.setattr(
+        cli, "_export_local_snapshots", lambda *_a: calls.append("export") or []
+    )
+    monkeypatch.setattr(hotfix, "sync_persist", lambda *_a: calls.append("sync"))
+    monkeypatch.setattr(hub, "park_local", lambda *_a: calls.append("park"))
+
+    DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
+
     assert calls == []
 
 
