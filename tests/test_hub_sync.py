@@ -314,6 +314,41 @@ def test_expired_v2_owner_cannot_renew_after_takeover_reservation(
         hub.renew_ownership("dt-a", generation, cfg=old_cfg)
 
 
+def test_timed_out_stale_handoff_can_reserve_while_lease_is_renewing(
+    monkeypatch, tmp_path
+):
+    old_cfg = AppConfig(client="tm_old", server="fake", user="tenant")
+    new_cfg = AppConfig(client="tm_new", server="fake", user="tenant")
+    root = tmp_path / "hub"
+    _install_test_flock(monkeypatch, tmp_path)
+    monkeypatch.setattr(hub, "_run", _local_remote_runner)
+    monkeypatch.setattr(hub, "remote_root", lambda _cfg=None: str(root))
+    monkeypatch.setattr(hub, "instance_id", lambda: "old-instance")
+    _, _, _, generation = hub._lock_remote(
+        "claim", "dt-a", cfg=old_cfg, ttl=hub.OWNERSHIP_LEASE_TTL
+    )
+    side = root / "ownership" / "dt-a.json"
+    payload = json.loads(side.read_text(encoding="utf-8"))
+    payload["evidence"] = {"sampled_at": 1}
+    payload["handoff"] = {
+        "status": "cancelled",
+        "reason": "claimant_timeout",
+        "claimant": "tm_new",
+        "claimant_instance_id": "new-instance",
+        "requested_at": 2,
+    }
+    side.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+
+    monkeypatch.setattr(hub, "load_config", lambda: new_cfg)
+    monkeypatch.setattr(hub, "instance_id", lambda: "new-instance")
+    reserved = hub.reserve_stalled_takeover("dt-a", generation)
+    assert reserved["takeover"]["reason"] == "stalled_control_plane"
+
+    monkeypatch.setattr(hub, "instance_id", lambda: "old-instance")
+    with pytest.raises(SystemExit, match="renewal fenced"):
+        hub.renew_ownership("dt-a", generation, cfg=old_cfg)
+
+
 def test_renew_retries_same_generation_flock_contention(monkeypatch):
     cfg = AppConfig(client="tm_a", server="fake", user="tenant")
     replies = iter(

@@ -410,6 +410,58 @@ def _claim_after_service_fence(data: dict, lease: dict) -> dict:
     }
 
 
+def _claim_after_stalled_handoff(data: dict, lease: dict) -> dict:
+    """Recover when the owner renews leases but its handoff worker is dead."""
+    from . import oc as oc_ops
+    from .hotfix import sync_persist
+
+    trigger = data.get("trigger") or {}
+    if (trigger.get("tool") or "opencode") != "opencode":
+        raise SystemExit(
+            "[err] stalled handoff recovery requires OpenCode snapshot proof"
+        )
+    cfg = load_config()
+    sync_persist("opencode", cfg)
+    snapshot = oc_ops.resolve_snapshot(trigger)
+    trigger_evidence = ((lease.get("evidence") or {}).get("sides") or {}).get(
+        "trigger"
+    ) or {}
+    last_change_ms = int(trigger_evidence.get("last_semantic_change_at") or 0) * 1000
+    if snapshot is None or not last_change_ms or snapshot.updated_ms < last_change_ms:
+        raise SystemExit(
+            "[err] stalled handoff recovery has no snapshot covering the old "
+            "Trigger's last semantic change; ownership was not changed"
+        )
+    generation = int(lease.get("generation") or 0)
+    reservation = hub.reserve_stalled_takeover(str(data.get("name") or ""), generation)
+    request_id = str(reservation.get("request_id") or "")
+    try:
+        if (data.get("runtime") or {}).get("server"):
+            from .recovery import fence_remote_bullet
+
+            fenced = fence_remote_bullet(data)
+            if fenced is None:
+                raise SystemExit(
+                    "[err] service-side cleanup could not be verified; "
+                    "ownership was not changed"
+                )
+        acquired = hub.finish_fault_takeover(
+            str(data.get("name") or ""), request_id, generation
+        )
+    except BaseException:
+        try:
+            hub.cancel_fault_takeover(
+                str(data.get("name") or ""), request_id, generation
+            )
+        except (OSError, SystemExit):
+            pass
+        raise
+    return {
+        "holder": str(acquired.get("holder") or cfg.client),
+        "generation": int(acquired.get("generation") or 0),
+    }
+
+
 def _acquire_expired(data: dict, lease: dict) -> dict:
     """Recover an expired lease without fencing this installation's own work.
 
@@ -515,6 +567,13 @@ def acquire_for_resume(data: dict, plan: dict, *, force: bool = False) -> dict:
                     "generation": int(acquired.get("generation") or 0),
                     "newly_acquired": True,
                 }
+        elif plan.get("reason") == "owner_evidence_stale":
+            current = hub.read_ownership(str(data.get("name") or ""))
+            acquired = _claim_after_stalled_handoff(data, current)
+            return {
+                "generation": int(acquired.get("generation") or 0),
+                "newly_acquired": True,
+            }
         raise SystemExit(
             "[err] handoff timed out before the old Trigger was persisted and "
             "parked; ownership was not changed"
