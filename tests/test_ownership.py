@@ -598,6 +598,25 @@ def test_remote_blank_opencode_argv_uses_exact_live_session(monkeypatch):
     assert ownership.probe_writers(data, "bullet")["pids"] == [84]
 
 
+def test_remote_writer_probe_rejects_returned_local_shell(monkeypatch):
+    from dual_tmux import oc, recovery
+
+    data = _data()
+    data["runtime"] = {"server": "box"}
+    monkeypatch.setattr(recovery, "remote_session_pids", lambda _data: [])
+    monkeypatch.setattr(
+        ownership.tmux_ops,
+        "pane_info",
+        lambda _pane: {"pid": "84", "cmd": "zsh", "cwd": "/workspace"},
+    )
+    monkeypatch.setattr(
+        oc,
+        "active_remote",
+        lambda *_args, **_kwargs: pytest.fail("a shell is not a remote writer"),
+    )
+    assert ownership.probe_writers(data, "bullet")["count"] == 0
+
+
 def test_blank_opencode_argv_rejects_different_live_session(monkeypatch):
     from dual_tmux import oc
 
