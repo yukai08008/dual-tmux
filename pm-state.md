@@ -4,10 +4,11 @@
 
 ## 状态树
 
-### v0.4.55.post12 (READY) — Handoff 实时 Bullet 绑定
+### v0.4.55.post12 (RELEASED) — Handoff 实时 Bullet 绑定
 
 - Handoff 在导出与 park 前强制重新 freeze 当前 live Trigger/Bullet；任一侧无法证明当前 session 时 fail-closed，不再沿用历史 binding 接管。远端 OpenCode 探测改用 `/proc/<pid>/stat` 启动 tick 排序，禁止把可回绕 PID 当时间，并排除 subagent 子会话。真实修复 `dt-company_intro_v2`（`ses_f7a0e7...`，`/root/intro_v2`）与 `dt-alex-serp`（`ses_f7a56b...`），hub 已同步正确 binding。
 - `tmux-trigger` polling 固定为 60 行/12KB，禁止扩大 `capture-pane -S` 或重复回灌 pane 历史。全量 380 passed + 2 skipped。
+- PR #53、#54 已合并至 `main`；Release `v0.4.55.post12` 先以 draft 上传并校验 wheel/sdist 后公开，远端 wheel SHA-256 与本地构建一致。本机清理被同 URL 旧资产污染的 uv 缓存后正式安装，CLI 与 package metadata 均为 `0.4.55.post12`。
 
 ### v0.4.55.post11 (RELEASED) — Handoff 控制面假活恢复
 
