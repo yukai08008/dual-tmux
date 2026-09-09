@@ -303,49 +303,64 @@ class ControlService:
         from . import log as ev
         from . import oc as oc_ops
         from .cli import _apply_resume_legacy, _preflight_resume_snapshots, write_entry
+        from .resume_shadow import ResumeShadow
         from .store import find_dt, save
 
         original = _translate(lambda: self._get_tunnel_readonly(name))
-        remote_opencode = bool((original.get("runtime") or {}).get("server")) and (
-            ((original.get("bullet") or {}).get("tool") or "opencode") == "opencode"
-        )
-        route = (
-            _translate(lambda: recovery.reconcile_remote_runtime(original))
-            if remote_opencode
-            else {"status": "not-applicable", "changed": False, "locations": []}
-        )
-        if route["status"] == "ambiguous":
-            names = ", ".join(item["location"] for item in route["locations"])
-            raise ControlError(
-                "runtime_ambiguous",
-                f"[err] bullet session exists in multiple remote locations ({names}); runtime was not changed",
-                status=409,
+        shadow = ResumeShadow.start(original)
+        try:
+            remote_opencode = bool((original.get("runtime") or {}).get("server")) and (
+                ((original.get("bullet") or {}).get("tool") or "opencode") == "opencode"
             )
-        if (
-            remote_opencode
-            and route["status"] == "missing"
-            and oc_ops.persist_snapshot(original.get("bullet") or {}) is None
-        ):
-            sid = (original.get("bullet") or {}).get("session_id") or ""
-            raise ControlError(
-                "session_missing",
-                f"[err] bullet session {sid} missing remotely and no local persist JSON",
-                status=409,
+            route = (
+                _translate(lambda: recovery.reconcile_remote_runtime(original))
+                if remote_opencode
+                else {"status": "not-applicable", "changed": False, "locations": []}
             )
-        if route["changed"]:
-            _translate(lambda: save(find_dt(str(original.get("name") or "")), original))
-            _translate(
-                lambda: write_entry(
-                    str(original.get("run") or ""),
-                    str((original.get("runtime") or {}).get("cmd") or ""),
+            if route["status"] == "ambiguous":
+                names = ", ".join(item["location"] for item in route["locations"])
+                raise ControlError(
+                    "runtime_ambiguous",
+                    f"[err] bullet session exists in multiple remote locations ({names}); runtime was not changed",
+                    status=409,
                 )
+            if (
+                remote_opencode
+                and route["status"] == "missing"
+                and oc_ops.persist_snapshot(original.get("bullet") or {}) is None
+            ):
+                sid = (original.get("bullet") or {}).get("session_id") or ""
+                raise ControlError(
+                    "session_missing",
+                    f"[err] bullet session {sid} missing remotely and no local persist JSON",
+                    status=409,
+                )
+            if route["changed"]:
+                _translate(
+                    lambda: save(find_dt(str(original.get("name") or "")), original)
+                )
+                _translate(
+                    lambda: write_entry(
+                        str(original.get("run") or ""),
+                        str((original.get("runtime") or {}).get("cmd") or ""),
+                    )
+                )
+                hub.sync_best_effort()
+            _translate(lambda: _preflight_resume_snapshots(original))
+            plan = _translate(lambda: ownership.plan_resume(original))
+        except BaseException as exc:
+            shadow.preflight_failed(exc)
+            raise
+        shadow.preflight(original, plan)
+        try:
+            token = _translate(
+                lambda: ownership.acquire_for_resume(original, plan, force=force)
             )
-            hub.sync_best_effort()
-        _translate(lambda: _preflight_resume_snapshots(original))
-        plan = _translate(lambda: ownership.plan_resume(original))
-        token = _translate(
-            lambda: ownership.acquire_for_resume(original, plan, force=force)
-        )
+        except BaseException as exc:
+            if plan.get("safe"):
+                shadow.ownership_failed(exc)
+            raise
+        shadow.ownership_acquired(token)
         generation = int(token.get("generation") or 0)
         keepalive_stop = threading.Event()
         keepalive_thread = None
@@ -371,6 +386,8 @@ class ControlService:
             and not (role == "bullet" and (original.get("runtime") or {}).get("server"))
         ]
         commit_started = False
+        restore_completed = False
+        rollback_started = False
         committed_data = original
         try:
             if native_sides:
@@ -392,7 +409,14 @@ class ControlService:
                 )
             )
             committed_data = data
-            verified = _translate(lambda: ownership.verify_resume(data, token))
+            shadow.restore_completed()
+            restore_completed = True
+            try:
+                verified = _translate(lambda: ownership.verify_resume(data, token))
+            except BaseException as exc:
+                shadow.verification_failed(exc)
+                rollback_started = True
+                raise
             data["ownership_generation"] = verified["generation"]
             _translate(
                 lambda: hub.renew_ownership(
@@ -403,9 +427,15 @@ class ControlService:
             ev.emit(
                 "dt.resume", name=data.get("name"), generation=verified["generation"]
             )
-        except BaseException:
+            shadow.verification_passed(verified)
+        except BaseException as exc:
+            if not restore_completed:
+                shadow.restore_failed(exc)
+            elif not rollback_started:
+                shadow.verification_failed(exc)
             if token.get("newly_acquired"):
                 parked = True
+                lease_released = False
                 if commit_started:
                     try:
                         hub.park_local(committed_data)
@@ -417,6 +447,7 @@ class ControlService:
                             str(original.get("name") or ""),
                             generation=int(token.get("generation") or 0),
                         )
+                        lease_released = True
                     except SystemExit:
                         pass
                 else:
@@ -425,6 +456,21 @@ class ControlService:
                         name=original.get("name"),
                         generation=token.get("generation"),
                     )
+                if parked and lease_released:
+                    shadow.rollback_completed(
+                        parked=parked, lease_released=lease_released
+                    )
+                else:
+                    shadow.rollback_uncertain(
+                        "resume rollback could not prove park and lease release"
+                    )
+            else:
+                if commit_started:
+                    shadow.rollback_uncertain(
+                        "existing lease resume did not prove cleanup of attempt resources"
+                    )
+                else:
+                    shadow.rollback_completed(parked=True, lease_released=False)
             raise
         finally:
             keepalive_stop.set()

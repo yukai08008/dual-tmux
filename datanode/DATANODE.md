@@ -31,7 +31,8 @@ DataNode 是程序在内存中实际使用的领域对象或运行对象，不�
 - 当前 CLI 继续使用原 tunnel dict，不受这一阶段影响；
 - `adapters.py` 可以将旧 tunnel、Hub ownership、pane facts 和 snapshot revision 转成
   节点；
-- 根目录 `datanode/` 暂未加入 wheel；
+- 根目录 `datanode/` 已作为过渡包加入 wheel，供 Resume shadow FSM 使用；领域模型尚未
+  接管 CLI 的 tunnel dict；
 - 本机 13 个现有 tunnel 已全部通过只读转换验证。
 
 当前实现是一份可执行的第一稿，不是最终完整业务模型。已经明确的主要缺口是
@@ -408,7 +409,7 @@ delivery attempt 不属于业务节点。
 5. 在 tunnel 加载边界启用 shadow validation，只记录问题，不阻断 CLI；
 6. 让 Control Service 接受领域节点，CLI 与 Web 保持薄适配；
 7. 分别迁移 ownership、pane observation 和 snapshot revision；
-8. 稳定后迁入 `src/dual_tmux/datanode/` 并加入 wheel；
+8. 当前已将根目录包加入 wheel；稳定后再迁入 `src/dual_tmux/datanode/`，不改变导入契约；
 9. 最后逐步移除平行 dict 表示和过期兼容字段。
 
 本阶段只明确节点、值对象、引用和转换边界，不展开 ownership、binding 或 recovery 的
