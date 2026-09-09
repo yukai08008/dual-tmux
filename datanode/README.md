@@ -87,10 +87,11 @@ flowchart LR
 
 ### `OwnershipLeaseNode`
 
-- 身份：`tunnel_name + generation`，Hub 是权威所有者。
+- 身份：`tunnel_name + generation`，它是 Hub 发布的版本化协调记录，不是 append-only
+  共识日志；Hub 是权威所有者。
 - active (`owned/foreign`) 必须有 holder；v2 active 还必须有 instance ID。
 - `succeeds()` 显式检查 generation 不倒退。真正的 acquire/renew/handoff/fence 后续应由
-  独立领域操作或 FSM 约束，本轮不展开状态机。
+  独立领域操作或 attempt FSM 约束；Lease 自身不建立长流程 FSM。
 
 ### `PaneRuntimeNode`
 

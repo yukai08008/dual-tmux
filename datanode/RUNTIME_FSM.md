@@ -1,9 +1,10 @@
-# dual-tmux 运行节点与 FSM 候选设计
+# dual-tmux 运行节点与 FSM 设计基线
 
-> 状态：**待用户确认的设计基线，尚未实现 Graph/Machine**。
+> 状态：**核心状态、事件和六项取舍已确认；开始分阶段实现 Graph/Machine**。
 >
 > 本文遵循 `fsm-agenty`：先确认运行节点、核心状态、事件和迁移，再使用固定
-> Graph + Machine 基线实现。本文中的状态和事件在用户确认前都属于候选方案。
+> Graph + Machine 基线实现。2026-09-09 根据架构评审完成术语与时序修正，并作为首版
+> 实现基线。
 
 ## 1. 设计结论
 
@@ -12,9 +13,10 @@
 
 运行节点应调整为两组：
 
-### 事实/观察节点，不直接拥有 FSM
+### 事实快照与协调记录，不直接拥有长流程 FSM
 
-- `OwnershipLeaseNode`：Hub 当前发布的 owner、installation、generation 和有效期；
+- `OwnershipLeaseNode`：中心 Hub 当前发布的版本化协调记录，包含 owner、installation、
+  generation 和有效期；
 - `PaneRuntimeNode`：某一时刻的 pane/attached/progress/writer 观察；
 - `SnapshotRevisionNode`：一个不可变的 snapshot 内容修订。
 
@@ -46,8 +48,8 @@ flowchart LR
     Install["ClientInstallationNode（规划）"]
   end
 
-  subgraph Facts["不可变/发布式运行事实"]
-    Lease["OwnershipLeaseNode"]
+  subgraph Facts["观察事实与协调记录"]
+    Lease["OwnershipLease revision<br/>Hub 中心权威"]
     Pane["PaneRuntimeNode"]
     Revision["SnapshotRevisionNode"]
   end
@@ -71,7 +73,7 @@ flowchart LR
   Fault -->|"要求服务端清理证据"| Pane
   Resume -->|"申请控制权"| Handoff
   Resume -->|"故障路径申请控制权"| Fault
-  Resume -->|"拥有 0..2"| Transfer
+  Resume -->|"每角色 0..1，总计 0..2"| Transfer
   Transfer -->|"选择 source revision"| Revision
   Recovery -->|"触发"| Resume
   Recovery -->|"读取新观察"| Pane
@@ -79,7 +81,11 @@ flowchart LR
 
 ## 3. 共通原则
 
-### 3.1 状态与派生视图分离
+### 3.1 中心仲裁、协调记录与派生视图分离
+
+dual-tmux 不是 Raft/Paxos 等多副本共识系统。多个 Client 服从 m7 Hub 这一单一
+ownership 权威；flock、generation 和 CAS 构成中心化租约仲裁协议。它能解决 Client
+之间的独热控制，但 Hub 本身仍是控制面可用性边界。
 
 Hub 权威 Lease 建议只保存：
 
@@ -91,7 +97,9 @@ Hub 权威 Lease 建议只保存：
 - `protocol_version`；
 - `revision/CAS token`。
 
-下列值由读取者派生，不作为 Hub FSM 权威状态：
+每次 CAS、renew 或 release 都发布一个新的 Lease revision。逻辑读取快照不可变，但
+当前实现不承诺保存 append-only Lease 历史。下列值由读取者派生，不作为 Hub FSM 权威
+状态：
 
 - `owned`：holder installation 等于当前 installation 且未过期；
 - `foreign`：holder installation 不同且未过期；
@@ -119,6 +127,11 @@ FSM 内存切换不等于 Hub、tmux、snapshot 文件已经成功。设计采�
 - Hub ownership 发布使用 generation + revision 的 CAS；
 - 进程重启后从持久化状态重建计时器和连接，不序列化线程、SSH、tmux handle；
 - 对已提交但响应丢失的操作，通过 request ID 幂等查询/重试，不猜测结果。
+
+Snapshot 操作分成两个阶段：Lease 转移前只允许 owner export、持久化、校验不可变
+artifact，claimant 最多预下载缓存；会修改目标 Session、创建 tmux 或启动 Agent writer
+的 import/restore 必须在 claimant 已获得并重新验证 Lease 后执行。这不是通用数据库
+两阶段提交，而是带不可逆 commit 点的 fenced handoff protocol。
 
 ## 4. Ownership Coordinator
 
@@ -360,6 +373,10 @@ stateDiagram-v2
 该节点直接约束过去多次出现的“用户总要先修才能用”和 snapshot conflict 问题。它只
 传输一个明确 `tool + session_id + role`，绝不选择“最新 Session”。
 
+一个 Resume 对 Trigger 和 Bullet 各自最多创建一个 Transfer，因此总数为 0..2：0 表示
+两个目标位置都已具备所需 revision，1 表示仅一端需要传输，2 表示两端分别传输。它不
+表示双向合并，也不表示把两个分叉尾部解释为“基线 + 增量补丁”。
+
 ### 6.1 节点前提
 
 | 项目 | 内容 |
@@ -575,7 +592,7 @@ Machine 快照至少保存：
 
 1. 同 installation、同 generation 过期后精确续约，不 fence 自己的 Bullet；
 2. 预检到 acquire 之间 Lease 变化时重新读取，不使用旧计划强抢；
-3. 活动异端在 10 秒内完成 request → commit → persist → park → transfer；
+3. 活动异端在 10 秒内完成 request → persist → verify → commit → park → transfer；
 4. commit 后 owner daemon 重启，继续 park/transfer而不重复 persist；
 5. claimant 在 commit 前取消成功，commit 后取消返回 too-late；
 6. 真故障端先 reservation，再精确清理服务端 writer，最后发布 generation+1；
@@ -590,22 +607,58 @@ Machine 快照至少保存：
 15. 只有明确的另一 installation、更高 generation 或 committed handoff 才让旧 trigger
     退出 tmux 回到 shell。
 
-## 12. 需要用户确认的核心取舍
+## 12. 已确认的核心取舍
 
-在实现 Graph/Machine 前，需要确认以下业务定义：
+以下业务定义已经结合用户评审确认，作为首版实现基线：
 
-1. **Handoff commit 点**：建议 owner 完成 snapshot persist 后再 commit，commit 后必须
-   park 并完成 transfer，claimant 不再允许取消。是否确认？
-2. **10 秒体验口径**：建议定义为“新 Trigger 在 10 秒内获得 Lease，或得到明确、可操作
-   的 fail-closed 结果”；物理故障且服务端 cleanup 超时不能承诺一定接管。是否确认？
-3. **Resume rollback**：建议仅清理本次 attempt 创建/启动的资源，不杀进入 attempt 前
-   已存在且身份不明的 pane/process。是否确认？
-4. **Snapshot conflict**：建议它是终态 `CONFLICT`，禁止自动 repair；用户明确选择源后
-   创建新的 transfer attempt。是否确认？
-5. **Recovery attention**：建议 snapshot conflict、duplicate writer、rollback uncertain
-   直接进入 `ATTENTION`，不参与自动重试。是否确认？
-6. **Pane/Revision/Lease**：建议三者采用不可变事实或发布式 revision，不分别建立可写
-   FSM。是否确认？
+1. **Handoff commit 点**：owner 完成 snapshot persist 后再 commit，commit 后必须
+   park 并完成 transfer，claimant 不再允许取消。
+2. **10 秒体验口径**：定义为“新 Trigger 在 10 秒内获得 Lease，或得到明确、可操作
+   的 fail-closed 结果”；物理故障且服务端 cleanup 超时不能承诺一定接管。
+3. **Resume rollback**：仅清理本次 attempt 创建/启动的资源，不杀进入 attempt 前
+   已存在且身份不明的 pane/process。
+4. **Snapshot conflict**：它是终态 `CONFLICT`，禁止自动 repair；用户明确选择源后
+   创建新的 transfer attempt。
+5. **Recovery attention**：snapshot conflict、duplicate writer、rollback uncertain
+   直接进入 `ATTENTION`，不参与自动重试。
+6. **Pane/Revision/Lease**：Pane 与 Revision 采用不可变事实；Lease 采用 Hub 发布的
+   版本化协调记录。三者不分别建立长流程可写 FSM。
 
-用户确认后，再读取 `fsm-agenty` 的固定资源基线，实施 Pydantic 运行节点、Graph、
-Machine、StateStore 和迁移回归；任何核心状态或事件的增删改都重新确认。
+任何核心状态、事件或上述语义的增删改都需要重新确认。
+
+## 13. 物理能力边界
+
+Fence token 可以约束 dual-tmux 控制的 resume、send、freeze、model、snapshot
+export/import、Agent 启动和 Hub 写入，但 OpenCode/Codex/Claude 自身写本地数据库时不会
+逐次向 Hub 校验 token。
+
+因此系统能够保证：
+
+- 控制面不会授权两个新的 writer；
+- 中心服务端能够精确清理远端 Bullet；
+- 旧 Client 恢复联网后看到更高 generation 并退出 tmux；
+- 分叉 snapshot 不被自动覆盖。
+
+系统不能保证一台完全离线且仍运行 Agent 的 Client 被即时物理 kill。若要覆盖该边界，
+必须把所有 Agent 持久化写入代理到共享受控写入网关，这超出当前 dual-tmux 的合理范围。
+
+FaultTakeover 只更新 Lease，不修改 RoleBinding，也不删除 ClientInstallation。Session
+丢失应产生 `SOURCE_MISSING`、`CONFLICT` 或显式重新绑定，不能由故障接管偷偷改写业务
+事实。
+
+## 14. 当前推进状态
+
+第一步已经建立固定 `Graph + Machine + StateStore` 基线和纯 `ResumeAttemptNode` FSM：
+
+- 使用严格 Pydantic 事件载荷和节点不变量；
+- Guard 无副作用，失败迁移回滚内存状态且不覆盖已保存快照；
+- 每次成功迁移保存 Machine 快照；Machine 内保持只追加的 transition history，独立的
+  append-only 审计 Store 留到 shadow 接入阶段实现；
+- restore 校验 schema、graph、节点 state 和迁移路径一致性；
+- 覆盖 happy path、revision 漂移、ownership token 错配、writer 非独热、补偿不完整和
+  `ATTENTION` 等测试。
+
+当前实现位于根目录 `datanode/`，未加入 wheel，也没有调用 Hub、tmux、SSH 或 snapshot
+I/O；因此它是机制验证和后续 shadow validation 基础，不改变现有 CLI 行为。下一步是为
+事件补齐稳定 evidence DTO，再将现有 `ControlService.resume()` 的决策结果旁路投喂给 FSM
+对比，确认状态轨迹一致后才考虑接管编排。
