@@ -1,3 +1,5 @@
+import subprocess
+
 import pytest
 
 from dual_tmux import cli, recovery
@@ -18,6 +20,85 @@ def _dst(server: str = "box") -> dict:
         "trigger": {"tool": "opencode", "session_id": "ses_trigger"},
         "bullet": {"tool": "opencode", "session_id": "ses_bullet"},
     }
+
+
+def _location_runner(locations):
+    output = "".join(
+        f"DT_SESSION_LOCATION={location}\t{directory}\n"
+        for location, directory in locations
+    )
+
+    def run(argv, **kwargs):
+        return subprocess.CompletedProcess(argv, 0, output, "")
+
+    return run
+
+
+def test_reconcile_remote_runtime_repairs_unique_container_location():
+    data = _dst()
+    result = recovery.reconcile_remote_runtime(
+        data, runner=_location_runner([("work_box", "/workspace")])
+    )
+    assert result["status"] == "repaired"
+    assert data["runtime"]["container"] == "work_box"
+    assert "docker exec -it work_box" in data["runtime"]["cmd"]
+    assert data["run_point"]["kind"] == "docker"
+    assert data["run_point"]["container"] == "work_box"
+
+
+def test_reconcile_remote_runtime_rejects_ambiguous_locations():
+    data = _dst()
+    result = recovery.reconcile_remote_runtime(
+        data,
+        runner=_location_runner([("work_a", "/workspace"), ("work_b", "/workspace")]),
+    )
+    assert result["status"] == "ambiguous"
+    assert result["changed"] is False
+    assert data["runtime"]["container"] == ""
+
+
+def test_reconcile_remote_runtime_keeps_exact_configured_location():
+    data = _dst()
+    data["runtime"]["container"] = "work_box"
+    result = recovery.reconcile_remote_runtime(
+        data, runner=_location_runner([("work_box", "/workspace")])
+    )
+    assert result["status"] == "healthy"
+    assert result["changed"] is False
+
+
+def test_start_remote_bullet_is_idempotent_with_one_exact_writer(monkeypatch):
+    data = _dst()
+    monkeypatch.setattr(cli, "_pane_shows_agent", lambda _name: False)
+    monkeypatch.setattr(recovery, "remote_session_pids", lambda _data: [42])
+    monkeypatch.setattr(
+        recovery,
+        "fence_remote_bullet",
+        lambda _data: pytest.fail("one exact writer must not be fenced"),
+    )
+    monkeypatch.setattr(
+        cli.tmux_ops,
+        "ensure_agent",
+        lambda *_args, **_kwargs: pytest.fail("one exact writer must not restart"),
+    )
+
+    cli._start_side(data, "run_msg", "bullet", resume=True)
+
+
+def test_start_remote_bullet_fences_duplicate_exact_writers(monkeypatch):
+    data = _dst()
+    monkeypatch.setattr(cli, "_pane_shows_agent", lambda _name: False)
+    monkeypatch.setattr(recovery, "remote_session_pids", lambda _data: [42, 43])
+    monkeypatch.setattr(recovery, "fence_remote_bullet", lambda _data: [42, 43])
+    started = []
+    monkeypatch.setattr(
+        cli.tmux_ops,
+        "ensure_agent",
+        lambda *_args, **_kwargs: started.append(True) or True,
+    )
+
+    cli._start_side(data, "run_msg", "bullet", resume=True)
+    assert started == [True]
 
 
 def test_capture_runtime_clears_stale_remote_target_for_local_bullet():
