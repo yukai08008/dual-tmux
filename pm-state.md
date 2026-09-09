@@ -1,8 +1,16 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-08 20:32 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-09 09:05 +08:00 | 更新者: Codex PM
 
 ## 状态树
+
+### v0.4.55.post2 (MERGE_PENDING) — Resume 快照自动收敛与 Lease 连续性
+
+- `dt-company_intro_v2` 真实故障已恢复：本地仅独有一个无正文、无工具副作用的 SSE timeout assistant 叶节点；导入 `tm_andy_home` 权威快照后保留该失败节点，并将有效主线推进 120 条至 `msg_08215c089001fkjPvMXj9zgdFj`。修复前已保存完整 session JSON 与 OpenCode SQLite 物理备份。
+- Resume 在 Ownership claim、远端重连和 tmux drop 之前完成 OpenCode 快照只读预检；真实内容/工具结果分叉继续 fail-closed，不再出现“先破坏运行载体、再报告冲突”。
+- 仅由无用户正文、无工具副作用、无后继的失败 assistant 叶节点造成的伪分叉可自动收敛；导入仍先备份，失败节点不删除。
+- claimant 在完整 restore/verify 期间每秒续租；daemon 以独立 Lease worker 根据 tunnel 持久化 generation 并行续租，不再让慢 cache/SSH 扫描消耗 4 秒 Lease。
+- 真实 `dt-company_intro_v2` 从 free/残留 writer 场景恢复，10 秒取得 generation 18 并完成两侧启动；再观察 24 秒 Lease 仍为 owned/age 1 秒，Trigger=`opencode`、Bullet transport=`ssh` 持续存活。全量 344 passed + 2 skipped，聚焦 75 tests、Ruff、build、data/diff 门禁全绿，进入合并发布。
 
 ### v0.4.55.post1 (RELEASED) — 跨 Client Resume 体验修复
 

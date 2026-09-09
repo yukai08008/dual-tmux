@@ -978,6 +978,18 @@ def _bind_trigger_workspace(data: dict) -> None:
         tmux_ops.quit_opencode(op)
 
 
+def _preflight_resume_snapshots(data: dict) -> None:
+    """Reject real snapshot divergence before ownership or tmux mutation."""
+    runtime = data.get("runtime") or {}
+    remote_bullet = bool(runtime.get("server"))
+    trigger = _side(data, "trigger")
+    bullet = _side(data, "bullet")
+    if (trigger.get("tool") or "opencode") == "opencode":
+        oc_ops.preflight_local(trigger, role="trigger")
+    if not remote_bullet and (bullet.get("tool") or "opencode") == "opencode":
+        oc_ops.preflight_local(bullet, role="bullet")
+
+
 def _apply_resume_legacy(
     name: str | None,
     force: bool = False,
