@@ -300,6 +300,79 @@ def test_handoff_timeout_is_fail_closed_and_never_force_claims(monkeypatch):
     assert sleeps == [ownership.HANDOFF_POLL_INTERVAL]
 
 
+def test_stale_handoff_timeout_escalates_through_verified_stalled_takeover(monkeypatch):
+    clock = iter([0, 0, ownership.HANDOFF_TAKEOVER_TIMEOUT + 0.01])
+    lease = {
+        "state": "foreign",
+        "holder": "tm_other",
+        "generation": 8,
+        "evidence": {"sampled_at": 1},
+        "handoff": {"status": "cancelled", "reason": "claimant_timeout"},
+    }
+    monkeypatch.setattr(
+        ownership.hub,
+        "request_handoff",
+        lambda *_a, **_kw: {
+            "ok": True,
+            "handoff": {"request_id": "req-1", "status": "pending"},
+        },
+    )
+    monkeypatch.setattr(ownership.hub, "read_ownership", lambda _name: lease)
+    monkeypatch.setattr(
+        ownership.hub, "cancel_handoff", lambda *_a, **_kw: {"ok": True}
+    )
+    calls = []
+    monkeypatch.setattr(
+        ownership,
+        "_claim_after_stalled_handoff",
+        lambda data, current: (
+            calls.append((data["name"], current["generation"]))
+            or {"holder": "tm_here", "generation": 9}
+        ),
+    )
+    monkeypatch.setattr(ownership.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(ownership.time, "sleep", lambda _seconds: None)
+
+    token = ownership.acquire_for_resume(
+        _data(),
+        {
+            "safe": True,
+            "action": "request_handoff",
+            "reason": "owner_evidence_stale",
+            "ownership": {"lease": lease},
+        },
+    )
+
+    assert calls == [("dt-a", 8)]
+    assert token == {"generation": 9, "newly_acquired": True}
+
+
+def test_stalled_handoff_requires_snapshot_covering_last_change(monkeypatch):
+    from dual_tmux import hotfix, oc
+
+    data = _data()
+    data["trigger"]["tool"] = "opencode"
+    lease = {
+        "generation": 8,
+        "evidence": {"sides": {"trigger": {"last_semantic_change_at": 200}}},
+    }
+    monkeypatch.setattr(ownership, "load_config", lambda: object())
+    monkeypatch.setattr(hotfix, "sync_persist", lambda *_a: None)
+    monkeypatch.setattr(
+        oc,
+        "resolve_snapshot",
+        lambda _info: type("Snapshot", (), {"updated_ms": 199_999})(),
+    )
+    monkeypatch.setattr(
+        ownership.hub,
+        "reserve_stalled_takeover",
+        lambda *_a: pytest.fail("must not reserve without durable snapshot proof"),
+    )
+
+    with pytest.raises(SystemExit, match="no snapshot covering"):
+        ownership._claim_after_stalled_handoff(data, lease)
+
+
 def test_handoff_timeout_reconciles_transfer_that_won_cancel_race(monkeypatch):
     states = iter(
         [
