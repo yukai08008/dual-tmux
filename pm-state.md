@@ -4,6 +4,11 @@
 
 ## 状态树
 
+### v0.4.55.post4 (ACTIVE) — 跨 Client 快照自动 Union
+
+- **hotfix/v0.4.55-post4-snapshot-union** (DEVELOPING)
+  - **issue-valid-session-branches-block-resume** (FIXING): `dt-alex-serp` 的本机 292 条与 `tm_andy_home` 284 条共享 278 条，各有 14/6 条有效独有消息，旧单 tail 判定误报冲突。真实会话已双备份后无损 union 为 298 条并恢复 generation 3；机制改为收集全部 `tm_*` 快照、校验 immutable graph identity、一次备份后 merge import，原本地与各快照 tail 全部验存。
+
 ### v0.4.55.post3 (RELEASED) — Lease 误踢 P0 hotfix
 
 - **hotfix/v0.4.55-post3-lease-single-writer** (MERGED): PR #42 合并至 `main`（merge `a13ee1a`），`v0.4.55.post3` Release、wheel 与 sdist 已发布。本机已安装 post3 并重启 daemon，真实 `dt-company_intro_v2` generation 19 跨过 09:20、09:21、09:22 三个分钟 tick，trigger/bullet 持续存活，tick 不再 claim。348 collected、346 passed、2 skipped；聚焦 Ruff、build 与 SQLite integrity 门禁通过。

@@ -14,6 +14,7 @@ from dual_tmux.identity import (
 )
 from dual_tmux.oc import (
     _discardable_failed_local_messages,
+    _snapshot_identity_compatible_with_local,
     ensure_local,
     persist_snapshot,
 )
@@ -110,7 +111,7 @@ def test_snapshot_uses_payload_revision_not_file_mtime(tmp_path: Path):
     )
 
 
-def test_snapshot_rejects_divergent_same_revision(tmp_path: Path):
+def test_snapshot_accepts_divergent_same_revision_for_union(tmp_path: Path):
     root = tmp_path / "sessions" / "opencode"
     _write_json(
         root / "tm_ouc" / "eager-orchid.json",
@@ -126,8 +127,13 @@ def test_snapshot_rejects_divergent_same_revision(tmp_path: Path):
         updated=200,
         messages=("msg_b",),
     )
-    with pytest.raises(SystemExit, match="snapshot_conflict"):
-        persist_snapshot({"slug": "eager-orchid", "session_id": "ses_fdbe"}, root)
+    found = persist_snapshot(
+        {"slug": "eager-orchid", "session_id": "ses_fdbe"}, root
+    )
+    assert found in {
+        root / "tm_ouc" / "eager-orchid.json",
+        root / "tm_home" / "eager-orchid.json",
+    }
 
 
 def test_ensure_local_imports_trigger_only(tmp_path: Path, monkeypatch):
@@ -183,7 +189,8 @@ def test_ensure_local_replaces_stale_same_id_after_backup(tmp_path: Path, monkey
     imported: list[Path] = []
     backups: list[str] = []
     monkeypatch.setattr(
-        "dual_tmux.oc.local_has_message", lambda _sid, mid: mid == "msg_new"
+        "dual_tmux.oc.local_has_message",
+        lambda _sid, mid: mid in {"msg_old", "msg_new"},
     )
 
     assert ensure_local(
@@ -209,6 +216,10 @@ def test_ensure_local_does_not_downgrade_newer_local(tmp_path: Path, monkeypatch
     monkeypatch.setattr("dual_tmux.oc.session_updated_ms", lambda _sid: 200)
     monkeypatch.setattr("dual_tmux.oc.local_tail_message_id", lambda _sid: "msg_new")
     monkeypatch.setattr("dual_tmux.oc.local_has_message", lambda _sid, _mid: True)
+    monkeypatch.setattr(
+        "dual_tmux.oc._local_message_ids",
+        lambda _sid: frozenset({"msg_old", "msg_new"}),
+    )
 
     assert (
         ensure_local(
@@ -219,7 +230,9 @@ def test_ensure_local_does_not_downgrade_newer_local(tmp_path: Path, monkeypatch
     )
 
 
-def test_ensure_local_rejects_non_ancestral_newer_snapshot(tmp_path: Path, monkeypatch):
+def test_ensure_local_rejects_non_ancestral_snapshot_without_verifiable_db(
+    tmp_path: Path, monkeypatch
+):
     root = tmp_path / "sessions" / "opencode"
     _write_json(
         root / "tm_ouc" / "eager-orchid.json",
@@ -232,9 +245,123 @@ def test_ensure_local_rejects_non_ancestral_newer_snapshot(tmp_path: Path, monke
     monkeypatch.setattr("dual_tmux.oc.by_id", lambda _sid: object())
     monkeypatch.setattr("dual_tmux.oc.session_updated_ms", lambda _sid: 100)
     monkeypatch.setattr("dual_tmux.oc.local_tail_message_id", lambda _sid: "msg_local")
+    monkeypatch.setattr(
+        "dual_tmux.oc._local_message_ids", lambda _sid: frozenset({"msg_local"})
+    )
+    monkeypatch.setattr(
+        "dual_tmux.oc._snapshot_identity_compatible_with_local",
+        lambda *_a: False,
+    )
 
     with pytest.raises(SystemExit, match="snapshot_conflict"):
         ensure_local({"session_id": "ses_fdbe", "slug": "eager-orchid"})
+
+
+def test_ensure_local_auto_unions_compatible_cross_client_branches(
+    tmp_path: Path, monkeypatch
+):
+    root = tmp_path / "sessions" / "opencode"
+    snap = root / "tm_home" / "eager-orchid.json"
+    _write_json(
+        snap,
+        "ses_fdbe",
+        "eager-orchid",
+        updated=200,
+        messages=("msg_common", "msg_remote"),
+    )
+    monkeypatch.setenv("OPENCODE_SESSIONS", str(root))
+    monkeypatch.setattr("dual_tmux.oc.by_id", lambda _sid: object())
+    monkeypatch.setattr("dual_tmux.oc.local_tail_message_id", lambda _sid: "msg_local")
+    monkeypatch.setattr(
+        "dual_tmux.oc._local_message_ids",
+        lambda _sid: frozenset({"msg_common", "msg_local"}),
+    )
+    monkeypatch.setattr(
+        "dual_tmux.oc._snapshot_identity_compatible_with_local", lambda *_a: True
+    )
+    present = {"msg_common", "msg_local"}
+    imported = []
+
+    def merge(path: Path) -> None:
+        imported.append(path)
+        present.add("msg_remote")
+
+    monkeypatch.setattr(
+        "dual_tmux.oc.local_has_message", lambda _sid, mid: mid in present
+    )
+
+    assert ensure_local(
+        {"session_id": "ses_fdbe", "slug": "eager-orchid"},
+        importer=merge,
+        backupper=lambda _sid: tmp_path / "backup.json",
+    )
+    assert imported == [snap]
+    assert present == {"msg_common", "msg_local", "msg_remote"}
+
+
+def test_snapshot_union_rejects_only_incompatible_graph_identity(
+    tmp_path: Path, monkeypatch
+):
+    db = tmp_path / "opencode.db"
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        """
+        CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, data TEXT);
+        CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, session_id TEXT, data TEXT);
+        """
+    )
+    conn.execute(
+        "INSERT INTO message VALUES (?, ?, ?)",
+        (
+            "msg_shared",
+            "ses_test",
+            json.dumps({"role": "assistant", "parentID": "msg_parent"}),
+        ),
+    )
+    conn.execute(
+        "INSERT INTO part VALUES (?, ?, ?, ?)",
+        (
+            "part_shared",
+            "msg_shared",
+            "ses_test",
+            json.dumps({"type": "tool", "tool": "bash", "callID": "call_1"}),
+        ),
+    )
+    conn.commit()
+    conn.close()
+    monkeypatch.setenv("OPENCODE_DB", str(db))
+    snap = tmp_path / "snapshot.json"
+    payload = {
+        "info": {"id": "ses_test"},
+        "messages": [
+            {
+                "info": {
+                    "id": "msg_shared",
+                    "sessionID": "ses_test",
+                    "role": "assistant",
+                    "parentID": "msg_parent",
+                    "time": {"completed": 2},
+                },
+                "parts": [
+                    {
+                        "id": "part_shared",
+                        "messageID": "msg_shared",
+                        "sessionID": "ses_test",
+                        "type": "tool",
+                        "tool": "bash",
+                        "callID": "call_1",
+                        "state": {"status": "completed"},
+                    }
+                ],
+            }
+        ],
+    }
+    snap.write_text(json.dumps(payload), encoding="utf-8")
+    assert _snapshot_identity_compatible_with_local("ses_test", snap)
+
+    payload["messages"][0]["info"]["parentID"] = "msg_other_parent"
+    snap.write_text(json.dumps(payload), encoding="utf-8")
+    assert not _snapshot_identity_compatible_with_local("ses_test", snap)
 
 
 def test_failed_empty_assistant_leaf_is_safe_to_merge_past(tmp_path: Path, monkeypatch):
