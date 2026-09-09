@@ -402,9 +402,19 @@ PY
   exit 0
 fi
 if [ "$ACTION" = "renew" ]; then
-  renew_ttl="$TTL"; if [ "$side_protocol" != "2" ]; then renew_ttl="$LEGACY_TTL"; fi
-  renew_active=0; if { [ "$side_protocol" = "2" ] && [ "$age" -lt "$renew_ttl" ]; } || { [ "$side_protocol" != "2" ] && [ "$age" -le "$renew_ttl" ]; }; then renew_active=1; fi
-  if [ "$holder" = "$ME" ] && [ "$renew_active" = "1" ] && [ "$generation" = "$EXPECTED" ] && { [ "$side_present" = "0" ] || [ "$side_generation" = "$generation" ]; } && { [ -z "$side_instance" ] || [ "$side_instance" = "$INSTANCE" ]; } && [ "$side_takeover" != "fencing" ]; then
+  # Lease v2 may be renewed after its four-second deadline only by the exact
+  # same Client installation and generation. This is safe because renewal and
+  # fault-takeover reservation use the same Hub flock: if a claimant has
+  # reserved the expired generation, side_takeover=fencing rejects renewal;
+  # if renewal wins first, the claimant observes an active lease. A delayed
+  # SSH round trip therefore no longer destroys a healthy local session.
+  renew_allowed=0
+  if [ "$side_protocol" = "2" ]; then
+    if [ "$holder" = "$ME" ] && [ "$generation" = "$EXPECTED" ] && [ "$side_present" = "1" ] && [ "$side_generation" = "$generation" ] && [ "$side_instance" = "$INSTANCE" ] && [ "$side_takeover" != "fencing" ]; then renew_allowed=1; fi
+  elif [ "$holder" = "$ME" ] && [ "$age" -le "$LEGACY_TTL" ] && [ "$generation" = "$EXPECTED" ] && { [ "$side_present" = "0" ] || [ "$side_generation" = "$generation" ]; } && { [ -z "$side_instance" ] || [ "$side_instance" = "$INSTANCE" ]; } && [ "$side_takeover" != "fencing" ]; then
+    renew_allowed=1
+  fi
+  if [ "$renew_allowed" = "1" ]; then
     echo "$ME@$now@${generation:-1}" > "$f"
     python3 - "$side" "$NAME" "$ME" "$INSTANCE" "$generation" "$now" "$TTL" <<'PY'
 import json,os,sys,tempfile

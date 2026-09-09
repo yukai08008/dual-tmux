@@ -1,8 +1,13 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-09 09:05 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-09 09:30 +08:00 | 更新者: Codex PM
 
 ## 状态树
+
+### v0.4.55.post3 (ACTIVE) — Lease 误踢 P0 hotfix
+
+- **hotfix/v0.4.55-post3-lease-single-writer** (DEVELOPING)
+  - **issue-healthy-session-dropped-on-lease-expiry** (FIXING): 真实 generation 18/19 在业务健康时被 daemon fence。修复方向为 daemon Lease 单写、tick 去 claim、相同 client/instance/generation 在 Hub flock 内可与 fault takeover reservation 原子竞速恢复；foreign/higher generation 仍立即退出。
 
 ### v0.4.55.post2 (RELEASED) — Resume 快照自动收敛与 Lease 连续性
 
