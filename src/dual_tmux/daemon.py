@@ -615,7 +615,12 @@ class DualTmuxDaemon:
             cfg = load_config()
         except (OSError, SystemExit):
             return
-        tunnels = [load(path) for path in iter_dt_files()]
+        tunnel_paths = list(iter_dt_files())
+        tunnels = [load(path) for path in tunnel_paths]
+        paths_by_name = {
+            str(data.get("name") or ""): path
+            for path, data in zip(tunnel_paths, tunnels)
+        }
 
         def is_live(data: dict) -> bool:
             return any(
@@ -787,8 +792,10 @@ class DualTmuxDaemon:
                     from .cli import (
                         _export_local_snapshots,
                         _verify_local_snapshot_exports,
+                        freeze_sides,
                     )
                     from .hotfix import sync_persist
+                    from .store import save
 
                     keepalive_stop = threading.Event()
                     keepalive_last = [time.monotonic()]
@@ -816,6 +823,22 @@ class DualTmuxDaemon:
                     )
                     keepalive_thread.start()
                     try:
+                        refreshed = freeze_sides(
+                            data, ["trigger", "bullet"], "auto", wait=False
+                        )
+                        if not all(refreshed.get(role, False) for role in ("trigger", "bullet")):
+                            raise SystemExit(
+                                "[err] handoff could not prove the current live sessions; "
+                                "ownership was not changed"
+                            )
+                        save(paths_by_name[name], data)
+                        log.emit(
+                            "ownership.handoff.freeze",
+                            name=name,
+                            generation=generation,
+                            trigger=(data.get("trigger") or {}).get("session_id") or "",
+                            bullet=(data.get("bullet") or {}).get("session_id") or "",
+                        )
                         _export_local_snapshots(data, cfg.client)
                         with ThreadPoolExecutor(
                             max_workers=3, thread_name_prefix="dt-handoff-persist"
