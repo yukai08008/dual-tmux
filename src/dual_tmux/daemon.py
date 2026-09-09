@@ -530,26 +530,37 @@ class DualTmuxDaemon:
         self._ownership_last = 0.0
         self._ownership_cache_last = 0.0
         self._ownership_confirmed_at: dict[str, float] = {}
+        self._ownership_degraded: dict[str, str] = {}
 
-    def _park_unconfirmed(self, data: dict, *, now: float, reason: str) -> bool:
-        """Self-fence a live Client that cannot confirm its short Hub lease."""
+    def _retain_unconfirmed(self, data: dict, *, reason: str) -> None:
+        """Keep local tmux alive until the Hub proves a superseding owner."""
+        name = str(data.get("name") or "")
+        if self._ownership_degraded.get(name) == reason:
+            return
+        self._ownership_degraded[name] = reason
+        log.emit("ownership.lease.unconfirmed", name=name, reason=reason)
+
+    @staticmethod
+    def _superseding_owner(data: dict, lease: dict) -> bool:
+        """True only for authoritative proof that another instance took over."""
         from . import hub
 
-        name = str(data.get("name") or "")
-        confirmed_at = self._ownership_confirmed_at.get(name)
-        # A freshly restarted daemon has no proof that this pane still owns a
-        # live Hub generation.  It therefore fences immediately instead of
-        # granting itself a brand-new local grace period after every restart.
-        if confirmed_at is not None and now - confirmed_at < hub.OWNERSHIP_LEASE_TTL:
-            return False
-        try:
-            parked = hub.park_local(data)
-        except (OSError, SystemExit):
-            log.emit("ownership.self_fence.fail", name=name, reason=reason)
-            return False
-        if parked:
-            log.emit("ownership.self_fence.park", name=name, reason=reason)
-        return bool(parked)
+        local_generation = int(data.get("ownership_generation") or 0)
+        remote_generation = int(lease.get("generation") or 0)
+        remote_instance = str(lease.get("instance_id") or "")
+        return bool(
+            lease.get("state") == "foreign"
+            and lease.get("source") == "v2"
+            and not lease.get("conflict")
+            and lease.get("holder")
+            and remote_instance
+            and remote_instance != hub.existing_instance_id()
+            and remote_generation > local_generation
+        )
+
+    def _mark_confirmed(self, name: str) -> None:
+        self._ownership_confirmed_at[name] = time.monotonic()
+        self._ownership_degraded.pop(name, None)
 
     def _statusbar_step(self) -> None:
         """Refresh tmux status-bar sync chips; animates the spinner while busy.
@@ -626,9 +637,7 @@ class DualTmuxDaemon:
                 lease = hub.read_ownership(name, cfg)
             except (OSError, SystemExit, ValueError):
                 if cfg.hub_enabled and live:
-                    self._park_unconfirmed(
-                        data, now=time.monotonic(), reason="hub_unreachable"
-                    )
+                    self._retain_unconfirmed(data, reason="hub_unreachable")
                 continue
             if not cfg.hub_enabled:
                 if refresh_cache:
@@ -642,7 +651,7 @@ class DualTmuxDaemon:
             # Client owns the tunnel, stop both local tmux sessions now so any
             # foreground `tmux attach` returns to its invoking shell.  This is
             # the fast watchdog path; the minute tick remains only a fallback.
-            if lease.get("state") in {"foreign", "free"}:
+            if self._superseding_owner(data, lease):
                 try:
                     parked = hub.park_local(data)
                     if parked:
@@ -664,6 +673,17 @@ class DualTmuxDaemon:
                     except (OSError, SystemExit, ValueError):
                         pass
                 continue
+            if lease.get("state") in {"foreign", "free"}:
+                if live:
+                    self._retain_unconfirmed(
+                        data, reason=f"lease_{lease.get('state') or 'unknown'}"
+                    )
+                if refresh_cache:
+                    try:
+                        ownership.write_cache(ownership.snapshot(data, lease=lease))
+                    except (OSError, SystemExit, ValueError):
+                        pass
+                continue
             if lease.get("state") == "expired":
                 # The Lease deadline is not itself proof of a competing
                 # owner. An exact Client+instance+generation renewal races
@@ -672,13 +692,11 @@ class DualTmuxDaemon:
                 generation = int(data.get("ownership_generation") or 0)
                 try:
                     hub.renew_ownership(name, generation, cfg=cfg)
-                    self._ownership_confirmed_at[name] = time.monotonic()
+                    self._mark_confirmed(name)
                     lease = hub.read_ownership(name, cfg)
                 except (OSError, SystemExit, ValueError):
                     if live:
-                        self._park_unconfirmed(
-                            data, now=time.monotonic(), reason="expired_lease_fenced"
-                        )
+                        self._retain_unconfirmed(data, reason="lease_expired")
                     continue
             self._ownership_confirmed_at.setdefault(
                 name, now - float(lease.get("age_seconds") or 0)
@@ -903,8 +921,7 @@ class DualTmuxDaemon:
                 continue
             generation = int(data.get("ownership_generation") or 0)
             if not generation or not any(
-                tmux_ops.has_session(str(data.get(key) or ""))
-                for key in ("op", "run")
+                tmux_ops.has_session(str(data.get(key) or "")) for key in ("op", "run")
             ):
                 continue
             live.append((data, generation))
@@ -914,18 +931,16 @@ class DualTmuxDaemon:
             name = str(data.get("name") or "")
             try:
                 hub.renew_ownership(name, generation, cfg=cfg)
-                self._ownership_confirmed_at[name] = time.monotonic()
+                self._mark_confirmed(name)
                 return
             except (OSError, SystemExit, ValueError):
                 pass
             try:
                 lease = hub.read_ownership(name, cfg)
             except (OSError, SystemExit, ValueError):
-                self._park_unconfirmed(
-                    data, now=time.monotonic(), reason="lease_worker_unreachable"
-                )
+                self._retain_unconfirmed(data, reason="lease_worker_unreachable")
                 return
-            if lease.get("state") in {"foreign", "free", "expired"}:
+            if self._superseding_owner(data, lease):
                 try:
                     parked = hub.park_local(data)
                 except (OSError, SystemExit):
@@ -937,6 +952,10 @@ class DualTmuxDaemon:
                         holder=lease.get("holder") or "none",
                         generation=int(lease.get("generation") or 0),
                     )
+            else:
+                self._retain_unconfirmed(
+                    data, reason=f"lease_{lease.get('state') or 'unknown'}"
+                )
 
         if live:
             with ThreadPoolExecutor(
