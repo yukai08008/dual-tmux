@@ -4,11 +4,12 @@
 
 ## 状态树
 
-### v0.4.55.post11 (RELEASING) — Handoff 控制面假活恢复
+### v0.4.55.post11 (RELEASED) — Handoff 控制面假活恢复
 
 - **hotfix/v0.4.55-post11-stalled-handoff**: 修复 owner Lease worker 持续续租、串行 ownership worker 已卡死时，显式 Resume 永远 `handoff timed out`。普通超时仍 fail-closed；仅当 evidence 超过 5 分钟、同 claimant 请求已超时、owner snapshot 覆盖最后语义变化、远端 bullet 可验证清场时，才进入 Hub flock 下的 stalled reservation 与 generation fencing。
 - daemon ownership worker 的单次探针/解析异常不再永久杀死线程；fault reservation TTL 从 10 秒增至 30 秒，覆盖有 12 秒硬上限的远端清场。
 - 真实 `dt-company_intro_v2`：确认 OUC evidence 停滞约 6800 秒、snapshot 覆盖最后变化、bullet 0 writer 后，generation 19 fencing 使旧端两 pane 自行退出；本机原子接管 generation 20，导入 trigger 最新 snapshot，并恢复 trigger/bullet。
+- PR #52 已合并至 `main`（merge `2348a8d`）；Release `v0.4.55.post11` 在 draft 阶段先上传并验证 wheel/sdist，随后发布。本机由 post10 正式升级至 post11，并以同 instance 原子续租 generation 20；380 passed + 2 skipped，Ruff 与 build 全绿。
 
 ### v0.4.55.post4 (RELEASED) — 跨 Client 快照自动 Union
 
