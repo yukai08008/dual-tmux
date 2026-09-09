@@ -4,10 +4,10 @@
 
 ## 状态树
 
-### v0.4.55.post3 (ACTIVE) — Lease 误踢 P0 hotfix
+### v0.4.55.post3 (RELEASED) — Lease 误踢 P0 hotfix
 
-- **hotfix/v0.4.55-post3-lease-single-writer** (DEVELOPING)
-  - **issue-healthy-session-dropped-on-lease-expiry** (FIXING): 真实 generation 18/19 在业务健康时被 daemon fence。修复方向为 daemon Lease 单写、tick 去 claim、相同 client/instance/generation 在 Hub flock 内可与 fault takeover reservation 原子竞速恢复；foreign/higher generation 仍立即退出。
+- **hotfix/v0.4.55-post3-lease-single-writer** (MERGED): PR #42 合并至 `main`（merge `a13ee1a`），`v0.4.55.post3` Release、wheel 与 sdist 已发布。本机已安装 post3 并重启 daemon，真实 `dt-company_intro_v2` generation 19 跨过 09:20、09:21、09:22 三个分钟 tick，trigger/bullet 持续存活，tick 不再 claim。348 collected、346 passed、2 skipped；聚焦 Ruff、build 与 SQLite integrity 门禁通过。
+  - **issue-healthy-session-dropped-on-lease-expiry** (CLOSED): generation 18/19 在业务健康时被 daemon fence，实测续租间隔 5–7 秒超过 4 秒 deadline。现由 daemon Lease worker 单写、tick 去 claim；相同 client/instance/generation 可在 m7 flock 内与 fault takeover reservation 原子竞速恢复，reservation/foreign/higher generation 仍立即 fence。
 
 ### v0.4.55.post2 (RELEASED) — Resume 快照自动收敛与 Lease 连续性
 
@@ -146,7 +146,7 @@
 
 ## 当前焦点
 
-- v0.4.55 已合并、发布并完成升级发现验证；下一步让所有参与独热接管的 Client 升级至 v0.4.55，再进入 v0.4.56 Web 体验演进。
+- 让所有参与独热接管的 Client 升级至 v0.4.55.post3，再进入 v0.4.56 Web 体验演进。
 
 ## Backlog
 
