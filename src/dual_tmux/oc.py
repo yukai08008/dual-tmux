@@ -602,17 +602,19 @@ def _snapshot_revision(path: Path, expected_sid: str = "") -> SnapshotRevision |
     )
 
 
-def resolve_snapshot(info: dict, root: Path | None = None) -> SnapshotRevision | None:
-    """Resolve the newest verified per-Client snapshot by payload revision."""
+def resolve_snapshots(
+    info: dict, root: Path | None = None
+) -> tuple[SnapshotRevision, ...]:
+    """Resolve every verified per-Client revision for append-only union."""
     from .identity import legal_source
 
     slug = (info.get("slug") or "").strip()
     sid = (info.get("session_id") or "").strip()
     if not slug and not sid:
-        return None
+        return ()
     base = root or persist_root()
     if not base.is_dir():
-        return None
+        return ()
     hits: set[Path] = set()
     for source in sorted(base.iterdir()):
         if not source.is_dir() or not legal_source(source.name):
@@ -632,8 +634,16 @@ def resolve_snapshot(info: dict, root: Path | None = None) -> SnapshotRevision |
                 hits.add(path)
                 break
     if not hits:
-        return None
+        return ()
     revisions = [rev for path in hits if (rev := _snapshot_revision(path, sid))]
+    if not revisions:
+        return ()
+    return tuple(sorted(revisions, key=lambda rev: (rev.updated_ms, str(rev.path))))
+
+
+def resolve_snapshot(info: dict, root: Path | None = None) -> SnapshotRevision | None:
+    """Resolve the newest verified per-Client snapshot by payload revision."""
+    revisions = resolve_snapshots(info, root)
     if not revisions:
         return None
     with_revision = [rev for rev in revisions if rev.updated_ms > 0]
@@ -642,12 +652,6 @@ def resolve_snapshot(info: dict, root: Path | None = None) -> SnapshotRevision |
         return max(revisions, key=lambda rev: rev.path.stat().st_mtime)
     newest_ms = max(rev.updated_ms for rev in with_revision)
     newest = [rev for rev in with_revision if rev.updated_ms == newest_ms]
-    if len({rev.digest for rev in newest}) > 1:
-        paths = ", ".join(str(rev.path) for rev in newest)
-        raise SystemExit(
-            f"[err] snapshot_conflict: session {sid} has divergent snapshots at "
-            f"revision {newest_ms}: {paths}"
-        )
     return min(newest, key=lambda rev: str(rev.path))
 
 
@@ -764,6 +768,78 @@ def local_has_message(session_id: str, message_id: str) -> bool:
     return bool(row)
 
 
+def _local_message_ids(session_id: str) -> frozenset[str]:
+    db = db_path()
+    if not session_id or not db.is_file():
+        return frozenset()
+    try:
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            rows = conn.execute(
+                "SELECT id FROM message WHERE session_id=?", (session_id,)
+            ).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return frozenset()
+    return frozenset(str(row[0]) for row in rows)
+
+
+def _snapshot_identity_compatible_with_local(
+    session_id: str, snapshot_path: Path
+) -> bool:
+    """Reject only impossible ID collisions before an append-only import.
+
+    OpenCode import inserts missing message/part IDs and preserves rows already
+    present locally. Different Clients can therefore safely contribute
+    different branches to one session. Shared IDs may legitimately represent
+    an earlier in-flight versus later completed record, but their immutable
+    graph identity must agree.
+    """
+    db = db_path()
+    if not session_id or not db.is_file():
+        return False
+    try:
+        payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            for item in payload.get("messages") or []:
+                info = item.get("info") or {}
+                mid = str(info.get("id") or "")
+                if not mid:
+                    return False
+                row = conn.execute(
+                    "SELECT data FROM message WHERE session_id=? AND id=?",
+                    (session_id, mid),
+                ).fetchone()
+                if row:
+                    local_info = json.loads(row[0])
+                    for key in ("role", "parentID"):
+                        if str(local_info.get(key) or "") != str(info.get(key) or ""):
+                            return False
+                for part in item.get("parts") or []:
+                    pid = str(part.get("id") or "")
+                    if not pid:
+                        return False
+                    part_row = conn.execute(
+                        "SELECT message_id, data FROM part WHERE session_id=? AND id=?",
+                        (session_id, pid),
+                    ).fetchone()
+                    if not part_row:
+                        continue
+                    if str(part_row[0]) != mid:
+                        return False
+                    local_part = json.loads(part_row[1])
+                    for key in ("type", "tool", "callID"):
+                        if str(local_part.get(key) or "") != str(part.get(key) or ""):
+                            return False
+        finally:
+            conn.close()
+    except (OSError, sqlite3.Error, TypeError, json.JSONDecodeError):
+        return False
+    return True
+
+
 def backup_local_snapshot(session_id: str, *, runner=subprocess.run) -> Path:
     """Export the current local revision before replacing it with a newer one."""
     root = Path(os.environ.get("DUAL_TMUX_HOME", Path.home() / ".dual-tmux"))
@@ -864,17 +940,17 @@ def ensure_local(
     role: str = "trigger",
     dry_run: bool = False,
 ) -> bool:
-    """Converge a local OpenCode session to the freshest persisted revision.
+    """Converge a local OpenCode session to the union of persisted revisions.
 
-    Returns True if import ran. Existing session IDs are compared by revision
-    and tail ancestry; they are not assumed fresh merely because they exist.
+    Returns True if import ran. Existing rows are preserved; compatible IDs
+    found only on another Client are imported after one local backup.
     """
     sid = (info.get("session_id") or "").strip()
     if not sid:
         return False
     local = by_id(sid)
-    snapshot = resolve_snapshot(info)
-    if snapshot is None:
+    snapshots = resolve_snapshots(info)
+    if not snapshots:
         if local:
             return False
         slug = info.get("slug") or "—"
@@ -882,33 +958,29 @@ def ensure_local(
             f"[err] {role} session {sid} ({slug}) not in local sqlite and no persist JSON "
             f"under {persist_root()}/tm_*/. Pull persist, then dt resume."
         )
-    local_updated = session_updated_ms(sid) if local else None
     local_tail = local_tail_message_id(sid) if local else ""
-    remote_updated = snapshot.updated_ms
-
-    if local and remote_updated <= 0:
+    local_ids = _local_message_ids(sid) if local else frozenset()
+    pending = (
+        [snap for snap in snapshots if snap.message_ids - local_ids]
+        if local
+        else list(snapshots)
+    )
+    if not pending:
         return False
-    if local and local_updated is not None:
-        if local_updated == remote_updated:
-            if local_tail and snapshot.tail_id and local_tail != snapshot.tail_id:
-                raise SystemExit(
-                    f"[err] snapshot_conflict: local {role} {sid} and {snapshot.path} "
-                    f"share revision {remote_updated} but have different tails"
-                )
-            return False
-        if local_updated > remote_updated:
-            if snapshot.tail_id and not local_has_message(sid, snapshot.tail_id):
-                raise SystemExit(
-                    f"[err] snapshot_conflict: local {role} {sid} is newer but does "
-                    f"not contain persisted tail {snapshot.tail_id}"
-                )
-            return False
-    if local_tail and local_tail not in snapshot.message_ids:
-        discardable = _discardable_failed_local_messages(sid, snapshot.message_ids)
-        if not discardable:
+    if local:
+        incompatible = next(
+            (
+                snap
+                for snap in pending
+                if not _snapshot_identity_compatible_with_local(sid, snap.path)
+            ),
+            None,
+        )
+        if incompatible:
             raise SystemExit(
-                f"[err] snapshot_conflict: newer {role} snapshot does not contain local "
-                f"tail {local_tail}; refusing to overwrite"
+                f"[err] snapshot_conflict: local {role} {sid} and "
+                f"{incompatible.path} "
+                "reuse a message or part ID with incompatible graph identity"
             )
 
     if dry_run:
@@ -919,15 +991,23 @@ def ensure_local(
     backup = None
     if local:
         backup = (backupper or backup_local_snapshot)(sid)
-    (importer or import_snapshot)(snapshot.path)
-    if not by_id(sid):
-        raise SystemExit(
-            f"[err] imported {snapshot.path.name} but session {sid} still missing"
-        )
-    if snapshot.tail_id and not local_has_message(sid, snapshot.tail_id):
+    for snapshot in pending:
+        (importer or import_snapshot)(snapshot.path)
+        if not by_id(sid):
+            raise SystemExit(
+                f"[err] imported {snapshot.path.name} but session {sid} still missing"
+            )
+        if snapshot.tail_id and not local_has_message(sid, snapshot.tail_id):
+            recovery = f"; backup: {backup}" if backup else ""
+            raise SystemExit(
+                f"[err] imported {snapshot.path.name} but tail verification failed"
+                f"{recovery}"
+            )
+    if local_tail and not local_has_message(sid, local_tail):
         recovery = f"; backup: {backup}" if backup else ""
         raise SystemExit(
-            f"[err] imported {snapshot.path.name} but tail verification failed{recovery}"
+            f"[err] imported {snapshot.path.name} but local-tail preservation failed"
+            f"{recovery}"
         )
     return True
 
