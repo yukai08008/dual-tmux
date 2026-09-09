@@ -1340,20 +1340,18 @@ def cmd_tick(_: argparse.Namespace) -> None:
         if not cfg.hub_enabled and (data.get("runtime") or {}).get("server"):
             continue
         try:
-            holder, _age = hub.read_lock(name)
+            lease = hub.read_ownership(name, cfg)
         except SystemExit:
-            holder = ""
-        if holder and holder != cfg.client:
+            continue
+        if lease.get("state") == "foreign":
             hub.drop_local(data)
+            continue
+        if lease.get("state") != "owned" or lease.get("holder") != cfg.client:
             continue
         activity.append_sample(data)
         activity.activity_evidence(data)
         try:
-            hub.claim(name)
-        except SystemExit:
-            continue
-        try:
-            ownership.write_cache(ownership.snapshot(data))
+            ownership.write_cache(ownership.snapshot(data, lease=lease))
         except (OSError, SystemExit, ValueError):
             pass
         recovery.observe(data)
