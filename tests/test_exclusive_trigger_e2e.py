@@ -639,12 +639,12 @@ def test_real_hub_daemon_handoff_returns_old_shell(monkeypatch, tmp_path: Path):
             },
         )
         worker_code = (
-            "import time; from dual_tmux import hub; "
+            "import time; from dual_tmux.occupancy import read_occupancy; "
             "from dual_tmux.config import load_config; "
             "from dual_tmux.daemon import DualTmuxDaemon; "
             "d=DualTmuxDaemon(ownership_interval=0); "
             f"name={tunnel_name!r}; cfg=load_config(); "
-            "exec(\"for _ in range(12):\\n d._ownership_step(force=True)\\n if hub.read_ownership(name,cfg).get('holder') != cfg.client: break\\n time.sleep(.2)\")"
+            "exec(\"for _ in range(12):\\n d._ownership_step(force=True)\\n if read_occupancy(name,cfg).get('holder') != cfg.client: break\\n time.sleep(.2)\")"
         )
         owner = subprocess.Popen([sys.executable, "-c", worker_code], env=old_env)
         os.environ.update(new_env)
@@ -676,8 +676,9 @@ def test_real_hub_daemon_handoff_returns_old_shell(monkeypatch, tmp_path: Path):
         elapsed = time.monotonic() - started
         print(f"real control resume input-ready elapsed={elapsed:.3f}s")
         assert elapsed < ownership.HANDOFF_TAKEOVER_TIMEOUT
-        lease = hub.read_ownership(tunnel_name)
-        assert lease["holder"] == "tm_e2e_new"
+        from dual_tmux.occupancy import read_occupancy
+        occ = read_occupancy(tunnel_name)
+        assert occ["holder"] == "tm_e2e_new"
         for kind in ("opencode", "native"):
             subprocess.run(
                 [str(new_dt / "bin" / f"dt-persist-{kind}"), server, "--wait"],
@@ -720,99 +721,3 @@ def test_real_hub_daemon_handoff_returns_old_shell(monkeypatch, tmp_path: Path):
         )
         cleanup = f"python3 -c {shlex.quote(cleanup_code)} {shlex.quote(tenant)}"
         subprocess.run([*hub.ssh_argv(cleanup_cfg), cleanup], check=False)
-
-
-@pytest.mark.skipif(
-    not os.environ.get("DT_REAL_HANDOFF_HUB"),
-    reason="set DT_REAL_HANDOFF_HUB to run the isolated SSH Hub gate",
-)
-def test_real_hub_fault_takeover_expires_and_commits_within_budget(
-    monkeypatch, tmp_path: Path
-):
-    """Exercise the m7 short lease and reserved generation transfer over SSH."""
-    from dual_tmux import hub, ownership, tmux
-
-    server = os.environ["DT_REAL_HANDOFF_HUB"]
-    tenant = f"dte2e_{uuid.uuid4().hex[:10]}"
-    name = f"dt-fault-{uuid.uuid4().hex[:8]}"
-    old_cfg = AppConfig(client="tm_fault_old", server=server, user=tenant)
-    new_cfg = AppConfig(client="tm_fault_new", server=server, user=tenant)
-    old_home = tmp_path / "fault-old"
-    new_home = tmp_path / "fault-new"
-    old_home.mkdir()
-    new_home.mkdir()
-    op_name = f"op_fault_{os.getpid()}_{time.time_ns()}"
-    old_session = f"ses_fault_{uuid.uuid4().hex}"
-    writer_start = (
-        f"nohup bash -c {shlex.quote(f'exec -a {old_session} sleep 30')} "
-        ">/dev/null 2>&1 </dev/null &"
-    )
-    try:
-        subprocess.run([*hub.ssh_argv(old_cfg), writer_start], check=True)
-        monkeypatch.setenv("DUAL_TMUX_HOME", str(old_home))
-        _, _, _, generation = hub._lock_remote(
-            "claim", name, cfg=old_cfg, ttl=hub.OWNERSHIP_LEASE_TTL
-        )
-        monkeypatch.setenv("DUAL_TMUX_HOME", str(new_home))
-        monkeypatch.setenv("DT_CLIENT", new_cfg.client)
-        monkeypatch.setenv("DT_SERVER", new_cfg.server)
-        monkeypatch.setenv("DT_USER", new_cfg.user)
-        started = time.monotonic()
-        lease = hub.read_ownership(name, new_cfg)
-        while lease["state"] != "expired" and time.monotonic() - started < 8:
-            time.sleep(0.1)
-            lease = hub.read_ownership(name, new_cfg)
-        assert lease["state"] == "expired"
-        token = ownership._claim_after_service_fence(
-            {
-                "name": name,
-                "runtime": {"server": server},
-                "bullet": {"tool": "opencode", "session_id": old_session},
-            },
-            lease,
-        )
-        assert token["holder"] == new_cfg.client
-        assert token["generation"] == generation + 1
-        fake_agent = f"{shlex.quote(sys.executable)} -u -c " + shlex.quote(
-            "import sys; print('FAULT_TRIGGER_READY',flush=True); "
-            "exec(\"for line in sys.stdin:\\n print('INPUT_ACK:'+line.strip(),flush=True)\")"
-        )
-        tmux.ensure_agent(op_name, fake_agent, cwd=str(new_home))
-        tmux.send_keys(op_name, "fault-takeover-ready")
-        pane = ""
-        while time.monotonic() - started < ownership.HANDOFF_TAKEOVER_TIMEOUT:
-            pane = tmux.capture_pane(op_name)
-            if "INPUT_ACK:fault-takeover-ready" in pane:
-                break
-            time.sleep(0.05)
-        assert "INPUT_ACK:fault-takeover-ready" in pane
-        elapsed = time.monotonic() - started
-        print(f"real fault takeover input-ready elapsed={elapsed:.3f}s")
-        assert elapsed < ownership.HANDOFF_TAKEOVER_TIMEOUT
-        probe = f"pgrep -f {shlex.quote(f'[{old_session[0]}]{old_session[1:]}')}"
-        assert (
-            subprocess.run(
-                [*hub.ssh_argv(new_cfg), probe],
-                capture_output=True,
-                text=True,
-                check=False,
-            ).returncode
-            != 0
-        )
-    finally:
-        tmux.kill_session(op_name)
-        assert re.fullmatch(r"dte2e_[0-9a-f]{10}", tenant)
-        cleanup_cfg = AppConfig(client="tm_fault_new", server=server, user=tenant)
-        cleanup_code = (
-            "import pathlib,re,shutil,sys; n=sys.argv[1]; "
-            "assert re.fullmatch(r'dte2e_[0-9a-f]{10}',n); "
-            "p=pathlib.Path.home()/n; "
-            "shutil.rmtree(p) if p.is_dir() else None"
-        )
-        cleanup = f"python3 -c {shlex.quote(cleanup_code)} {shlex.quote(tenant)}"
-        subprocess.run([*hub.ssh_argv(cleanup_cfg), cleanup], check=False)
-        kill_writer = (
-            f"pgrep -f {shlex.quote(f'[{old_session[0]}]{old_session[1:]}')} "
-            "| xargs -r kill -9"
-        )
-        subprocess.run([*hub.ssh_argv(cleanup_cfg), kill_writer], check=False)

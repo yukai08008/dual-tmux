@@ -9,7 +9,7 @@
 - DataNode 增加 `OccupancyNode`；Resume FSM token 不再强制 lease revision / instance。
 - occupancy claim 只写 occupancy JSON + 兼容 lock，不再写 86400s lease sidecar。
 - `plan_from_facts` 把遗留 `request_handoff` 收成 `claim`；Web/Control `handoff` 预检后走同一条 resume（先拉后占）。
-- Hub 上 handoff/fault 脚本仍在，不在热路径，下一刀删除。
+- Hub 上 tunnel handoff/fault/lease 脚本已删除；`hub.release` 改为 occupancy release。飞书 connector 仍用独立 lock。
 
 ### v0.4.56.post1 (RELEASED) — Resume 先拉后占
 

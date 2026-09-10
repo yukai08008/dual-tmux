@@ -170,51 +170,13 @@ def test_probe_failure_is_unknown_not_zero(monkeypatch):
 
 
 def test_unsafe_plan_never_claims(monkeypatch):
+    import dual_tmux.occupancy as occ
+
     called = []
-    monkeypatch.setattr(ownership.hub, "claim", lambda *_a, **_kw: called.append(True))
+    monkeypatch.setattr(occ, "claim_occupancy", lambda *_a, **_kw: called.append(True))
     with pytest.raises(SystemExit, match="preflight rejected"):
         ownership.acquire_for_resume(_data(), {"safe": False, "reason": "probe_failed"})
     assert called == []
-
-
-def test_active_v2_owner_cannot_be_directly_force_claimed(monkeypatch):
-    from dual_tmux import hub
-
-    monkeypatch.setattr(hub, "enabled", lambda: True)
-    monkeypatch.setattr(
-        hub,
-        "read_ownership",
-        lambda _name: {
-            "state": "foreign",
-            "holder": "tm_other",
-            "generation": 8,
-            "lease_protocol": 2,
-        },
-    )
-    monkeypatch.setattr(
-        hub, "_lock_remote", lambda *_a, **_kw: pytest.fail("must use handoff")
-    )
-
-    with pytest.raises(SystemExit, match="cannot be claimed directly"):
-        hub.claim_generation("dt-a", force=True)
-
-
-def test_cooperative_handoff_claims_without_fixed_tick_sleep(monkeypatch):
-    import dual_tmux.occupancy as occ
-
-    sleeps = []
-    monkeypatch.setattr(
-        occ,
-        "claim_occupancy",
-        lambda name, cfg=None: {"ok": True, "holder": "tm_here", "generation": 9},
-    )
-    monkeypatch.setattr(ownership.time, "sleep", lambda seconds: sleeps.append(seconds))
-    token = ownership.acquire_for_resume(
-        _data(),
-        {"safe": True, "action": "claim", "ownership": {"lease": {"state": "foreign"}}},
-    )
-    assert sleeps == []
-    assert token == {"generation": 9, "newly_acquired": True}
 
 
 def test_handoff_timeout_is_fail_closed_and_never_force_claims(monkeypatch):
@@ -275,136 +237,6 @@ def test_handoff_timeout_reconciles_transfer_that_won_cancel_race(monkeypatch):
         },
     )
     assert token == {"generation": 9, "newly_acquired": True}
-
-
-def test_expired_owner_is_fenced_before_atomic_fault_takeover(monkeypatch):
-    calls = []
-    lease = {"state": "expired", "generation": 8}
-    monkeypatch.setattr(
-        ownership.hub,
-        "reserve_fault_takeover",
-        lambda name, generation: (
-            calls.append(("reserve", name, generation))
-            or {"ok": True, "request_id": "fault-1"}
-        ),
-    )
-    monkeypatch.setattr(
-        "dual_tmux.recovery.fence_remote_bullet",
-        lambda _data: calls.append(("fence",)) or [101],
-    )
-    monkeypatch.setattr(
-        ownership.hub,
-        "finish_fault_takeover",
-        lambda name, request, generation: (
-            calls.append(("finish", name, request, generation))
-            or {"ok": True, "holder": "tm_here", "generation": 9}
-        ),
-    )
-    monkeypatch.setattr(
-        ownership.hub,
-        "cancel_fault_takeover",
-        lambda *_a, **_kw: pytest.fail("successful takeover must not cancel"),
-    )
-    monkeypatch.setattr(
-        ownership, "load_config", lambda: type("Cfg", (), {"client": "tm_here"})()
-    )
-    data = _data()
-    data["runtime"]["server"] = "tom7r"
-
-    token = ownership._claim_after_service_fence(data, lease)
-
-    assert calls == [
-        ("reserve", "dt-a", 8),
-        ("fence",),
-        ("finish", "dt-a", "fault-1", 8),
-    ]
-    assert token == {"holder": "tm_here", "generation": 9}
-
-
-def test_expired_same_instance_renews_without_fencing(monkeypatch):
-    calls = []
-    lease = {
-        "state": "expired",
-        "generation": 8,
-        "lease_protocol": 2,
-        "instance_id": "instance-here",
-    }
-    monkeypatch.setattr(ownership.hub, "existing_instance_id", lambda: "instance-here")
-    monkeypatch.setattr(
-        ownership.hub,
-        "renew_ownership",
-        lambda name, generation: (
-            calls.append(("renew", name, generation))
-            or {"holder": "tm_here", "generation": generation}
-        ),
-    )
-    monkeypatch.setattr(
-        ownership,
-        "_claim_after_service_fence",
-        lambda *_a, **_kw: pytest.fail("must not fence this instance's bullet"),
-    )
-
-    token = ownership._acquire_expired(_data(), lease)
-
-    assert calls == [("renew", "dt-a", 8)]
-    assert token == {"holder": "tm_here", "generation": 8}
-
-
-def test_resume_rechecks_lease_that_expires_after_preflight(monkeypatch):
-    import dual_tmux.occupancy as occ
-
-    monkeypatch.setattr(
-        occ,
-        "claim_occupancy",
-        lambda name, cfg=None: {"ok": True, "holder": "tm_here", "generation": 8},
-    )
-    token = ownership.acquire_for_resume(
-        _data(),
-        {
-            "safe": True,
-            "action": "resume",
-            "ownership": {
-                "lease": {
-                    "state": "owned",
-                    "holder": "tm_here",
-                    "generation": 8,
-                    "lease_protocol": 2,
-                }
-            },
-        },
-    )
-    assert token == {"generation": 8, "newly_acquired": True}
-
-
-def test_failed_service_cleanup_cancels_reservation_without_claim(monkeypatch):
-    calls = []
-    monkeypatch.setattr(
-        ownership.hub,
-        "reserve_fault_takeover",
-        lambda *_a, **_kw: {"ok": True, "request_id": "fault-1"},
-    )
-    monkeypatch.setattr("dual_tmux.recovery.fence_remote_bullet", lambda _data: None)
-    monkeypatch.setattr(
-        ownership.hub,
-        "finish_fault_takeover",
-        lambda *_a, **_kw: pytest.fail("cleanup failure must not commit"),
-    )
-    monkeypatch.setattr(
-        ownership.hub,
-        "cancel_fault_takeover",
-        lambda name, request, generation: (
-            calls.append((name, request, generation)) or {"ok": True}
-        ),
-    )
-    data = _data()
-    data["runtime"]["server"] = "tom7r"
-
-    with pytest.raises(SystemExit, match="cleanup could not be verified"):
-        ownership._claim_after_service_fence(
-            data, {"state": "expired", "generation": 8}
-        )
-
-    assert calls == [("dt-a", "fault-1", 8)]
 
 
 def test_stale_foreign_evidence_requests_handoff(monkeypatch):

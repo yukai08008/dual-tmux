@@ -28,8 +28,23 @@ except Exception:
 parts=open(lock).read().strip().split('@') if os.path.exists(lock) else []
 generation=int(parts[2]) if len(parts)>2 and parts[2].isdigit() else 0
 holder=str(data.get('holder') or (parts[0] if parts else ''))
+
+def dump(path, value):
+ os.makedirs(os.path.dirname(path),exist_ok=True)
+ fd,tmp=tempfile.mkstemp(prefix='.occupancy-',dir=os.path.dirname(path))
+ with os.fdopen(fd,'w') as f: json.dump(value,f,separators=(',',':')); f.write('\n')
+ os.replace(tmp,path)
+
 if action=='read':
  print(json.dumps({'ok':True,'schema':1,'name':name,'holder':holder,'claimed_at':int(data.get('claimed_at') or 0),'generation':generation}))
+ raise SystemExit(0)
+if action=='release':
+ if holder and holder!=me:
+  print(json.dumps({'ok':False,'code':'foreign_holder','holder':holder,'generation':generation})); raise SystemExit(9)
+ data={'schema':1,'name':name,'holder':'','claimed_at':now,'generation':generation}
+ dump(occ,data)
+ open(lock,'w').write('')
+ print(json.dumps({'ok':True,**data}))
  raise SystemExit(0)
 if action!='claim':
  print(json.dumps({'ok':False,'code':'invalid_action'})); raise SystemExit(9)
@@ -38,16 +53,11 @@ if holder != me:
 elif generation==0:
  generation = 1
 data={'schema':1,'name':name,'holder':me,'claimed_at':now,'generation':generation}
-os.makedirs(os.path.dirname(occ),exist_ok=True)
-fd,tmp=tempfile.mkstemp(prefix='.occupancy-',dir=os.path.dirname(occ))
-with os.fdopen(fd,'w') as f: json.dump(data,f,separators=(',',':')); f.write('\n')
-os.replace(tmp,occ)
+dump(occ,data)
 with open(lock,'w') as f: f.write(f'{me}@{now}@{generation}\n')
 print(json.dumps({'ok':True,**data}))
 PY
-PY
 """
-
 
 def _local(name: str, cfg: AppConfig) -> dict:
     now = int(time.time())
@@ -114,6 +124,24 @@ def claim_occupancy(name: str, cfg: AppConfig | None = None) -> dict:
         "hub.occupancy",
         name=name,
         holder=str(value.get("holder") or ""),
+        generation=int(value.get("generation") or 0),
+    )
+    return value
+
+
+def release_occupancy(name: str, cfg: AppConfig | None = None) -> dict:
+    """Clear occupancy when this Client still holds it."""
+    cfg = cfg or load_config()
+    if not cfg.hub_enabled:
+        return _local(name, cfg) | {"holder": ""}
+    value = _remote(name, "release", cfg=cfg)
+    if not value.get("ok"):
+        raise SystemExit(
+            f"[err] occupancy release rejected: {value.get('code') or 'unknown'}"
+        )
+    ev.emit(
+        "hub.occupancy.release",
+        name=name,
         generation=int(value.get("generation") or 0),
     )
     return value

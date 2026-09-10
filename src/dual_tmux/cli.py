@@ -1443,18 +1443,12 @@ def cmd_tick(_: argparse.Namespace) -> None:
             continue
         if not cfg.hub_enabled and (data.get("runtime") or {}).get("server"):
             continue
-        lease = None
-        try:
-            lease = hub.read_ownership(name, cfg)
-        except SystemExit:
-            lease = None
         activity.append_sample(data)
         activity.activity_evidence(data)
-        if lease:
-            try:
-                ownership.write_cache(ownership.snapshot(data, lease=lease))
-            except (OSError, SystemExit, ValueError):
-                pass
+        try:
+            ownership.write_cache(ownership.snapshot(data))
+        except (OSError, SystemExit, ValueError):
+            pass
         recovery.observe(data)
         try:
             written = _export_local_snapshots(data, cfg.client)

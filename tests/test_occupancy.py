@@ -97,3 +97,21 @@ def test_refresh_resume_inputs_fails_closed_when_persist_sync_fails(monkeypatch)
         assert "persist opencode sync failed" in str(exc)
     else:
         raise AssertionError("expected SystemExit")
+
+
+def test_release_occupancy_clears_local_holder(monkeypatch):
+    from dual_tmux.config import AppConfig
+
+    monkeypatch.setattr(
+        occupancy,
+        "load_config",
+        lambda: AppConfig(client="tm_here", server="", user="andy"),
+    )
+    value = occupancy.release_occupancy("dt-a")
+    assert value["holder"] == ""
+
+
+def test_occupancy_script_has_no_lease_sidecar():
+    assert "lease_ttl" not in occupancy.SCRIPT
+    assert "side_value" not in occupancy.SCRIPT
+    assert "if action=='release':" in occupancy.SCRIPT
