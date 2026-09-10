@@ -12,7 +12,7 @@ from .identity import legal_source, legal_user, persist_rsync_rel, persist_sourc
 from .paths import home_dir
 from .sshutil import SshTarget
 
-HOTFIX_ID = "persist-tenant-v1"
+HOTFIX_ID = "persist-progress-v1"
 STAMP_NAME = "hotfix.stamp"
 
 
@@ -201,19 +201,27 @@ def persist_script(kind: str, host: str, user: str) -> str:
         '    mkdir "$LOCK" >/dev/null 2>&1 || exit 1',
         "fi",
         "trap 'rmdir \"$LOCK\" 2>/dev/null' EXIT",
+        'PROGRESS=""',
+        'if [ "$WAIT" = "--wait" ] && [ -t 1 ]; then',
+        '    if rsync --info=help >/dev/null 2>&1; then',
+        '        PROGRESS="--info=progress2"',
+        "    else",
+        '        PROGRESS="--progress"',
+        "    fi",
+        "fi",
     ]
     if extra:
         lines.append(extra)
     lines.extend(
         [
-            f'rsync -a --delete {exclude} "$LOCAL"/ "$HOST:{rel}/$ME/" || exit 1',
+            f'rsync -a --delete {exclude} $PROGRESS "$LOCAL"/ "$HOST:{rel}/$ME/" || exit 1',
             f'names="$(ssh -o BatchMode=yes "$HOST" "for d in \\"\\$HOME/{rel}\\"/*/; do [ -d \\"\\$d\\" ] || continue; b=\\$(basename \\"\\$d\\"); case \\"\\$b\\" in tm_*) printf \'%s\\\\n\' \\"\\$b\\" ;; esac; done")" || exit 1',
             "failed=0",
             "while IFS= read -r n; do",
             '    [ -n "$n" ] || continue',
             '    [ "$n" = "$ME" ] && continue',
             '    mkdir -p "$ROOT/$n"',
-            f'    rsync -a "$HOST:{rel}/$n/" "$ROOT/$n/" || failed=1',
+            f'    rsync -a $PROGRESS "$HOST:{rel}/$n/" "$ROOT/$n/" || failed=1',
             'done <<< "$names"',
             'exit "$failed"',
             "",
@@ -222,7 +230,9 @@ def persist_script(kind: str, host: str, user: str) -> str:
     return "\n".join(lines)
 
 
-def sync_persist(kind: str, cfg: AppConfig, timeout: int = 180) -> Path:
+def sync_persist(
+    kind: str, cfg: AppConfig, timeout: int = 180, *, progress: bool = False
+) -> Path:
     """Run an installed persist sync and wait for an overlapping cron run."""
     if kind not in {"tmux", "opencode", "native"}:
         raise ValueError(f"unsupported persist kind: {kind}")
@@ -231,14 +241,17 @@ def sync_persist(kind: str, cfg: AppConfig, timeout: int = 180) -> Path:
         raise SystemExit(
             f"[err] persist sync missing: {path}. Run dt upgrade to install it."
         )
+    run_kwargs: dict = {
+        "args": [str(path), cfg.server, "--wait"],
+        "text": True,
+        "timeout": timeout,
+    }
+    if progress:
+        run_kwargs["stderr"] = subprocess.PIPE
+    else:
+        run_kwargs["capture_output"] = True
     try:
-        result = subprocess.run(
-            [str(path), cfg.server, "--wait"],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
+        result = subprocess.run(check=False, **run_kwargs)
     except subprocess.TimeoutExpired as exc:
         raise SystemExit(
             f"[err] persist {kind} sync timed out after {timeout}s"

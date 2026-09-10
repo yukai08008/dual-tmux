@@ -96,16 +96,23 @@ def _require_hub(cfg: AppConfig) -> None:
 
 
 def _run(
-    argv: list[str], input: str | None = None, timeout: float | None = None
+    argv: list[str],
+    input: str | None = None,
+    timeout: float | None = None,
+    *,
+    inherit_stdout: bool = False,
 ) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        argv,
-        capture_output=True,
-        text=True,
-        input=input,
-        timeout=timeout,
-        check=False,
-    )
+    kwargs: dict = {
+        "args": argv,
+        "text": True,
+        "input": input,
+        "timeout": timeout,
+    }
+    if inherit_stdout:
+        kwargs["stderr"] = subprocess.PIPE
+    else:
+        kwargs["capture_output"] = True
+    return subprocess.run(check=False, **kwargs)
 
 
 def _ensure_remote(cfg: AppConfig) -> None:
@@ -132,14 +139,25 @@ def _rsync(
     *,
     update: bool = False,
     preserve_ownership: bool = True,
+    progress: bool = False,
 ) -> None:
     argv = ["rsync", "-a"]
     if not preserve_ownership:
         argv.extend(["--no-owner", "--no-group"])
     if update:
         argv.append("--update")
+    if progress:
+        argv.append("--info=progress2")
     argv.extend(["-e", rsync_ssh(cfg), src, dest])
-    result = _run(argv)
+    result = _run(argv, inherit_stdout=progress)
+    if (
+        progress
+        and result.returncode != 0
+        and "unknown option" in (result.stderr or "").lower()
+    ):
+        argv = [item for item in argv if item != "--info=progress2"]
+        argv.insert(2, "--progress")
+        result = _run(argv, inherit_stdout=True)
     if result.returncode != 0:
         err = (result.stderr or result.stdout or "rsync failed").strip().splitlines()
         raise SystemExit(f"[err] rsync: {err[-1] if err else 'failed'}")
@@ -162,15 +180,15 @@ def push(cfg: AppConfig | None = None) -> str:
     return f"{host}:{root}"
 
 
-def pull(cfg: AppConfig | None = None) -> str:
+def pull(cfg: AppConfig | None = None, *, progress: bool = False) -> str:
     cfg = cfg or load_config()
     _require_hub(cfg)
     root = remote_root(cfg)
     tunnels_dir().mkdir(parents=True, exist_ok=True)
     entries_dir().mkdir(parents=True, exist_ok=True)
     host = SshTarget(cfg.server, cfg.ssh_port).dest
-    _rsync(f"{host}:{root}/tunnels/", f"{tunnels_dir()}/", cfg)
-    _rsync(f"{host}:{root}/entries/", f"{entries_dir()}/", cfg)
+    _rsync(f"{host}:{root}/tunnels/", f"{tunnels_dir()}/", cfg, progress=progress)
+    _rsync(f"{host}:{root}/entries/", f"{entries_dir()}/", cfg, progress=progress)
     ev.emit("hub.pull", host=host, root=root)
     return f"{host}:{root}"
 

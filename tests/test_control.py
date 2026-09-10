@@ -412,7 +412,7 @@ def test_native_pull_failure_releases_new_generation_before_commit(monkeypatch):
         "dual_tmux.config.load_config",
         lambda: AppConfig(client="tm_a", server="tom7r", user="andy"),
     )
-    monkeypatch.setattr("dual_tmux.hub.pull", lambda: "hub")
+    monkeypatch.setattr("dual_tmux.hub.pull", lambda **_k: "hub")
     monkeypatch.setattr(cli, "find_dt", lambda _name: "binding")
     monkeypatch.setattr(cli, "load", lambda _path: data)
     monkeypatch.setattr(
