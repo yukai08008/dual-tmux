@@ -676,5 +676,6 @@ def test_plan_from_cached_facts_preserves_frozen_shape():
         },
     }
     plan = ownership.plan_from_facts(_data(), facts)
-    assert plan["steps"] == ["request_handoff", "prepare", "restore", "verify"]
+    assert plan["steps"] == ["claim", "prepare", "restore", "verify"]
+    assert plan["action"] == "claim"
     assert plan["ownership"] is facts

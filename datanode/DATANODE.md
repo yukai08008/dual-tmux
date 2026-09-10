@@ -55,7 +55,8 @@ flowchart LR
   end
 
   subgraph Runtime["当前运行类节点"]
-    Lease["OwnershipLeaseNode<br/>id: tunnel + generation"]
+    Occupancy["OccupancyNode<br/>id: tunnel + generation"]
+    Lease["OwnershipLeaseNode<br/>legacy leftover"]
     TriggerPane["PaneRuntimeNode<br/>trigger observation"]
     BulletPane["PaneRuntimeNode<br/>bullet observation"]
     Snapshot["SnapshotRevisionNode<br/>id: session + digest"]
@@ -65,8 +66,9 @@ flowchart LR
   Tunnel -->|"当前直接包含 0..1"| Trigger
   Tunnel -->|"当前直接包含 0..1"| Bullet
   Tunnel -->|"当前引用 1:1"| Endpoint
-  Hub -->|"ownership_from_hub"| Lease
-  Lease -->|"按 tunnel_name 协调独热"| Tunnel
+  Hub -->|"occupancy_from_hub"| Occupancy
+  Occupancy -->|"按 tunnel_name 协调独热"| Tunnel
+  Hub -->|"ownership_from_hub leftover"| Lease
   Facts -->|"pane_from_ownership_facts"| TriggerPane
   Facts -->|"pane_from_ownership_facts"| BulletPane
   TriggerPane -->|"观察 trigger"| Trigger
@@ -166,9 +168,24 @@ server + port + container + directory
 运行节点表达系统为了可靠完成业务操作必须掌握的运行事实。它们可过期、可重建，不能
 被当成业务交付结果。
 
-### 5.1 `OwnershipLeaseNode`
+### 5.1 `OccupancyNode`
 
-表达 Hub 对某条 Tunnel 某一 generation 的独热控制事实。
+表达 Hub 上“当前哪台 MACHINE 占用这条 Tunnel 的 trigger”。无 TTL，后写覆盖。
+
+| 字段 | 含义 |
+|---|---|
+| `tunnel_name` | 被占用的 Tunnel |
+| `holder` | 当前 Client / `tm_*` |
+| `generation` | 换 holder 时递增，供旧 lock 兼容 |
+| `claimed_at` | 最近一次 resume 声明时间 |
+
+身份为 `tunnel_name + generation`。Hub 文件 `occupancy/<name>.json` 是权威。它只协调独热，不能改写 Tunnel、Session 或 Endpoint。锁屏、Hub 不可达不得根据 occupancy 缺失清退本地 tmux。
+
+`OwnershipLeaseNode` 仍可从遗留 `hub.read_ownership()` 转换，供未删除的 lease 脚本测试使用，不是独热热路径。
+
+### 5.1b `OwnershipLeaseNode`（遗留）
+
+表达旧 Hub lease sidecar 的读取快照，不是现行独热机制。
 
 | 字段 | 含义 |
 |---|---|

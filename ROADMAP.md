@@ -1,6 +1,6 @@
 # dual-tmux ROADMAP
 
-> v0.4.56 主线：占用文件独热 + trigger tick 选源。租约协议仅残留兼容 sidecar，待 S6 删除。
+> v0.4.57：S6 拆除租约热路径。占用节点进入 DataNode；claim 不再写 lease sidecar；Web 接管走 resume。
 > CLI 表面能力不阉割：`new / enter / work / freeze / resume / drop / ls / pull / push` 仍可用。
 > 本路线图的权威设计见 [docs/core-architecture.md](docs/core-architecture.md)。
 
@@ -68,7 +68,7 @@ flowchart LR
 
 体验：锁屏/睡眠只是本机暂停；不会因为 4 秒 TTL 把自己踢掉。
 
-## S6 拆除租约协议
+## S6 拆除租约协议（进行中）
 
 结构：删除 handoff v2、fault takeover reservation、Lease sidecar 协议、Resume shadow FSM 里的 Handoff/Fault 机器。DataNode 保留业务节点（Tunnel / AgentSession / Endpoint），运行层只留占用记录与 pane 观察。
 

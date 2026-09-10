@@ -650,7 +650,7 @@ def test_real_hub_daemon_handoff_returns_old_shell(monkeypatch, tmp_path: Path):
         os.environ.update(new_env)
         plan = ownership.plan_resume(tunnel)
         assert plan["safe"] is True, plan["reason"]
-        assert plan["action"] == "request_handoff"
+        assert plan["action"] == "claim"
 
         started = time.monotonic()
         resumed = ControlService().resume(tunnel_name).data

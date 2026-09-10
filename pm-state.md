@@ -1,8 +1,15 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-10 15:20 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-10 16:10 +08:00 | 更新者: Codex PM
 
 ## 状态树
+
+### v0.4.57 (DEVELOPING) — S6 Occupancy 运行节点
+
+- DataNode 增加 `OccupancyNode`；Resume FSM token 不再强制 lease revision / instance。
+- occupancy claim 只写 occupancy JSON + 兼容 lock，不再写 86400s lease sidecar。
+- `plan_from_facts` 把遗留 `request_handoff` 收成 `claim`；Web/Control `handoff` 预检后走同一条 resume（先拉后占）。
+- Hub 上 handoff/fault 脚本仍在，不在热路径，下一刀删除。
 
 ### v0.4.56.post1 (RELEASED) — Resume 先拉后占
 

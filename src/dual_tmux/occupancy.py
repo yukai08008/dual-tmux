@@ -12,15 +12,14 @@ from .config import AppConfig, load_config
 SCRIPT = r"""
 set -e
 ROOT="$1"; NAME="$2"; ACTION="$3"; ME="$4"; INSTANCE="$5"
-mkdir -p "$ROOT/occupancy" "$ROOT/locks" "$ROOT/ownership"
+mkdir -p "$ROOT/occupancy" "$ROOT/locks"
 lock="$ROOT/locks/$NAME"
 occ="$ROOT/occupancy/$NAME.json"
-side="$ROOT/ownership/$NAME.json"
 exec 9>>"$lock"
 flock -x 9
-python3 - "$occ" "$lock" "$side" "$NAME" "$ACTION" "$ME" "$INSTANCE" <<'PY'
+python3 - "$occ" "$lock" "$NAME" "$ACTION" "$ME" <<'PY'
 import json,os,sys,tempfile,time
-occ,lock,side,name,action,me,instance=sys.argv[1:]
+occ,lock,name,action,me=sys.argv[1:]
 now=int(time.time())
 try:
  with open(occ) as f: data=json.load(f)
@@ -44,12 +43,8 @@ fd,tmp=tempfile.mkstemp(prefix='.occupancy-',dir=os.path.dirname(occ))
 with os.fdopen(fd,'w') as f: json.dump(data,f,separators=(',',':')); f.write('\n')
 os.replace(tmp,occ)
 with open(lock,'w') as f: f.write(f'{me}@{now}@{generation}\n')
-side_value={'schema':2,'lease_protocol':2,'lease_ttl':86400,'name':name,'holder':me,'instance_id':instance,'generation':generation,'renewed_at':now,'expires_at':now+86400,'evidence':{},'handoff':None}
-os.makedirs(os.path.dirname(side),exist_ok=True)
-fd,tmp=tempfile.mkstemp(prefix='.ownership-',dir=os.path.dirname(side))
-with os.fdopen(fd,'w') as f: json.dump(side_value,f,separators=(',',':')); f.write('\n')
-os.replace(tmp,side)
 print(json.dumps({'ok':True,**data}))
+PY
 PY
 """
 

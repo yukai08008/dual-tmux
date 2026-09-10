@@ -385,9 +385,10 @@ def plan_from_facts(data: dict, facts: dict) -> dict:
     ):
         takeover = {"safe": False, "action": "stop", "reason": "not_a_frozen_dst"}
     steps: list[str] = []
-    if takeover.get("action") == "request_handoff":
-        steps.append("request_handoff")
-    elif takeover.get("action") == "claim":
+    action = str(takeover.get("action") or "stop")
+    if action == "request_handoff":
+        action = "claim"
+    if action == "claim":
         steps.append("claim")
     if takeover.get("safe"):
         steps.extend(["prepare", "restore", "verify"])
@@ -395,7 +396,7 @@ def plan_from_facts(data: dict, facts: dict) -> dict:
         "schema": SCHEMA,
         "name": str(facts.get("name") or data.get("name") or ""),
         "safe": bool(takeover.get("safe")),
-        "action": str(takeover.get("action") or "stop"),
+        "action": action,
         "reason": str(takeover.get("reason") or "facts_unavailable"),
         "steps": steps,
         "ownership": facts,
