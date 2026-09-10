@@ -14,6 +14,7 @@ from .models import (
     DockerEndpointNode,
     LeaseState,
     LocalEndpointNode,
+    OccupancyNode,
     OwnershipLeaseNode,
     PaneRuntimeNode,
     RuntimeEndpointNode,
@@ -169,8 +170,19 @@ def _epoch(value: object) -> datetime | None:
     return datetime.fromtimestamp(stamp, tz=timezone.utc) if stamp else None
 
 
+def occupancy_from_hub(payload: dict[str, Any]) -> OccupancyNode:
+    """Convert occupancy JSON without copying lock or leftover lease sidecars."""
+    name = str(payload.get("name") or payload.get("tunnel_name") or "")
+    return OccupancyNode(
+        tunnel_name=name,
+        holder=str(payload.get("holder") or ""),
+        generation=int(payload.get("generation") or 0),
+        claimed_at=_epoch(payload.get("claimed_at")),
+    )
+
+
 def ownership_from_hub(tunnel_name: str, lease: dict[str, Any]) -> OwnershipLeaseNode:
-    """Convert `hub.read_ownership()` output without copying transient evidence."""
+    """Convert leftover `hub.read_ownership()` output until S6 deletes lease scripts."""
     return OwnershipLeaseNode(
         tunnel_name=tunnel_name,
         generation=int(lease.get("generation") or 0),

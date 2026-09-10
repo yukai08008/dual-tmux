@@ -1,6 +1,7 @@
 """Typed runtime attempt nodes and their FSMs."""
 
 from .resume import (
+    OccupancyToken,
     OwnershipToken,
     ResumeAttemptNode,
     ResumeError,
@@ -11,6 +12,7 @@ from .resume import (
 )
 
 __all__ = [
+    "OccupancyToken",
     "OwnershipToken",
     "ResumeAttemptNode",
     "ResumeError",

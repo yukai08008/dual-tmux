@@ -60,13 +60,16 @@ class ResumeError(StrictModel):
     side: Literal["", "trigger", "bullet"] = ""
 
 
-class OwnershipToken(StrictModel):
+class OccupancyToken(StrictModel):
     tunnel_name: str = Field(pattern=r"^dt-")
     holder_client_id: str = Field(min_length=1)
-    holder_instance_id: str = Field(min_length=1)
     generation: int = Field(ge=0)
-    lease_revision: str = Field(min_length=1)
     newly_acquired: bool = False
+    holder_instance_id: str = ""
+    lease_revision: str = ""
+
+
+OwnershipToken = OccupancyToken
 
 
 class VerificationEvidence(StrictModel):
@@ -108,7 +111,10 @@ class ResumeAttemptNode(StrictModel):
                 raise ValueError("ownership token belongs to a different tunnel")
             if self.ownership_token.holder_client_id != self.claimant_client_id:
                 raise ValueError("ownership token belongs to a different client")
-            if self.ownership_token.holder_instance_id != self.claimant_instance_id:
+            if (
+                self.ownership_token.holder_instance_id
+                and self.ownership_token.holder_instance_id != self.claimant_instance_id
+            ):
                 raise ValueError("ownership token belongs to a different installation")
         if self.state is ResumeState.COMPLETED:
             verification = self.verification
@@ -227,7 +233,10 @@ def _token_matches_claimant(context: dict) -> bool:
         isinstance(payload, OwnershipAcquired)
         and payload.token.tunnel_name == node.tunnel_name
         and payload.token.holder_client_id == node.claimant_client_id
-        and payload.token.holder_instance_id == node.claimant_instance_id
+        and (
+            not payload.token.holder_instance_id
+            or payload.token.holder_instance_id == node.claimant_instance_id
+        )
     )
 
 
@@ -453,6 +462,7 @@ class ResumeMachine:
 
 
 __all__ = [
+    "OccupancyToken",
     "OwnershipToken",
     "ResumeAttemptNode",
     "ResumeError",

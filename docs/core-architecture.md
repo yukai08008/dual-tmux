@@ -100,4 +100,4 @@ Hub 不可达、锁屏、睡眠、占用暂时读不到，不得清退本地 tmu
 
 ## 和现行代码的关系
 
-S1 落地后：`ownership.acquire_for_resume` 改为写占用；daemon 以占用者 != 自己为清退条件。旧 lock 文件仍被覆盖，供未升级 Client 的 watchdog 使用。handoff / fault-takeover 代码暂时保留但离开 resume 热路径，S6 删除。
+S6：`OccupancyNode` 是独热事实。`resume` / Web 接管先拉 DST 与 persist，再写 occupancy。占用脚本只写 occupancy JSON 与兼容 lock，不再写 86400s lease sidecar。Hub 上残留的 handoff/fault Python 仍待删除，不在热路径。
