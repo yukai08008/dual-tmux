@@ -7,6 +7,10 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from pydantic import ValidationError
+
+from datanode.fsm_core import TransitionError
+
 from . import tmux as tmux_ops
 from .agents import capability_matrix, get_adapter
 from .store import iter_dt_files, load
@@ -229,6 +233,8 @@ def _translate(call: Callable[[], Any]) -> Any:
         message = str(exc) or "operation failed"
         status = 404 if "unknown tunnel" in message or "no tunnels" in message else 409
         raise ControlError("operation_failed", message, status=status) from exc
+    except (TransitionError, ValidationError) as exc:
+        raise ControlError("fsm_rejected", str(exc), status=409) from exc
 
 
 class ControlService:
@@ -319,8 +325,14 @@ class ControlService:
             refresh_resume_inputs,
             write_entry,
         )
-        from .resume_shadow import ResumeShadow
+        from .resume_attempt import ResumeAttempt
         from .store import find_dt, save
+
+        def note(action) -> None:
+            try:
+                action()
+            except (TransitionError, ValidationError, ValueError, OSError):
+                pass
 
         try:
             original = _translate(lambda: self._get_tunnel_readonly(name))
@@ -329,9 +341,9 @@ class ControlService:
 
             original = _translate(lambda: _resolve(name))
         # Pull DST + persist/ticks, then preflight. Occupancy is claimed only
-        # after the winning machine's data is already local.
+        # after the winning machine's data is already local and preflight_passed.
         original = _translate(lambda: refresh_resume_inputs(original))
-        shadow = ResumeShadow.start(original)
+        attempt = _translate(lambda: ResumeAttempt.start(original))
         try:
             remote_opencode = bool((original.get("runtime") or {}).get("server")) and (
                 ((original.get("bullet") or {}).get("tool") or "opencode") == "opencode"
@@ -373,18 +385,18 @@ class ControlService:
             _translate(lambda: _preflight_resume_snapshots(original))
             plan = _translate(lambda: ownership.plan_resume(original))
         except BaseException as exc:
-            shadow.preflight_failed(exc)
+            note(lambda err=exc: attempt.preflight_failed(err))
             raise
-        shadow.preflight(original, plan)
+        _translate(lambda: attempt.preflight(original, plan))
         try:
             token = _translate(
                 lambda: ownership.acquire_for_resume(original, plan, force=force)
             )
         except BaseException as exc:
             if plan.get("safe"):
-                shadow.ownership_failed(exc)
+                note(lambda err=exc: attempt.ownership_failed(err))
             raise
-        shadow.ownership_acquired(token)
+        _translate(lambda: attempt.ownership_acquired(token))
         restore_completed = False
         rollback_started = False
         try:
@@ -397,12 +409,12 @@ class ControlService:
                     native_generation=int(token.get("generation") or 0),
                 )
             )
-            shadow.restore_completed()
+            _translate(lambda: attempt.restore_completed())
             restore_completed = True
             try:
                 verified = _translate(lambda: ownership.verify_resume(data, token))
             except BaseException as exc:
-                shadow.verification_failed(exc)
+                note(lambda err=exc: attempt.verification_failed(err))
                 rollback_started = True
                 raise
             data["ownership_generation"] = verified["generation"]
@@ -410,15 +422,15 @@ class ControlService:
             ev.emit(
                 "dt.resume", name=data.get("name"), generation=verified["generation"]
             )
-            shadow.verification_passed(verified)
+            _translate(lambda: attempt.verification_passed(verified))
         except BaseException as exc:
             if not restore_completed:
-                shadow.restore_failed(exc)
+                note(lambda err=exc: attempt.restore_failed(err))
             elif not rollback_started:
-                shadow.verification_failed(exc)
-            # Occupancy is already claimed. Do not park local tmux or release
-            # a lease: a failed resume must not kick the operator out.
-            shadow.rollback_completed(parked=False, lease_released=False)
+                note(lambda err=exc: attempt.verification_failed(err))
+            # Occupancy is already claimed. Do not park local tmux: a failed
+            # resume must not kick the operator out.
+            note(lambda: attempt.keep_occupancy_after_failure())
             raise
         hub.push_best_effort()
         return ControlResult("session.resume", data, _event("session.resume"))

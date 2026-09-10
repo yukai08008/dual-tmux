@@ -1,6 +1,6 @@
 # dual-tmux ROADMAP
 
-> v0.4.59：S7–S8。freeze 在 working copy 上证明，经 TunnelNode 投影后才提交；ControlService.freeze 校验节点。Resume FSM 仍是 shadow。
+> v0.4.60：S9。ControlService.resume 受 ResumeAttempt 门禁：preflight_passed 之后才占用，ownership_acquired 之后才 restore。验证改为 occupancy，不再要求每侧一个 writer。
 > CLI 表面能力不阉割：`new / enter / work / freeze / resume / drop / ls / pull / push` 仍可用。
 > 本路线图的权威设计见 [docs/core-architecture.md](docs/core-architecture.md)。
 
@@ -99,11 +99,11 @@ flowchart LR
 
 确认稿：[docs/datanode-fsm.md](docs/datanode-fsm.md)。
 
-## S9 ControlService 发事件，入口保持薄（占用已对齐；Resume 仍 shadow）
+## S9 ControlService 发事件，入口保持薄（ResumeAttempt 已升权威）
 
-结构：CLI / Web / 飞书只调用 ControlService。`freeze` 结束后校验 TunnelNode。真正改节点必须先 `Machine.send(live_session_proven)`。Resume 顺序不变：拉 DST → tick → 预检 → 占用 → 按 binding 恢复；ResumeAttempt 仍写 shadow，本版不升权威。
+结构：CLI / Web / 飞书只调用 ControlService。freeze 改节点走 BindingAttempt；resume 走 ResumeAttempt。`Machine.send()` 失败则操作失败。Resume 顺序不变：拉 DST → tick → 预检 → `preflight_passed` → 占用 → `ownership_acquired` → 按 binding 恢复 → 校验 occupancy。
 
-功能：现有 CLI 动词不减少。Web 面板继续占用语义。
+功能：现有 CLI 动词不减少。失败 resume 不 park 本机 tmux、不释放 occupancy（FSM 进入 `attention`）。验证看 occupancy holder/generation，不把 writer 探针当完成条件。
 
 体验：换机 `dt upgrade && dt pull && dt resume` 仍是日常路径。
 

@@ -151,9 +151,9 @@ Guard 拒绝时 Tunnel 保持旧 DST。这避免“会话已经换了，隧道�
 
 `dt freeze` 走同一台机器，intent=`freeze`。覆盖当前 DST；另存新 DST 仍走 `branch`。
 
-## 7. ResumeAttempt 保持原序
+## 7. ResumeAttempt 保持原序（已升权威）
 
-已确认、已实现的顺序不变：
+已确认、已实现的顺序不变。ControlService.resume 必须按事件推进，shadow 不再能吞掉非法迁移：
 
 1. 拉用户级 DST
 2. 按 tick 选较新 trigger 快照
@@ -168,6 +168,6 @@ Resume 不猜测 session，不 union 快照。BindingAttempt 负责让那些字�
 - 把 Occupancy 做成带 TTL 的租约状态机
 - ClientInstallation / fence / handoff persist
 - pane 观察驱动自动换会话
-- 一次性让 CLI 脱离 dict：先 shadow 校验 BindingAttempt，再让 ControlService 发事件
+- 一次性让 CLI 脱离 dict：磁盘仍是 tunnel JSON，提交必须经节点投影 / FSM 事件
 
-已实现：`BindingMachine.send()` 是 freeze/rebuild 的唯一状态入口。`_freeze_one` 先证明再提交；失败回滚旧 binding。外人占用时不跑探测、不改 Tunnel。
+已实现：`BindingMachine.send()` 是 freeze/rebuild 的状态入口。`ResumeMachine.send()` 是 resume 的状态入口；占用与 restore 都受事件门禁。失败 resume 不 park 本机 pane。
