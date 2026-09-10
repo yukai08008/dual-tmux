@@ -318,6 +318,15 @@ def _handoff_setup(monkeypatch, tmp_path):
     cfg = AppConfig(client="tm_a", server="tom7r", user="andy")
     save(tunnels_dir() / "dt-a.json", {"name": "dt-a", "op": "op_a", "run": "run_a"})
     monkeypatch.setattr(daemon, "load_config", lambda: cfg)
+    monkeypatch.setattr(
+        "dual_tmux.occupancy.read_occupancy",
+        lambda name, cfg=None: {
+            "ok": True,
+            "holder": getattr(cfg, "client", None) or "tm_a",
+            "claimed_at": 1,
+            "generation": 3,
+        },
+    )
     monkeypatch.setattr(activity, "activity_evidence", lambda _data: {})
     monkeypatch.setattr(
         hub,
@@ -555,6 +564,10 @@ def test_hub_failure_never_parks_local_tmux(monkeypatch, tmp_path):
     save(tunnels_dir() / "dt-a.json", {"name": "dt-a", "op": "op_a", "run": "run_a"})
     monkeypatch.setattr(daemon, "load_config", lambda: cfg)
     monkeypatch.setattr(
+        "dual_tmux.occupancy.read_occupancy",
+        lambda *_a, **_k: (_ for _ in ()).throw(SystemExit("hub down")),
+    )
+    monkeypatch.setattr(
         "dual_tmux.daemon.tmux_ops.has_session", lambda name: name == "op_a"
     )
     monkeypatch.setattr(
@@ -591,6 +604,10 @@ def test_free_lease_never_parks_live_local_tmux(monkeypatch, tmp_path):
         },
     )
     monkeypatch.setattr(daemon, "load_config", lambda: cfg)
+    monkeypatch.setattr(
+        "dual_tmux.occupancy.read_occupancy",
+        lambda name, cfg=None: {"ok": True, "holder": "tm_a", "claimed_at": 1, "generation": 7},
+    )
     monkeypatch.setattr(activity, "activity_evidence", lambda _data: {})
     monkeypatch.setattr(daemon.tmux_ops, "has_session", lambda name: name == "op_a")
     monkeypatch.setattr(
@@ -634,6 +651,10 @@ def test_ownership_watchdog_recovers_exact_expired_generation(monkeypatch, tmp_p
         },
     )
     monkeypatch.setattr(daemon, "load_config", lambda: cfg)
+    monkeypatch.setattr(
+        "dual_tmux.occupancy.read_occupancy",
+        lambda name, cfg=None: {"ok": True, "holder": "tm_a", "claimed_at": 1, "generation": 7},
+    )
     monkeypatch.setattr(
         "dual_tmux.daemon.tmux_ops.has_session", lambda name: name == "op_a"
     )
@@ -932,6 +953,10 @@ def test_committing_handoff_resumes_after_daemon_restart(monkeypatch, tmp_path):
     cfg = AppConfig(client="tm_a", server="tom7r", user="andy")
     save(tunnels_dir() / "dt-a.json", {"name": "dt-a", "op": "op_a", "run": "run_a"})
     monkeypatch.setattr(daemon, "load_config", lambda: cfg)
+    monkeypatch.setattr(
+        "dual_tmux.occupancy.read_occupancy",
+        lambda name, cfg=None: {"ok": True, "holder": "tm_a", "claimed_at": 1, "generation": 3},
+    )
     monkeypatch.setattr(
         activity,
         "activity_evidence",

@@ -149,27 +149,10 @@ def _takeover(lease: dict, sides: dict, writers: dict) -> dict:
                 "reason": f"{role}_duplicate_writer",
             }
     if lease["state"] == "foreign":
-        for role in ("trigger", "bullet"):
-            fact = sides[role]
-            # An explicit resume asks the owner daemon to persist and park its
-            # panes. A known attached client is safe to detach after idle and
-            # writer checks pass; only an unknown attachment probe is unsafe.
-            if fact["attached"] is None:
-                return {
-                    "safe": False,
-                    "action": "stop",
-                    "reason": f"{role}_attachment_unknown",
-                }
-            if fact["progress"] != "idle":
-                return {
-                    "safe": False,
-                    "action": "stop",
-                    "reason": f"{role}_{fact['progress']}",
-                }
         return {
             "safe": True,
-            "action": "request_handoff",
-            "reason": "foreign_idle_detached",
+            "action": "claim",
+            "reason": "occupancy_steal",
         }
     if lease["state"] in {"free", "expired"}:
         return {"safe": True, "action": "claim", "reason": lease["state"]}
@@ -267,8 +250,8 @@ def snapshot(data: dict, *, lease: dict | None = None) -> dict:
         # do not brick resume on the machine the operator is sitting at.
         result["takeover"] = {
             "safe": True,
-            "action": "request_handoff",
-            "reason": "owner_evidence_stale",
+            "action": "claim",
+            "reason": "occupancy_steal",
         }
     if foreign and result["takeover"]["safe"]:
         unsupported = [
@@ -437,128 +420,13 @@ def acquire_for_resume(data: dict, plan: dict, *, force: bool = False) -> dict:
         raise SystemExit(
             f"[err] resume preflight rejected: {plan.get('reason') or 'unsafe'}"
         )
-    lease = plan["ownership"]["lease"]
-    if plan["action"] == "request_handoff":
-        deadline = time.monotonic() + HANDOFF_TAKEOVER_TIMEOUT
-        result = hub.request_handoff(
-            str(data.get("name") or ""),
-            reason="resume",
-            timeout=HANDOFF_PREPARE_TIMEOUT,
-            generation=int(lease.get("generation") or 0),
-        )
-        request = str((result.get("handoff") or {}).get("request_id") or "")
-        if not result.get("ok") or not request:
-            raise SystemExit(
-                f"[err] handoff request failed: {result.get('code') or 'unknown'}"
-            )
-        # One deadline covers request acknowledgement, owner-side durable
-        # persist/park/release, and the claimant's generation claim.  Never
-        # steal first and wait for a later minute tick: that opens two live
-        # Trigger panes and cannot prove that the old foreground attach exited.
-        while time.monotonic() < deadline:
-            current = hub.read_ownership(str(data.get("name") or ""))
-            if (
-                current.get("state") == "owned"
-                and current.get("holder") == load_config().client
-            ):
-                return {
-                    "generation": int(current.get("generation") or 0),
-                    "newly_acquired": True,
-                }
-            if current.get("state") in {"free", "expired"}:
-                acquired = (
-                    _acquire_expired(data, current)
-                    if current.get("state") == "expired"
-                    else hub.claim_generation(str(data.get("name") or ""))
-                )
-                return {
-                    "generation": int(acquired.get("generation") or 0),
-                    "newly_acquired": True,
-                }
-            handoff = current.get("handoff") or {}
-            if (
-                handoff.get("request_id") == request
-                and handoff.get("status") == "rejected"
-            ):
-                raise SystemExit(
-                    f"[err] handoff rejected: {handoff.get('reason') or 'owner declined'}"
-                )
-            time.sleep(HANDOFF_POLL_INTERVAL)
-        cancelled = hub.cancel_handoff(
-            str(data.get("name") or ""),
-            request,
-            int(lease.get("generation") or 0),
-        )
-        if not cancelled.get("ok"):
-            # The owner may have crossed the atomic commit point—or completed
-            # the transfer—between our last poll and cancel.  Reconcile once;
-            # never report a timeout after this Client already became owner.
-            current = hub.read_ownership(str(data.get("name") or ""))
-            if (
-                current.get("state") == "owned"
-                and current.get("holder") == load_config().client
-            ):
-                return {
-                    "generation": int(current.get("generation") or 0),
-                    "newly_acquired": True,
-                }
-            if cancelled.get("code") == "too_late" and current.get("state") in {
-                "free",
-                "expired",
-            }:
-                acquired = (
-                    _acquire_expired(data, current)
-                    if current.get("state") == "expired"
-                    else hub.claim_generation(str(data.get("name") or ""))
-                )
-                return {
-                    "generation": int(acquired.get("generation") or 0),
-                    "newly_acquired": True,
-                }
-        raise SystemExit(
-            "[err] handoff timed out before the old Trigger was persisted and "
-            "parked; ownership was not changed"
-        )
-    # The four-second v2 lease may cross its deadline after plan_resume() but
-    # before this commit point.  Decide from a fresh Hub fact; passing the
-    # stale "owned" plan into hub.claim() makes its safety gate reject a normal
-    # same-instance resume.
-    current = hub.read_ownership(str(data.get("name") or ""))
-    was_owned = current.get("state") == "owned"
-    if current.get("state") == "expired":
-        _acquire_expired(data, current)
-    elif current.get("state") == "free":
-        hub.claim_generation(str(data.get("name") or ""))
-    elif current.get("state") == "foreign":
-        # Ownership changed after preflight.  Re-evaluate attachment, progress
-        # and writer evidence before entering the cooperative handoff path.
-        refreshed = plan_resume(data)
-        if refreshed.get("action") != "request_handoff":
-            raise SystemExit(
-                "[err] ownership changed during resume; current owner is not "
-                "safe to hand off"
-            )
-        return acquire_for_resume(data, refreshed, force=force)
-    else:
-        # Exact renewal keeps a long resume operation alive and is fenced by
-        # Client instance and generation.  Legacy/local ownership retains its
-        # established claim behavior.
-        if (
-            current.get("lease_protocol") == 2
-            and int(current.get("generation") or 0) > 0
-        ):
-            hub.renew_ownership(
-                str(data.get("name") or ""),
-                int(current.get("generation") or 0),
-            )
-        else:
-            hub.claim(str(data.get("name") or ""), force=force)
-    current = hub.read_ownership(str(data.get("name") or ""))
-    if current.get("state") != "owned" or current.get("holder") != load_config().client:
-        raise SystemExit("[err] ownership acquisition could not be verified")
+    from .occupancy import claim_occupancy
+
+    name = str(data.get("name") or "")
+    claimed = claim_occupancy(name)
     return {
-        "generation": int(current.get("generation") or 0),
-        "newly_acquired": not was_owned,
+        "generation": int(claimed.get("generation") or 0),
+        "newly_acquired": True,
     }
 
 

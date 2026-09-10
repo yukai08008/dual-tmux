@@ -348,10 +348,13 @@ def test_native_pull_failure_releases_new_generation_before_commit(monkeypatch):
         "dual_tmux.config.load_config",
         lambda: AppConfig(client="tm_a", server="tom7r", user="andy"),
     )
+    monkeypatch.setattr("dual_tmux.hub.pull", lambda: "hub")
     monkeypatch.setattr(
         hotfix,
         "sync_persist",
-        lambda *_a: (_ for _ in ()).throw(SystemExit("native pull failed")),
+        lambda kind, *_a, **_k: (_ for _ in ()).throw(SystemExit("native pull failed"))
+        if kind == "native"
+        else None,
     )
     monkeypatch.setattr(
         cli,

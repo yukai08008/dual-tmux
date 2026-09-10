@@ -302,11 +302,22 @@ class ControlService:
         from . import hub, ownership, recovery
         from . import log as ev
         from . import oc as oc_ops
-        from .cli import _apply_resume_legacy, _preflight_resume_snapshots, write_entry
+        from .cli import (
+            _apply_resume_legacy,
+            _preflight_resume_snapshots,
+            refresh_resume_inputs,
+            write_entry,
+        )
         from .resume_shadow import ResumeShadow
         from .store import find_dt, save
 
-        original = _translate(lambda: self._get_tunnel_readonly(name))
+        try:
+            original = _translate(lambda: self._get_tunnel_readonly(name))
+        except ControlError:
+            from .cli import _resolve
+
+            original = _translate(lambda: _resolve(name))
+        original = _translate(lambda: refresh_resume_inputs(original))
         shadow = ResumeShadow.start(original)
         try:
             remote_opencode = bool((original.get("runtime") or {}).get("server")) and (
