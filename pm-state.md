@@ -1,14 +1,23 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-10 18:40 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-10 19:30 +08:00 | 更新者: Codex PM
 
 ## 状态树
 
-### v0.4.58 (DEVELOPING) — DataNode RoleBinding 与 BindingAttempt
+### v0.4.59 (RELEASED) — freeze 经 TunnelNode 提交
+
+- freeze 在 working copy 上证明 live session；`live_session_proven` 之后才 `from_legacy_tunnel` / `to_legacy_tunnel` 投影回原 dict。
+- bullet run entry 延到 node 提交；entry 写失败 fail-closed，不改旧 binding。
+- ControlService.freeze 在 legacy freeze 成功后校验 TunnelNode。ResumeAttempt 仍是 shadow。
+- CLI 动词不变；独热仍是 occupancy last-writer，无 TTL。
+- 全量 pytest 通过（含 2 skipped）；wheel `dual_tmux-0.4.59-py3-none-any.whl`。
+
+### v0.4.58 (RELEASED) — DataNode RoleBinding 与 BindingAttempt
 
 - Tunnel 拥有 RoleBinding；AgentSession 不再携带 role。Occupancy 仍是独热事实。
 - freeze / 重建 bullet 走 BindingAttempt Graph：证明失败回滚旧 binding；外人占用不探测。
 - CLI `dt ownership` 与 Web 面板改为 occupancy（无 TTL）；「接管」走 resume。
+- PR #58 已合并；Release `v0.4.58` 已发布。
 
 ### v0.4.57 (RELEASED) — S6 Occupancy 运行节点
 
@@ -187,7 +196,7 @@
 
 ## 当前焦点
 
-- v0.4.56 主线：占用文件独热 + trigger tick 选源；热路径已拆除 4 秒租约。S6 删除残留 lease/handoff 代码。CLI 不阉割。
+- v0.4.59 已发布。下一步 S9：ResumeAttempt 从 shadow 升权威；ControlService 入口继续收薄到只发事件。CLI 不阉割。
 
 ## Backlog
 

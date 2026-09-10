@@ -10,6 +10,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from datanode.adapters import from_legacy_tunnel, to_legacy_tunnel
 from datanode.fsm_core import MemoryStateStore, TransitionError
 from datanode.models import (
     AgentRole,
@@ -46,12 +47,62 @@ def occupancy_context(tunnel_name: str) -> tuple[str, bool, str]:
         return holder, True, ""
 
 
-def _restore(data: dict[str, Any], snapshot: dict[str, Any]) -> None:
-    for key, value in snapshot.items():
-        if value is None:
-            data.pop(key, None)
+def persist_run_entry(session: str, cmd: str) -> None:
+    if not session:
+        return
+    from .store import write_entry
+
+    write_entry(session, cmd)
+
+
+def proven_payload(data: dict[str, Any], side: str, previous: str) -> dict[str, Any]:
+    other = "bullet" if side == "trigger" else "trigger"
+    side_info = data.get(side) or {}
+    runtime = data.get("runtime") or {}
+    candidate = str(side_info.get("session_id") or "")
+    payload = {
+        "session_id": candidate,
+        "tool": str(side_info.get("tool") or "opencode"),
+        "directory": str(side_info.get("directory") or ""),
+        "other_session_id": str((data.get(other) or {}).get("session_id") or ""),
+        "rebuild": bool(previous and candidate and previous != candidate),
+        "endpoint_kind": "",
+        "endpoint_server": str(runtime.get("server") or ""),
+        "endpoint_container": str(runtime.get("container") or ""),
+        "endpoint_directory": str(runtime.get("directory") or ""),
+    }
+    if side == "bullet":
+        if runtime.get("container"):
+            payload["endpoint_kind"] = "docker"
+        elif runtime.get("server"):
+            payload["endpoint_kind"] = "ssh"
         else:
-            data[key] = copy.deepcopy(value)
+            payload["endpoint_kind"] = "local"
+    return payload
+
+
+def apply_proven_binding(
+    target: dict[str, Any],
+    working: dict[str, Any],
+    side: str,
+    holder: str,
+) -> None:
+    """Commit a proven working copy through TunnelNode, then project back."""
+    working = copy.deepcopy(working)
+    side_info = working.setdefault(side, {})
+    if holder:
+        side_info["bound_by_client"] = holder
+    node = from_legacy_tunnel(working)
+    projected = to_legacy_tunnel(node, base=target)
+    for key in ("op_point", "run_point"):
+        if key in working:
+            projected[key] = copy.deepcopy(working[key])
+    if side == "bullet":
+        persist_run_entry(
+            str(projected.get("run") or ""),
+            str((projected.get("runtime") or {}).get("cmd") or ""),
+        )
+    target.update(projected)
 
 
 def run_freeze_attempt(
@@ -62,11 +113,8 @@ def run_freeze_attempt(
     wait: bool,
     body: Callable[[dict, str, str, str, bool], bool],
 ) -> bool:
-    """Prove, then commit. Failed prove restores the previous binding."""
-    keys = (side, "runtime", "run_point", "op_point")
-    snapshot = {key: copy.deepcopy(data.get(key)) for key in keys}
+    """Prove on a working copy, then commit the TunnelNode. Original stays put until bound."""
     previous = str((data.get(side) or {}).get("session_id") or "")
-    other = "bullet" if side == "trigger" else "trigger"
     holder, local_mode, occupancy_holder = occupancy_context(str(data.get("name") or ""))
     attempt_id = f"bind-{data.get('name')}-{side}-{uuid.uuid4().hex[:8]}"
     machine = BindingMachine.create(
@@ -107,9 +155,9 @@ def run_freeze_attempt(
         )
         return False
 
-    ok = body(data, side, tmux_name, tool, wait)
+    working = copy.deepcopy(data)
+    ok = body(working, side, tmux_name, tool, wait)
     if not ok:
-        _restore(data, snapshot)
         if machine.state is BindingAttemptState.PROVING:
             machine.send(
                 BindingEvent.LIVE_SESSION_MISSING,
@@ -122,33 +170,12 @@ def run_freeze_attempt(
             )
         return False
 
-    side_info = data.get(side) or {}
-    candidate = str(side_info.get("session_id") or "")
-    runtime = data.get("runtime") or {}
-    rebuild = bool(previous and candidate and previous != candidate)
-    payload = {
-        "session_id": candidate,
-        "tool": str(side_info.get("tool") or "opencode"),
-        "directory": str(side_info.get("directory") or ""),
-        "other_session_id": str((data.get(other) or {}).get("session_id") or ""),
-        "rebuild": rebuild,
-        "endpoint_kind": "",
-        "endpoint_server": str(runtime.get("server") or ""),
-        "endpoint_container": str(runtime.get("container") or ""),
-        "endpoint_directory": str(runtime.get("directory") or ""),
-    }
-    if side == "bullet":
-        if runtime.get("container"):
-            payload["endpoint_kind"] = "docker"
-        elif runtime.get("server"):
-            payload["endpoint_kind"] = "ssh"
-        else:
-            payload["endpoint_kind"] = "local"
+    payload = proven_payload(working, side, previous)
     try:
         machine.send(BindingEvent.LIVE_SESSION_PROVEN, payload)
+        apply_proven_binding(data, working, side, holder)
         machine.send(BindingEvent.COMMIT_SUCCEEDED, {})
-    except (TransitionError, ValidationError, ValueError) as exc:
-        _restore(data, snapshot)
+    except (TransitionError, ValidationError, ValueError, OSError) as exc:
         if machine.state is BindingAttemptState.COMMITTING:
             machine.send(
                 BindingEvent.COMMIT_FAILED,
@@ -175,8 +202,8 @@ def run_freeze_attempt(
         "freeze.bound",
         name=data.get("name"),
         side=side,
-        session=candidate,
-        rebuild=rebuild,
+        session=payload["session_id"],
+        rebuild=payload["rebuild"],
         ts=time.time(),
         attempt=attempt_id,
     )
