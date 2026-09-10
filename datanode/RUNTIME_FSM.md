@@ -1,15 +1,27 @@
 # dual-tmux 运行节点与 FSM 设计基线
-> **机制更正（2026-09-10）**：日常独热是占用文件，不是 Lease / Handoff / FaultTakeover。
-> 权威模型见 [`docs/core-architecture.md`](../docs/core-architecture.md)。
-> 现行 FSM：`ResumeAttemptNode` 在 persist/ticks 预检通过后写入 `OccupancyNode`，再 restore。
-> 下文 Handoff/Fault 章节是历史对照，热路径不再实现。
 
-
-> 状态：**核心状态、事件和六项取舍已确认；开始分阶段实现 Graph/Machine**。
+> 日常独热是 `OccupancyNode`，不是 Lease / Handoff / FaultTakeover。
+> 下一台要接到热路径的机器是 **BindingAttempt**（freeze / 重建 bullet）。
+> 状态与事件确认稿：[`docs/datanode-fsm.md`](../docs/datanode-fsm.md)。
+> 确认前不要把 Graph 接到 `freeze_sides`。
 >
-> 本文遵循 `fsm-agenty`：先确认运行节点、核心状态、事件和迁移，再使用固定
-> Graph + Machine 基线实现。2026-09-09 根据架构评审完成术语与时序修正，并作为首版
-> 实现基线。
+> 下文从原 §1 起的 Handoff / FaultTakeover 章节是历史对照，不是实现基线。
+
+## 0. 现行运行节点
+
+| 节点 | 要不要 FSM | 说明 |
+|---|---|---|
+| `OccupancyNode` | 否 | 一次覆盖写；daemon 读到外人就 park |
+| `BindingAttemptNode` | 是（待确认） | freeze / rebuild；hook 刷新 binding 与 endpoint |
+| `ResumeAttemptNode` | 已有 shadow | 拉 DST → tick → 预检 → 占用 → 恢复 |
+| `PaneRuntimeNode` | 否 | 每次采样新节点 |
+| `SnapshotRevisionNode` | 否 | 不可变内容身份 |
+
+BindingAttempt 的状态：`created → proving/committing → bound | rejected | failed`。
+Guard：占用是自己、live session 已证明、不等于对端 session、bullet endpoint 完整。
+`on_enter bound`：替换 RoleBinding；bullet 则刷新 RuntimeEndpoint 并用户级 rsync。
+rebuild 在 commit 成功前不得丢掉旧 binding。
+
 
 ## 1. 设计结论
 

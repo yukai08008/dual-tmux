@@ -560,6 +560,12 @@ def _ssh_argv(data: dict) -> list[str]:
 
 
 def _freeze_one(data: dict, side: str, tmux_name: str, tool: str, wait: bool) -> bool:
+    from .binding import run_freeze_attempt
+
+    return run_freeze_attempt(data, side, tmux_name, tool, wait, body=_freeze_one_body)
+
+
+def _freeze_one_body(data: dict, side: str, tmux_name: str, tool: str, wait: bool) -> bool:
     from . import agentclient
 
     point = wp.discover(tmux_name)
@@ -1256,10 +1262,11 @@ def cmd_ownership(args: argparse.Namespace) -> None:
     if getattr(args, "json", False):
         print(json.dumps(data, ensure_ascii=False, indent=2))
         return
-    lease = data["lease"]
+    occ = data.get("occupancy") or data.get("lease") or {}
     print(
-        f"{data['name']}  lease={lease['state']} holder={lease.get('holder') or '—'} "
-        f"generation={lease.get('generation') or 0}"
+        f"{data['name']}  occupancy={occ.get('state') or '—'} "
+        f"holder={occ.get('holder') or '—'} "
+        f"generation={occ.get('generation') or 0}"
     )
     for side in ("trigger", "bullet"):
         writer = data["writers"][side]
@@ -2006,19 +2013,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_resume.add_argument("name", nargs="?", help="defaults to latest tunnel")
     p_resume.add_argument(
-        "--force", action="store_true", help="steal hub lock from another Client"
+        "--force", action="store_true", help="claim occupancy from another Client"
     )
     p_resume.add_argument(
         "--plan", action="store_true", help="read-only ownership and resume preflight"
     )
     p_ownership = sub.add_parser(
-        "ownership", help="show lease, attachment, progress and session writers"
+        "ownership", help="show occupancy, attachment, progress and session writers"
     )
     p_ownership.add_argument("name", nargs="?", help="defaults to latest tunnel")
     p_ownership.add_argument("--json", action="store_true")
 
     p_drop = sub.add_parser(
-        "drop", help="kill local op_*/run_* and release hub lock; binding stays"
+        "drop", help="kill local op_*/run_*; release occupancy if held; DST stays"
     )
     p_drop.add_argument("name", nargs="?", help="defaults to latest tunnel")
     p_park = sub.add_parser("park", help="alias of dt drop")

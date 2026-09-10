@@ -100,4 +100,6 @@ Hub 不可达、锁屏、睡眠、占用暂时读不到，不得清退本地 tmu
 
 ## 和现行代码的关系
 
-S6：`OccupancyNode` 是独热事实。`resume` / Web 接管先拉 DST 与 persist，再写 occupancy。占用脚本只写 occupancy JSON 与兼容 lock，不再写 86400s lease sidecar。Hub 上残留的 handoff/fault Python 仍待删除，不在热路径。
+S6 已落地：`OccupancyNode` 是独热事实。`resume` / Web 接管先拉 DST 与 persist，再写 occupancy。Hub 上的 handoff/fault/lease 脚本已删除。
+
+S7：Tunnel 拥有 RoleBinding。S8：freeze / 重建 bullet 走 BindingAttempt（状态待确认，见 [datanode-fsm.md](datanode-fsm.md)）。

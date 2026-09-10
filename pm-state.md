@@ -1,10 +1,16 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-10 16:10 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-10 18:40 +08:00 | 更新者: Codex PM
 
 ## 状态树
 
-### v0.4.57 (DEVELOPING) — S6 Occupancy 运行节点
+### v0.4.58 (DEVELOPING) — DataNode RoleBinding 与 BindingAttempt
+
+- Tunnel 拥有 RoleBinding；AgentSession 不再携带 role。Occupancy 仍是独热事实。
+- freeze / 重建 bullet 走 BindingAttempt Graph：证明失败回滚旧 binding；外人占用不探测。
+- CLI `dt ownership` 与 Web 面板改为 occupancy（无 TTL）；「接管」走 resume。
+
+### v0.4.57 (RELEASED) — S6 Occupancy 运行节点
 
 - DataNode 增加 `OccupancyNode`；Resume FSM token 不再强制 lease revision / instance。
 - occupancy claim 只写 occupancy JSON + 兼容 lock，不再写 86400s lease sidecar。

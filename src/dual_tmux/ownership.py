@@ -259,9 +259,18 @@ def snapshot(data: dict, *, lease: dict | None = None) -> dict:
             "progress": progress,
             "evidence_sampled_at": int(ev.get("sampled_at") or 0),
         }
+    occupancy = {
+        "holder": str(lease.get("holder") or ""),
+        "generation": int(lease.get("generation") or 0),
+        "state": str(lease.get("state") or "free"),
+        "mine": str(lease.get("state") or "") in {"owned", "local"},
+        "ttl": None,
+        "source": str(lease.get("source") or "occupancy"),
+    }
     result = {
         "schema": SCHEMA,
         "name": name,
+        "occupancy": occupancy,
         "lease": lease,
         "runtime": {role: sides[role]["runtime"] for role in sides},
         "attached": {role: sides[role]["attached"] for role in sides},

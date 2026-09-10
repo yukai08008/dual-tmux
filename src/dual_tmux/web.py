@@ -974,7 +974,7 @@ def tunnels_page(selected: str = "") -> str:
         </div>
         <div class="sync" id="healthbox" style="margin-top:8px">health —</div>
         <div class="card" style="margin-top:10px">
-          <h2>Ownership 与安全接管</h2>
+          <h2>占用与接管</h2>
           <div id="ownershipbox" class="ownership"><div class="own-block">等待 daemon/tick 采集状态…</div></div>
           <div class="takeover-actions">
             <button type="button" class="ghost" id="btn-plan">刷新预检</button>
@@ -1482,10 +1482,11 @@ function renderSync(s) {{
   lastSync = s;
 }}
 const reasonText = {{
-  already_owned:'当前 Client 已持有，可恢复', free:'当前无人持有，可安全 claim', expired:'Lease 已过期，可安全 claim',
-  foreign_idle_detached:'其他 Client 持有，但两侧均 idle 且 detached，可请求 handoff',
-  ownership_cache_missing:'尚无 Ownership 缓存；请确认 dt daemon 正在运行或执行 dt tick',
-  ownership_cache_stale:'Ownership 缓存已过期；禁止依据旧证据接管', owner_evidence_stale:'Owner 证据已过期',
+  already_owned:'当前 Client 已占用，可恢复', free:'当前无人占用，可安全 claim', expired:'占用空闲，可安全 claim',
+  occupancy_steal:'其他 Client 占用，Resume 将声明本机占用',
+  foreign_idle_detached:'其他 Client 占用，Resume 将声明本机占用',
+  ownership_cache_missing:'尚无占用缓存；请确认 dt daemon 正在运行或执行 dt tick',
+  ownership_cache_stale:'占用缓存已过期；禁止依据旧证据接管', owner_evidence_stale:'占用证据已过期',
   not_a_frozen_dst:'隧道尚未 freeze 出 trigger/bullet 会话 ID',
   trigger_writer_probe_failed:'trigger writer 探测未知，禁止接管', bullet_writer_probe_failed:'bullet writer 探测未知，禁止接管',
   trigger_duplicate_writer:'trigger 存在重复 writer，禁止接管', bullet_duplicate_writer:'bullet 存在重复 writer，禁止接管',
@@ -1503,15 +1504,15 @@ function renderOwnership(plan) {{
   ownershipHint.textContent=(reasonText[reason]||reason)+' · cache '+ownValue(cache.freshness)+' · age '+ownValue(cache.age_seconds)+'s';
   document.getElementById('btn-resume').disabled=!safe;
   document.getElementById('btn-force-resume').disabled=!(safe&&plan.action==='claim');
-  document.getElementById('btn-handoff').disabled=!(safe&&(plan.action==='request_handoff'||plan.action==='claim'));
+  document.getElementById('btn-handoff').disabled=!(safe&&(plan.action==='claim'||plan.action==='resume'));
   if (!facts) {{
     ownershipBox.innerHTML='<div class="own-block">'+ownLine('预检','STOP','own-bad')+ownLine('原因',reasonText[reason]||reason)+ownLine('缓存',cache.freshness||'missing')+'</div>';
     return;
   }}
-  const lease=facts.lease||{{}}, writers=facts.writers||{{}}, native=facts.native_snapshots||{{}}, snap=facts.snapshot||{{}};
-  const local=lease.source==='local';
-  const leaseTitle=local?'本地单机（无 Hub lease）':'Lease';
-  let blocks='<div class="own-block"><h3>'+leaseTitle+'</h3>'+ownLine('state',lease.state)+ownLine('holder',lease.holder)+ownLine('instance',lease.instance_id)+ownLine('generation',lease.generation)+ownLine('TTL/age',local?'n/a':ownValue(lease.expires_at)+' / '+ownValue(lease.age_seconds)+'s')+ownLine('evidence',snap.freshness)+(lease.handoff?ownLine('handoff',(lease.handoff.status||'')+' · '+(lease.handoff.request_id||'')):'')+'</div>';
+  const occ=facts.occupancy||facts.lease||{{}}, writers=facts.writers||{{}}, native=facts.native_snapshots||{{}}, snap=facts.snapshot||{{}};
+  const local=occ.state==='local'||occ.source==='local';
+  const occTitle=local?'本地单机（无 Hub 占用）':'占用';
+  let blocks='<div class="own-block"><h3>'+occTitle+'</h3>'+ownLine('state',occ.state)+ownLine('holder',occ.holder)+ownLine('generation',occ.generation)+ownLine('mine',occ.mine)+ownLine('evidence',snap.freshness)+'</div>';
   ['trigger','bullet'].forEach(role=>{{
     const writer=writers[role]||{{}}, ns=native[role]||{{}};
     const bad=writer.status==='duplicate'||writer.status==='unknown';
@@ -1831,15 +1832,7 @@ autoOp.addEventListener('click', async () => {{
   }} finally {{ autoOp.disabled=false; }}
 }});
 document.getElementById('btn-plan').addEventListener('click',()=>refreshOwnership(activeTab));
-document.getElementById('btn-handoff').addEventListener('click',async()=>{{
-  const st=activeTab; if(!st||!st.name) return;
-  try {{
-    const j=await postForm('/api/ownership/handoff',{{t:st.name,reason:'web-safe-takeover'}});
-    const handoff=(j.data&&j.data.handoff)||{{}};
-    logLine('done','Handoff '+(handoff.status||'requested')+' · '+(handoff.request_id||''));
-    await refreshOwnership(st);
-  }} catch(err) {{ logLine('err','Handoff 失败 · '+String(err.message||err)); }}
-}});
+document.getElementById('btn-handoff').addEventListener('click',()=>executeResume(false));
 async function executeResume(force) {{
   const st=activeTab; if(!st||!st.name) return;
   if(force) {{

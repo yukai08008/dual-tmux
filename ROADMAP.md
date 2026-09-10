@@ -1,6 +1,6 @@
 # dual-tmux ROADMAP
 
-> v0.4.57：S6 拆除租约热路径。占用节点进入 DataNode；claim 不再写 lease sidecar；Web 接管走 resume。
+> v0.4.58：S7–S9。RoleBinding 为 DST 事实；freeze/rebuild 走 BindingAttempt；CLI/Web 占用语义对齐。
 > CLI 表面能力不阉割：`new / enter / work / freeze / resume / drop / ls / pull / push` 仍可用。
 > 本路线图的权威设计见 [docs/core-architecture.md](docs/core-architecture.md)。
 
@@ -22,6 +22,9 @@ flowchart LR
   S3 --> S4["S4 resume 按 tick 取新"]
   S4 --> S5["S5 daemon 只看占用"]
   S5 --> S6["S6 拆除租约协议"]
+  S6 --> S7["S7 DataNode 支点"]
+  S7 --> S8["S8 Binding FSM"]
+  S8 --> S9["S9 ControlService 发事件"]
 ```
 
 ## S1 占用文件独热（已落地）
@@ -75,6 +78,34 @@ flowchart LR
 功能：CLI 动词不变。Web/飞书仍调同一套 ControlService，内部改为占用而不是租约。
 
 体验：用户无感，故障面变小。
+
+
+## S7 节点成为领域支点（进行中）
+
+结构：Tunnel 拥有 RoleBinding；Session 不再携带 role。Occupancy 是独热事实。Client 是 `tm_*`。
+不建 ClientInstallation，不把 Lease 做成节点生命周期。
+
+功能：人和 Agent 都对着同一组 Pydantic 节点看隧道、DST、占用。CLI 仍走 dict，adapter 往返。
+
+体验：freeze / rebuild 的目标从“改 JSON 字段”变成“提交一条 RoleBinding”。
+
+## S8 BindingAttempt FSM（Graph 已接入 freeze）
+
+结构：freeze 与“trigger 重建 bullet”走同一 Graph。Guard 无副作用；`on_enter bound` 刷新 binding、endpoint、run entry，并做用户级 rsync。
+
+功能：重建 bullet 后隧道参数自动对齐，resume 不再先修再续。
+
+体验：用户或 trigger 发同一条 freeze/rebuild 命令语义；失败 fail-closed，旧 DST 仍可用。
+
+确认稿已实现：[docs/datanode-fsm.md](docs/datanode-fsm.md)。`dt freeze` / 重建会话走 `BindingMachine.send()`；证明失败回滚旧 binding。
+
+## S9 ControlService 发事件，入口保持薄（占用表面已对齐）
+
+结构：CLI / Web / 飞书只调用 ControlService。真正改节点必须 `Machine.send()`。Resume 顺序不变：拉 DST → tick → 预检 → 占用 → 按 binding 恢复。
+
+功能：现有 CLI 动词不减少。Web 面板改占用语义，不再画 Lease/TTL。
+
+体验：换机 `dt upgrade && dt pull && dt resume` 仍是日常路径。
 
 ## 不变量（全程）
 
