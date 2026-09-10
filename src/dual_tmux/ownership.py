@@ -10,7 +10,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-from . import hub
 from . import tmux as tmux_ops
 from .activity import read_evidence
 from .config import load_config
@@ -161,7 +160,6 @@ def _takeover(lease: dict, sides: dict, writers: dict) -> dict:
 
 def _occupancy_lease(data: dict) -> dict:
     """Map occupancy to the lease-shaped fact used by existing callers."""
-    from .config import load_config
     from .occupancy import foreign_holder, read_occupancy
 
     name = str(data.get("name") or "")
@@ -414,63 +412,6 @@ def plan_resume(data: dict) -> dict:
     return plan
 
 
-def _claim_after_service_fence(data: dict, lease: dict) -> dict:
-    """Reserve, clean, then atomically publish a new Hub generation."""
-    name = str(data.get("name") or "")
-    generation = int(lease.get("generation") or 0)
-    reservation = hub.reserve_fault_takeover(name, generation)
-    request_id = str(reservation.get("request_id") or "")
-    try:
-        if (data.get("runtime") or {}).get("server"):
-            from .recovery import fence_remote_bullet
-
-            fenced = fence_remote_bullet(data)
-            if fenced is None:
-                raise SystemExit(
-                    "[err] service-side cleanup could not be verified; "
-                    "ownership was not changed"
-                )
-        acquired = hub.finish_fault_takeover(name, request_id, generation)
-    except BaseException:
-        cancellation = None
-        try:
-            cancellation = hub.cancel_fault_takeover(name, request_id, generation)
-        except (OSError, SystemExit):
-            pass
-        if cancellation and cancellation.get("code") == "already_committed":
-            return {
-                "holder": str(cancellation.get("holder") or load_config().client),
-                "generation": int(cancellation.get("generation") or 0),
-            }
-        raise
-    return {
-        "holder": str(acquired.get("holder") or load_config().client),
-        "generation": int(acquired.get("generation") or 0),
-    }
-
-
-def _acquire_expired(data: dict, lease: dict) -> dict:
-    """Recover an expired lease without fencing this installation's own work.
-
-    Lease v2 intentionally has a short deadline.  A sleeping Client or a
-    resume command that spans that deadline may observe its *own* exact
-    generation as expired.  Renewing that Client+instance+generation tuple is
-    already atomic with fault takeover on the Hub, so killing the service-side
-    bullet would be both unnecessary and destructive.  Only an expired lease
-    from another installation needs the fenced cleanup path.
-    """
-    generation = int(lease.get("generation") or 0)
-    same_instance = bool(
-        lease.get("lease_protocol") == 2
-        and generation > 0
-        and lease.get("instance_id")
-        and lease.get("instance_id") == hub.existing_instance_id()
-    )
-    if same_instance:
-        return hub.renew_ownership(str(data.get("name") or ""), generation)
-    return _claim_after_service_fence(data, lease)
-
-
 def acquire_for_resume(data: dict, plan: dict, *, force: bool = False) -> dict:
     if not plan.get("safe"):
         raise SystemExit(
@@ -487,7 +428,6 @@ def acquire_for_resume(data: dict, plan: dict, *, force: bool = False) -> dict:
 
 
 def verify_resume(data: dict, token: dict) -> dict:
-    from .config import load_config
     from .occupancy import read_occupancy
 
     name = str(data.get("name") or "")
