@@ -112,6 +112,7 @@ def test_two_client_handoff_is_exclusive_under_ten_seconds(monkeypatch, tmp_path
     }
     old_cfg = AppConfig(client="tm_old", server="hub", user="test")
     new_cfg = AppConfig(client="tm_new", server="hub", user="test")
+    monkeypatch.setattr("dual_tmux.resume_attempt.load_config", lambda: new_cfg)
 
     def read_ownership(_name, *_args):
         with state_lock:
@@ -336,6 +337,7 @@ def test_control_resume_restores_input_ready_trigger_under_ten_seconds(
     }
     old_cfg = AppConfig(client="tm_old", server="hub", user="test")
     new_cfg = AppConfig(client="tm_new", server="hub", user="test")
+    monkeypatch.setattr("dual_tmux.resume_attempt.load_config", lambda: new_cfg)
 
     def read_ownership(_name, *_args):
         with state_lock:

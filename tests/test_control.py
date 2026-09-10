@@ -173,11 +173,9 @@ def test_control_wraps_legacy_freeze_resume_and_model(monkeypatch):
         "auto",
     ]
     assert service.resume("msg", True).data["call"] == ["msg", True]
-    shadow_files = list(
-        (tunnels_dir().parent / "fsm-shadow" / "resume").glob("*.json")
-    )
-    assert len(shadow_files) == 1
-    assert json.loads(shadow_files[0].read_text())["state"] == "completed"
+    resume_files = list((tunnels_dir().parent / "fsm" / "resume").glob("*.json"))
+    assert len(resume_files) == 1
+    assert json.loads(resume_files[0].read_text())["state"] == "completed"
     assert service.model("msg", "p/m", ["trigger"]).data["call"] == [
         "msg",
         "p/m",

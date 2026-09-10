@@ -1,8 +1,9 @@
 """Pure, persisted ResumeAttempt FSM.
 
-This module deliberately performs no tmux, SSH, snapshot or Hub I/O.  External
-workers perform an action and report its validated result as an event.  That
-keeps guards side-effect free and makes the first integration phase shadow-only.
+This module deliberately performs no tmux, SSH, snapshot or Hub I/O. External
+workers perform an action and report its validated result as an event. Guards
+stay side-effect free. ControlService.resume is the worker: it may not claim
+occupancy or restore tmux unless the matching event is accepted.
 """
 
 from __future__ import annotations
@@ -74,6 +75,7 @@ OwnershipToken = OccupancyToken
 
 class VerificationEvidence(StrictModel):
     generation: int = Field(ge=0)
+    occupancy_holder: str = ""
     trigger_writer_count: int = Field(ge=0)
     bullet_writer_count: int = Field(ge=0)
     trigger_observation_id: str = Field(min_length=1)
@@ -126,12 +128,15 @@ class ResumeAttemptNode(StrictModel):
             if verification.generation != ownership_token.generation:
                 raise ValueError("verification generation differs from ownership token")
             if (
-                verification.trigger_writer_count != 1
-                or verification.bullet_writer_count != 1
+                verification.occupancy_holder
+                and verification.occupancy_holder != self.claimant_client_id
             ):
-                raise ValueError(
-                    "completed resume requires exactly one writer per role"
-                )
+                raise ValueError("verification occupancy holder differs from claimant")
+            if (
+                verification.trigger_writer_count > 1
+                or verification.bullet_writer_count > 1
+            ):
+                raise ValueError("completed resume cannot have multiple writers per role")
         if (
             self.state
             in {ResumeState.REJECTED, ResumeState.FAILED, ResumeState.ATTENTION}
@@ -240,15 +245,19 @@ def _token_matches_claimant(context: dict) -> bool:
     )
 
 
-def _verification_matches_lease(context: dict) -> bool:
+def _verification_matches_occupancy(context: dict) -> bool:
     payload = _payload(context)
     node: ResumeAttemptNode = context["node"]
-    return bool(
-        isinstance(payload, VerificationPassed)
-        and node.ownership_token
-        and payload.evidence.generation == node.ownership_token.generation
-        and payload.evidence.trigger_writer_count == 1
-        and payload.evidence.bullet_writer_count == 1
+    if not isinstance(payload, VerificationPassed) or node.ownership_token is None:
+        return False
+    evidence = payload.evidence
+    if evidence.generation != node.ownership_token.generation:
+        return False
+    if evidence.trigger_writer_count > 1 or evidence.bullet_writer_count > 1:
+        return False
+    return (
+        not evidence.occupancy_holder
+        or evidence.occupancy_holder == node.claimant_client_id
     )
 
 
@@ -330,7 +339,7 @@ def resume_graph() -> Graph:
             },
             (state.VERIFYING, state.COMPLETED): {
                 "event": event.VERIFICATION_PASSED.value,
-                "guard": _verification_matches_lease,
+                "guard": _verification_matches_occupancy,
                 "on_enter": _enter(state.COMPLETED),
             },
             (state.VERIFYING, state.ROLLING_BACK): {

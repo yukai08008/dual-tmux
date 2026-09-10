@@ -73,7 +73,7 @@ def machine_at_restoring(*, newly_acquired=True):
     return machine
 
 
-def test_happy_path_requires_ownership_before_restore_and_exactly_one_writer():
+def test_happy_path_requires_occupancy_before_restore():
     machine = machine_at_restoring()
     assert machine.node.ownership_token.generation == 8
     machine.send(
@@ -170,18 +170,33 @@ def test_uncertain_rollback_requires_attention():
     "evidence",
     [
         verification(generation=7),
-        verification(trigger_writer_count=0),
         verification(trigger_writer_count=2),
-        verification(bullet_writer_count=0),
         verification(bullet_writer_count=2),
+        verification(occupancy_holder="tm-other"),
     ],
 )
-def test_verification_rejects_stale_generation_or_non_unique_writers(evidence):
+def test_verification_rejects_stale_generation_split_brain_or_foreign_holder(evidence):
     machine = machine_at_restoring()
     machine.send(ResumeEvent.RESTORE_COMPLETED, {})
     with pytest.raises(TransitionError, match="guard rejected"):
         machine.send(ResumeEvent.VERIFICATION_PASSED, {"evidence": evidence})
     assert machine.state is ResumeState.VERIFYING
+
+
+def test_verification_allows_unprobed_writers_when_occupancy_matches():
+    machine = machine_at_restoring()
+    machine.send(ResumeEvent.RESTORE_COMPLETED, {})
+    machine.send(
+        ResumeEvent.VERIFICATION_PASSED,
+        {
+            "evidence": verification(
+                trigger_writer_count=0,
+                bullet_writer_count=0,
+                occupancy_holder="tm-home",
+            )
+        },
+    )
+    assert machine.state is ResumeState.COMPLETED
 
 
 def test_snapshot_round_trip_and_corruption_detection():
