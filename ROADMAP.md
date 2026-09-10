@@ -1,6 +1,6 @@
 # dual-tmux ROADMAP
 
-> 从现行 v0.4.55.post10（租约 / handoff / fault-takeover）迁到「续接工作点」的简单模型。
+> v0.4.56 主线：占用文件独热 + trigger tick 选源。租约协议仅残留兼容 sidecar，待 S6 删除。
 > CLI 表面能力不阉割：`new / enter / work / freeze / resume / drop / ls / pull / push` 仍可用。
 > 本路线图的权威设计见 [docs/core-architecture.md](docs/core-architecture.md)。
 
