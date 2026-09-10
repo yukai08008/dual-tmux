@@ -122,7 +122,7 @@ flowchart LR
 |---|---|---|---|---|---|
 | `created` | `live_session_proven` | 服务模式 occupancy holder 是本机；session ≠ 对端；bullet 的 endpoint 完整 | `committing` | 无（guard 无副作用） | 拒绝则 `rejected`，旧 binding 不动 |
 | `created` | `live_session_missing` | 无 | `rejected` | 无 | 提示先 `dt enter/work --oc` |
-| `committing` | `commit_succeeded` | candidate 仍等于 proven session | `bound` | **on_enter bound**：替换 RoleBinding；bullet 则刷新 endpoint/`runtime.cmd`/run entry；用户级 rsync | hook 失败发 `commit_failed` |
+| `committing` | `commit_succeeded` | candidate 仍等于 proven session | `bound` | Graph `on_enter` 只更新 BindingAttemptNode。Tunnel 提交在 worker hook `apply_proven_binding`（TunnelNode 往返；bullet 写 run entry）里，且必须发生在本事件之前 | hook 失败发 `commit_failed`，原 dict 不改 |
 | `committing` | `commit_failed` | 无 | `failed` | 不回写半份 Tunnel | 旧 DST 仍可用 |
 | 其他组合 | 任意 | — | 非法 | 状态不变 | — |
 
@@ -135,12 +135,15 @@ flowchart LR
 ```text
 trigger 重建 bullet 会话
   → BindingAttempt(intent=rebuild, role=bullet)
+  → 在 working copy 上证明 live session / endpoint（不写原 Tunnel JSON、不写 entry）
   → guard: 占用是自己；新 session 已证明；≠ trigger session
-  → on_enter bound:
-       1. 替换 Tunnel.bullet RoleBinding（新 session_id / directory / tool）
-       2. 用已证明的 live point 覆盖 RuntimeEndpoint
-       3. 派生 reconnect_command，写 run_* entry
-       4. 立即用户级 rsync（DST 是用户级数据）
+  → worker hook apply_proven_binding:
+       1. from_legacy_tunnel(working) 校验 TunnelNode
+       2. 投影 RoleBinding + RuntimeEndpoint（reconnect_command）
+       3. bullet 先 persist_run_entry，失败则原 dict 不动
+       4. 再写回原 tunnel dict
+  → send commit_succeeded；Graph on_enter 只更新 attempt 节点
+  → freeze 入口再 stamp / save / 用户级 rsync
   → 旧 binding 只在 commit 成功后丢弃
 ```
 
