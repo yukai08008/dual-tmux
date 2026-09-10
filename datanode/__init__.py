@@ -2,6 +2,7 @@
 
 from .adapters import (
     from_legacy_tunnel,
+    occupancy_from_hub,
     ownership_from_hub,
     pane_from_ownership_facts,
     snapshot_from_revision,
@@ -14,6 +15,7 @@ from .models import (
     DockerEndpointNode,
     LeaseState,
     LocalEndpointNode,
+    OccupancyNode,
     OwnershipLeaseNode,
     PaneRuntimeNode,
     RuntimeEndpointNode,
@@ -30,6 +32,7 @@ __all__ = [
     "DockerEndpointNode",
     "LeaseState",
     "LocalEndpointNode",
+    "OccupancyNode",
     "OwnershipLeaseNode",
     "PaneRuntimeNode",
     "RuntimeEndpointNode",
@@ -38,6 +41,7 @@ __all__ = [
     "TunnelNode",
     "WriterEvidence",
     "from_legacy_tunnel",
+    "occupancy_from_hub",
     "ownership_from_hub",
     "pane_from_ownership_facts",
     "snapshot_from_revision",

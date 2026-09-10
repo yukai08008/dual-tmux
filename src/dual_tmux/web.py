@@ -978,7 +978,7 @@ def tunnels_page(selected: str = "") -> str:
           <div id="ownershipbox" class="ownership"><div class="own-block">等待 daemon/tick 采集状态…</div></div>
           <div class="takeover-actions">
             <button type="button" class="ghost" id="btn-plan">刷新预检</button>
-            <button type="button" class="ghost" id="btn-handoff" disabled>请求 Handoff</button>
+            <button type="button" class="ghost" id="btn-handoff" disabled>接管</button>
             <button type="button" id="btn-resume" disabled>执行安全 Resume</button>
             <button type="button" class="danger" id="btn-force-resume" disabled>高风险 Force Resume</button>
           </div>
@@ -1503,7 +1503,7 @@ function renderOwnership(plan) {{
   ownershipHint.textContent=(reasonText[reason]||reason)+' · cache '+ownValue(cache.freshness)+' · age '+ownValue(cache.age_seconds)+'s';
   document.getElementById('btn-resume').disabled=!safe;
   document.getElementById('btn-force-resume').disabled=!(safe&&plan.action==='claim');
-  document.getElementById('btn-handoff').disabled=!(safe&&plan.action==='request_handoff');
+  document.getElementById('btn-handoff').disabled=!(safe&&(plan.action==='request_handoff'||plan.action==='claim'));
   if (!facts) {{
     ownershipBox.innerHTML='<div class="own-block">'+ownLine('预检','STOP','own-bad')+ownLine('原因',reasonText[reason]||reason)+ownLine('缓存',cache.freshness||'missing')+'</div>';
     return;

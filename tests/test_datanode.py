@@ -8,6 +8,7 @@ from datanode import (
     AgentSessionNode,
     DockerEndpointNode,
     LocalEndpointNode,
+    OccupancyNode,
     OwnershipLeaseNode,
     PaneRuntimeNode,
     RuntimeEndpointNode,
@@ -16,6 +17,7 @@ from datanode import (
     TunnelNode,
     WriterEvidence,
     from_legacy_tunnel,
+    occupancy_from_hub,
     ownership_from_hub,
     pane_from_ownership_facts,
     snapshot_from_revision,
@@ -114,6 +116,19 @@ def test_docker_requires_complete_location_and_derives_reconnect_command():
     assert "-p 2222" in endpoint.reconnect_command
     assert "docker exec -it agent" in endpoint.reconnect_command
     assert SshEndpointNode(server="box").kind == "ssh"
+
+
+def test_occupancy_is_last_writer_without_ttl():
+    node = OccupancyNode(tunnel_name="dt-a", holder="tm_here", generation=4)
+    assert node.identity == "dt-a@4"
+    assert node.is_foreign("tm_other") is True
+    assert node.is_foreign("tm_here") is False
+    mapped = occupancy_from_hub(
+        {"name": "dt-a", "holder": "tm_home", "generation": 9, "claimed_at": 1}
+    )
+    assert mapped.holder == "tm_home"
+    assert mapped.generation == 9
+    assert mapped.claimed_at is not None
 
 
 def test_active_v2_lease_requires_holder_and_instance_and_never_regresses():
