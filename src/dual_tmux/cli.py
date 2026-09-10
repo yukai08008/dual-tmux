@@ -642,7 +642,6 @@ def _freeze_one_body(data: dict, side: str, tmux_name: str, tool: str, wait: boo
             return
         data["runtime"] = copy.deepcopy(candidate.get("runtime") or {})
         data["run_point"] = copy.deepcopy(point)
-        write_entry(data["run"], (data.get("runtime") or {}).get("cmd") or "")
 
     actual_local_client = agentclient.detect_name(process_commands)
     client_name = actual_local_client or agentclient.normalize_name(requested_tool)

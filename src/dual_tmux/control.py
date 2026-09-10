@@ -292,9 +292,21 @@ class ControlService:
     def freeze(
         self, name: str, sides: list[str] | None = None, tool: str = "auto"
     ) -> ControlResult:
+        from pydantic import ValidationError
+
+        from datanode.adapters import from_legacy_tunnel
+
         from .cli import _apply_freeze_legacy
 
         data = _translate(lambda: _apply_freeze_legacy(name, sides, tool))
+        try:
+            from_legacy_tunnel(data)
+        except (ValidationError, ValueError) as exc:
+            raise ControlError(
+                "invalid_tunnel_node",
+                f"freeze committed an invalid TunnelNode: {exc}",
+                status=409,
+            ) from exc
         return ControlResult("session.freeze", data, _event("session.freeze"))
 
     def resume(self, name: str | None, force: bool = False) -> ControlResult:
