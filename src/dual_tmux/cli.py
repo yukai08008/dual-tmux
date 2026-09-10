@@ -2202,7 +2202,7 @@ def build_parser() -> argparse.ArgumentParser:
         "doctor", help="check config, tmux, ssh; apply persist tenant hotfix"
     )
     sub.add_parser("hotfix", help="apply persist tenant hotfix without upgrading")
-    sub.add_parser("upgrade", help="upgrade via uv tool, then exec dt hotfix")
+    sub.add_parser("upgrade", help="upgrade to the latest GitHub Release")
     return parser
 
 

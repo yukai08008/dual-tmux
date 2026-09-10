@@ -1,8 +1,14 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-10 19:30 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-10 21:40 +08:00 | 更新者: Codex PM
 
 ## 状态树
+
+### v0.4.59.post1 (RELEASED) — Resume 同步完成前不进 tmux
+
+- `dt resume` 先拉 Hub / persist，展示真实 rsync 进度；subprocess 未成功退出不 attach。
+- persist 失败 fail-closed，不用旧快照静默恢复。`dt upgrade` 安装本版并自动落地 persist 脚本。
+- 回归：resume sync gate、rsync progress、fail-closed attach。
 
 ### v0.4.59 (RELEASED) — freeze 经 TunnelNode 提交
 
