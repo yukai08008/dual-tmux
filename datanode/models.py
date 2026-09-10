@@ -1,7 +1,6 @@
 """Pydantic definitions for dual-tmux business and runtime nodes.
 
-These models deliberately contain no I/O.  They define legal in-memory domain
-facts; adapters own conversion to and from the current JSON dictionaries.
+These models contain no I/O. Adapters convert to and from current JSON dicts.
 """
 
 from __future__ import annotations
@@ -43,6 +42,20 @@ class WriterStatus(str, Enum):
     UNKNOWN = "unknown"
 
 
+class BindingIntent(str, Enum):
+    FREEZE = "freeze"
+    REBUILD = "rebuild"
+
+
+class BindingAttemptState(str, Enum):
+    CREATED = "created"
+    PROVING = "proving"
+    COMMITTING = "committing"
+    BOUND = "bound"
+    REJECTED = "rejected"
+    FAILED = "failed"
+
+
 class AgentClientMetadata(NodeModel):
     """Observed Agent executable metadata; absence never invalidates a binding."""
 
@@ -58,18 +71,44 @@ class AgentClientMetadata(NodeModel):
 
 
 class AgentSessionNode(NodeModel):
-    """Business binding between one tunnel role and one durable Agent session."""
+    """Native recoverable Agent session. Role is not an attribute of the session."""
 
     session_id: str = Field(min_length=1)
-    role: AgentRole
     tool: str = Field(default="opencode", min_length=1)
     model: str = ""
     slug: str = ""
     agent: str = ""
     directory: str = ""
+    client: AgentClientMetadata | None = None
+
+    @computed_field
+    @property
+    def identity(self) -> str:
+        return f"{self.tool}:{self.session_id}"
+
+
+class RoleBindingNode(NodeModel):
+    """A tunnel role bound to one Agent session. This is the DST relation."""
+
+    tunnel_name: str = Field(pattern=r"^dt-")
+    role: AgentRole
+    session: AgentSessionNode
     parser: str = ""
     frozen_at: datetime | None = None
-    client: AgentClientMetadata | None = None
+    bound_by_client: str = ""
+
+    @computed_field
+    @property
+    def identity(self) -> str:
+        return f"{self.tunnel_name}:{self.role.value}"
+
+
+class ClientNode(NodeModel):
+    """User-visible machine identity (tm_*). Occupancy holder is this id."""
+
+    client_id: str = Field(pattern=r"^tm_[A-Za-z0-9][A-Za-z0-9_.-]*$")
+    user: str = ""
+    display_name: str = ""
 
 
 class LocalEndpointNode(NodeModel):
@@ -137,31 +176,42 @@ RuntimeEndpointNode = Annotated[
 
 
 class TunnelNode(NodeModel):
-    """User-visible dual-ended tunnel and its durable Agent bindings."""
+    """User-visible dual-ended tunnel. DST means both role bindings exist."""
 
     name: str = Field(pattern=r"^dt-[A-Za-z0-9][A-Za-z0-9_.-]*$")
     op: str = Field(pattern=r"^op_[A-Za-z0-9][A-Za-z0-9_.-]*$")
     run: str = Field(pattern=r"^run_[A-Za-z0-9][A-Za-z0-9_.-]*$")
     endpoint: RuntimeEndpointNode
-    trigger: AgentSessionNode | None = None
-    bullet: AgentSessionNode | None = None
+    trigger: RoleBindingNode | None = None
+    bullet: RoleBindingNode | None = None
     client: str = ""
     user: str = ""
     branched_from: str | None = None
     updated_at: datetime | None = None
 
+    @computed_field
+    @property
+    def is_dst(self) -> bool:
+        return self.trigger is not None and self.bullet is not None
+
     @model_validator(mode="after")
     def legal_bindings(self) -> TunnelNode:
         if self.op == self.run:
             raise ValueError("op and run tmux identities must differ")
-        if self.trigger and self.trigger.role is not AgentRole.TRIGGER:
-            raise ValueError("trigger binding must have role=trigger")
-        if self.bullet and self.bullet.role is not AgentRole.BULLET:
-            raise ValueError("bullet binding must have role=bullet")
+        for binding, expected in (
+            (self.trigger, AgentRole.TRIGGER),
+            (self.bullet, AgentRole.BULLET),
+        ):
+            if binding is None:
+                continue
+            if binding.role is not expected:
+                raise ValueError(f"{expected.value} binding must have role={expected.value}")
+            if binding.tunnel_name != self.name:
+                raise ValueError("binding tunnel_name must match TunnelNode.name")
         if (
             self.trigger
             and self.bullet
-            and self.trigger.session_id == self.bullet.session_id
+            and self.trigger.session.session_id == self.bullet.session.session_id
         ):
             raise ValueError("trigger and bullet cannot bind the same session")
         return self
@@ -184,9 +234,41 @@ class OccupancyNode(NodeModel):
         return bool(self.holder and self.holder != client)
 
 
+class BindingAttemptNode(NodeModel):
+    """One freeze or rebuild attempt. Graph/Machine is not wired until states are confirmed."""
+
+    attempt_id: str = Field(min_length=1)
+    tunnel_name: str = Field(pattern=r"^dt-")
+    role: AgentRole
+    intent: BindingIntent
+    state: BindingAttemptState = BindingAttemptState.CREATED
+    holder: str = ""
+    previous_session_id: str = ""
+    candidate_session_id: str = ""
+    candidate_directory: str = ""
+    error: str = ""
+
+    @computed_field
+    @property
+    def identity(self) -> str:
+        return self.attempt_id
+
+    @model_validator(mode="after")
+    def legal_candidate(self) -> BindingAttemptNode:
+        if self.state in {BindingAttemptState.COMMITTING, BindingAttemptState.BOUND}:
+            if not self.candidate_session_id:
+                raise ValueError("committing/bound attempts require a proven session")
+            if (
+                self.previous_session_id
+                and self.previous_session_id == self.candidate_session_id
+                and self.intent is BindingIntent.REBUILD
+            ):
+                raise ValueError("rebuild must bind a different session than the previous one")
+        return self
+
+
 class OwnershipLeaseNode(NodeModel):
     """Legacy lease snapshot. OccupancyNode is the exclusive-control fact."""
-
 
     tunnel_name: str = Field(pattern=r"^dt-")
     generation: int = Field(ge=0)

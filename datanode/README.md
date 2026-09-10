@@ -4,9 +4,9 @@
 >
 > 运行节点与 FSM 候选设计见 [`RUNTIME_FSM.md`](RUNTIME_FSM.md)。
 >
-> 业务节点的完整盘点、当前第一稿的缺口与下一步调整，见
-> [`BUSINESS_NODES.md`](BUSINESS_NODES.md)。本文主要说明当前已经实现并测试的第一版
-> 模型。
+> BindingAttempt 状态/事件确认稿见 [`../docs/datanode-fsm.md`](../docs/datanode-fsm.md)。
+>
+> 业务节点盘点见 [`BUSINESS_NODES.md`](BUSINESS_NODES.md)。
 
 这里定义 dual-tmux 的第一版运行时领域节点。它的目的不是给现有 JSON
 换一个类型外壳，而是建立稳定的事实边界，让 CLI、Web 和后续服务共同调用同一套
@@ -25,42 +25,36 @@ flowchart LR
 
   subgraph Business["业务类节点"]
     Tunnel["TunnelNode<br/>id: name"]
-    Trigger["AgentSessionNode<br/>id: session_id / trigger"]
-    Bullet["AgentSessionNode<br/>id: session_id / bullet"]
-    Endpoint["RuntimeEndpointNode<br/>id: kind + location"]
+    TriggerBind["RoleBindingNode<br/>trigger"]
+    BulletBind["RoleBindingNode<br/>bullet"]
+    Endpoint["RuntimeEndpoint<br/>值对象"]
   end
 
   subgraph Runtime["运行类节点"]
-    Lease["OwnershipLeaseNode<br/>id: tunnel + generation"]
-    TriggerPane["PaneRuntimeNode<br/>trigger observation"]
-    BulletPane["PaneRuntimeNode<br/>bullet observation"]
-    Snapshot["SnapshotRevisionNode<br/>id: session + digest"]
+    Occupancy["OccupancyNode"]
+    Attempt["BindingAttemptNode"]
+    TriggerPane["PaneRuntimeNode"]
+    Snapshot["SnapshotRevisionNode"]
   end
 
   Legacy -->|"边界转换"| Tunnel
-  Tunnel -->|"拥有 0..1"| Trigger
-  Tunnel -->|"拥有 0..1"| Bullet
-  Tunnel -->|"引用 1:1"| Endpoint
-  Lease -->|"按 tunnel_name 协调独热"| Tunnel
-  TriggerPane -->|"按 session_id 观察"| Trigger
-  BulletPane -->|"按 session_id 观察"| Bullet
-  Snapshot -->|"按 session_id 恢复/校验"| Trigger
-  Snapshot -->|"按 session_id 恢复/校验"| Bullet
+  Tunnel -->|"拥有 0..1"| TriggerBind
+  Tunnel -->|"拥有 0..1"| BulletBind
+  Tunnel -->|"包含"| Endpoint
+  Occupancy -->|"按 tunnel_name 协调独热"| Tunnel
+  Attempt -->|"提交则替换"| TriggerBind
+  Attempt -->|"提交则替换"| BulletBind
+  TriggerPane -->|"观察不得改写"| TriggerBind
+  Snapshot -->|"按 session_id 校验"| TriggerBind
 ```
 
 逐边语义：
 
-- `TunnelNode` 保存 trigger/bullet 绑定。未 freeze 的普通 DT 没有绑定，因此是
-  `0..1`，不能因为缺 session 被判成坏数据；绑定的创建和替换来自明确的 freeze、
-  bind 或 resume 操作。
-- `TunnelNode` 保存一个 endpoint 引用。endpoint 表达 bullet 的稳定工作位置；重连
-  命令由它派生，不再成为另一个独立事实源。
-- Hub 持有 `OwnershipLeaseNode`。它只引用 tunnel identity，不拥有或复制 tunnel；
-  generation 变化不得改写业务绑定。
-- pane 节点是某时刻的观察，daemon/CLI 采样后即可失效。它不能反向覆盖 session
-  binding，锁屏或采样失败也不能据此清退本地 tmux。
-- snapshot revision 由持久化扫描创建，按 session ID 关联；它只保存冲突判断所需的
-  revision 事实，不复制完整会话内容。
+- `TunnelNode` 拥有 0..2 个 `RoleBindingNode`。未 freeze 的 DT 没有绑定，不能因此判坏。
+- Endpoint 是值对象；重连命令由位置派生。
+- `OccupancyNode` 只协调独热，不改 binding。
+- pane 是观察，不能反向覆盖 binding，也不能单独清退本地 tmux。
+- BindingAttempt 提交成功才替换 binding；rebuild 在 commit 前保留旧 DST。
 
 ## 业务类节点
 
@@ -72,11 +66,17 @@ flowchart LR
   session。
 - 生命周期：`dt new` 创建，`dt rm` 删除；tmux 进程退出不会删除该业务事实。
 
+### `RoleBindingNode`
+
+- 身份：`tunnel + role`。
+- 事实：引用的 AgentSession、parser、frozen_at、bound_by_client。
+- 生命周期：freeze / rebuild commit 时替换；pane down 不等于失效。
+
 ### `AgentSessionNode`
 
-- 身份：Agent 原生 `session_id`；role 是它在一个 tunnel 内的绑定语义。
-- 事实：tool、model、slug、agent、directory 及可选客户端版本元数据。
-- 生命周期：freeze/bind 建立，显式换模型或重新绑定时替换；pane down 不等于失效。
+- 身份：`tool + session_id`。没有 role。
+- 事实：model、slug、agent、directory 及可选客户端元数据。
+- 生命周期：原生会话存在即可；解绑后仍可存在。
 
 ### `RuntimeEndpointNode`
 
@@ -86,13 +86,14 @@ flowchart LR
 
 ## 运行类节点
 
-### `OwnershipLeaseNode`
+### `OccupancyNode`
 
-- 身份：`tunnel_name + generation`，它是 Hub 发布的版本化协调记录，不是 append-only
-  共识日志；Hub 是权威所有者。
-- active (`owned/foreign`) 必须有 holder；v2 active 还必须有 instance ID。
-- `succeeds()` 显式检查 generation 不倒退。真正的 acquire/renew/handoff/fence 后续应由
-  独立领域操作或 attempt FSM 约束；Lease 自身不建立长流程 FSM。
+- 身份：`tunnel_name + generation`。无 TTL，后写覆盖。
+- holder 是 `tm_*`。它只协调独热，不改 binding。
+
+### `BindingAttemptNode`
+
+- 一次 freeze 或 rebuild。Graph 待状态确认后接入。
 
 ### `PaneRuntimeNode`
 

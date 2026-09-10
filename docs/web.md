@@ -56,7 +56,7 @@ Do **not** defer the pane UI. Do **not** start with a card board that only lists
 - The tunnel catalog is refreshed from `/api/tunnels` every five seconds and whenever search gains
   focus, so DTs created after the page opened appear without a full browser reload.
 - Selecting or refreshing an offline DST never starts it. The Ownership panel first shows a
-  read-only resume plan; the user must explicitly request handoff or resume.
+  read-only resume plan; the user must explicitly resume to claim occupancy.
 - The **指南** tab groups common workflows and provides a command reference. All pages share an
   inline SVG favicon, so the local console is identifiable in browser tabs without static assets.
 - Trigger Q&A follows new messages only while its scrollbar is already near the bottom, preserving
@@ -81,13 +81,13 @@ The tunnel page now covers the daily business control loop without a terminal:
 
 Capability data disables OpenCode-only model controls for Codex/Claude. GET polling remains read-only. Host-maintenance commands (`upgrade`, `hotfix`, cron installation) stay CLI-only because a local web page should not silently mutate its own software supply chain or host scheduler.
 
-## Ownership and safe takeover (v0.4.54)
+## Occupancy and takeover
 
-`dt daemon` and `dt tick` collect Lease v2, semantic activity, attachment, writer and native-session facts into atomic files under `~/.dual-tmux/ownership-cache/`. The browser reads only this cache through `GET /api/ownership` and `GET /api/resume/plan`; page load, refresh and tab switching do not run Hub pull, SSH or writer probes and do not claim or resume anything.
+`dt daemon` and `dt tick` collect occupancy, attachment, writer and native-session facts into atomic files under `~/.dual-tmux/ownership-cache/`. The browser reads only this cache through `GET /api/ownership` and `GET /api/resume/plan`; page load, refresh and tab switching do not run Hub pull, SSH or writer probes and do not claim or resume anything.
 
-The panel keeps lease state separate from the trigger and bullet facts. Each side shows runtime, attachment, semantic progress, writer count/PIDs, and the frozen native snapshot status (`missing`, `local`, `hub`, `newer`, `conflict`, or `unsupported`). In local-only mode it explicitly says that there is no Hub lease and does not invent a TTL.
+The panel shows occupancy (`tm_*` holder, generation, mine?) separately from trigger/bullet pane facts. Occupancy has no TTL. Local-only mode says there is no Hub occupancy. 「接管」and Resume both POST `/api/resume` (pull DST, then claim occupancy). `/api/ownership/handoff` remains a compatibility alias for the same path.
 
-A cached plan older than 180 seconds is display-only and cannot enable takeover. An explicit POST is always checked again by `ControlService` against live ownership before a process starts. Force Resume requires typing the exact tunnel name, but still cannot bypass stale/unknown evidence, a failed writer probe, duplicate writers or a native snapshot conflict. Handoff request IDs and pending/acked/rejected reasons remain visible through the lease facts.
+A cached plan older than 180 seconds is display-only. An explicit POST is checked again by `ControlService` against live occupancy before tmux changes. Force Resume requires typing the exact tunnel name, and still cannot bypass a failed writer probe, duplicate writers or a native snapshot conflict.
 
 ## Must not
 

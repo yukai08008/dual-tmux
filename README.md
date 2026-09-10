@@ -141,16 +141,16 @@ dt resume dt-msg              # imports trigger JSON, then -s; bullet -s on the 
 
 `dt pull` restores the binding only. `dt resume` imports **trigger** JSON from persist into this Client sqlite, then `opencode --auto -s <id>` in `op_*`. A remote bullet replays `runtime.cmd`, waits for the jump to stay connected, then runs `-s` at the target sqlite. A local-mode bullet imports its JSON into the Client sqlite. See [docs/persist-sync.md](docs/persist-sync.md).
 
-One Client at a time: the compatible Hub lock stays at `~/<user>/dual-tmux/locks/<dt-name>` (`client@epoch@generation`, TTL 300s). Lease v2 adds `ownership/<dt-name>.json` for installation identity, semantic evidence and handoff state without breaking older Clients.
+One Client at a time: Hub occupancy is `occupancy/<dt-name>.json` (`holder` = `tm_*`, no TTL). Last `dt resume` writer owns the trigger. A compatible lock `locks/<dt-name>` (`client@epoch@generation`) remains so older daemons still park.
 
-Before changing panes, `dt resume` separately checks lease ownership, runtime, attached clients, semantic progress and the number of processes writing each frozen session. A failed or uncertain check is fail-closed and does not kill/detach/reconnect panes or rewrite the binding. `--force` does not bypass an unknown probe or duplicate writer. Inspect the exact decision without making changes:
+Before changing panes, `dt resume` pulls DST, then checks occupancy, runtime, attached clients, semantic progress and the number of processes writing each frozen session. A failed or uncertain check is fail-closed and does not kill/detach/reconnect panes or rewrite the binding. `--force` does not bypass an unknown probe or duplicate writer. Inspect the exact decision without making changes:
 
 ```sh
 dt ownership dt-msg --json
 dt resume dt-msg --plan
 ```
 
-The v0.4.54 Web Ownership panel exposes the same frozen decision model for OpenCode, Codex and Claude. Background daemon/tick work writes an atomic local cache; browser GET requests read that cache only, so loading or refreshing the page does not probe SSH or automatically resume a tunnel. Lease and per-side runtime/attached/progress/writer/native-snapshot facts remain separate. Local-only mode is first-class and is shown without a fictitious Hub lease. Handoff and Resume require explicit actions; Force requires the exact tunnel name and cannot bypass unknown/duplicate writers or native snapshot conflicts. Stale owner evidence requests a coordinated handoff instead of rejecting Resume. See [Web Ownership and safe takeover](docs/web.md#ownership-and-safe-takeover-v0454).
+The Web occupancy panel uses the same facts for OpenCode, Codex and Claude. Daemon/tick writes a local cache; browser GETs read that cache only. Occupancy (holder/generation) is separate from pane facts and has no TTL. 「接管」and Resume both run `dt resume`. Force requires the exact tunnel name and cannot bypass unknown/duplicate writers or native snapshot conflicts. See [Occupancy and takeover](docs/web.md#occupancy-and-takeover).
 
 For Codex and Claude, cross-Client resume transfers only the JSONL whose UUID
 was recorded by `dt freeze`. The snapshot contains per-file SHA-256, source
@@ -163,7 +163,7 @@ before it parks or releases; the receiver rechecks the lease generation before
 commit. In local-only mode the same machinery can restore a locally persisted
 snapshot without requiring a Hub.
 
-A foreign owner receives a handoff request when another Client explicitly runs Resume, including when its latest evidence is stale. A resident owner daemon persists snapshots, detaches and parks local panes, acknowledges and releases before the claimant resumes. If the owner only has the default minute tick, the claimant safely transfers the Hub lock after preflight and waits through a tick cycle; the old Client sees the foreign lock and drops its local panes, preserving the original lock-driven takeover behavior. Working, stalled, unknown attachment, or an invalid writer count is rejected when current evidence proves it unsafe; stale evidence alone no longer bricks Resume. Background refresh and tick never initiate a takeover. To leave explicitly, use `dt drop dt-msg`.
+A foreign Client is displaced when this machine runs `dt resume`: occupancy is overwritten, then the old daemon parks local tmux back to the shell. Hub down, lockscreen or sleep does not park. Duplicate/unknown writers still fail-closed. Background tick never claims occupancy. To leave explicitly, use `dt drop dt-msg`.
 
 To **branch** (two live tunnels, not steal the lock):
 
@@ -329,7 +329,7 @@ Freeze also records **work points** (`op_point` / `run_point`: kind, cwd, ssh, d
 | `dt model <name> [--run|--op] <id>` | quit that oc, restart with new model, freeze |
 | `dt ls` | col1 DT, col2 IS_DST |
 | `dt make dst <name> [--tool] [--model]` | one-shot DT + both oc + freeze |
-| `dt ownership <name> [--json]` | inspect lease/runtime/attachment/progress/writers and takeover decision |
+| `dt ownership <name> [--json]` | inspect occupancy/runtime/attachment/progress/writers and takeover decision |
 | `dt resume <name> [--plan] [--force]` | plan or resume a DST; force never bypasses writer/evidence safety |
 | `dt drop <name>` | kill local op_*/run_* and release lock; hub binding kept |
 | `dt tick` | minute job (install/doctor adds crontab) |
