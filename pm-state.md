@@ -151,7 +151,7 @@
 
 ## 当前焦点
 
-- 核心机制改为占用文件独热（见根目录 ROADMAP.md）。S1–S4 已落地：occupancy 独热、trigger 指纹/tick、resume 按 tick 选 MACHINE。S5/S6 拆除 daemon 租约协议。CLI 不阉割。
+- v0.4.56 主线：占用文件独热 + trigger tick 选源；热路径已拆除 4 秒租约。S6 删除残留 lease/handoff 代码。CLI 不阉割。
 
 ## Backlog
 
