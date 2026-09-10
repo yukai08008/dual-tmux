@@ -115,7 +115,7 @@ def _ensure_remote(cfg: AppConfig) -> None:
         (
             f"mkdir -p {remote_root(cfg)}/tunnels {remote_root(cfg)}/entries "
             f"{remote_root(cfg)}/locks {remote_root(cfg)}/activity "
-            f"{remote_root(cfg)}/ownership"
+            f"{remote_root(cfg)}/ownership {remote_root(cfg)}/occupancy"
         )
     ]
     result = _run(dest)
@@ -1326,35 +1326,31 @@ def park_local(data: dict) -> list[str]:
 
 
 def require_active(data: dict, force: bool = False) -> dict:
-    # Acquiring ownership is a preflight.  A rejection must never mutate local
-    # panes: they may contain the user's only live view of the session.
+    """Declare occupancy for this Client. Last writer wins; no lease TTL."""
+    from .occupancy import claim_occupancy
+
     name = str(data["name"])
-    lease = read_ownership(name) if enabled() else {"state": "local"}
-    if (
-        lease.get("state") == "expired"
-        and lease.get("lease_protocol") == 2
-        and lease.get("instance_id")
-        and lease.get("instance_id") == existing_instance_id()
-        and int(lease.get("generation") or 0) > 0
-    ):
-        # Sleep/lock or a slow command may outlive the four-second lease.  The
-        # same stable installation may renew its exact generation; this races
-        # atomically with fault takeover and cannot steal from another end.
-        generation = int(lease["generation"])
-        token = renew_ownership(name, generation)
-    else:
-        token = _claim_ownership(name, force=force, lease=lease)
-    generation = int(token.get("generation") or 0)
+    if not enabled():
+        return {
+            "generation": int(data.get("ownership_generation") or 0),
+            "holder": load_config().client,
+        }
+    claimed = claim_occupancy(name)
+    generation = int(claimed.get("generation") or 0)
     if generation and generation != int(data.get("ownership_generation") or 0):
         from .store import find_dt, now_iso, save
 
         data["ownership_generation"] = generation
         data["updated_at"] = now_iso()
         save(find_dt(name), data)
-    return token
+    return {
+        "generation": generation,
+        "holder": str(claimed.get("holder") or load_config().client),
+    }
 
 
 def enforce_local() -> None:
+    from .occupancy import foreign_holder, read_occupancy
     from .store import iter_dt_files, load
 
     cfg = load_config()
@@ -1365,10 +1361,10 @@ def enforce_local() -> None:
         data = load(path)
         name = data.get("name") or path.stem
         try:
-            holder, _age = read_lock(name)
+            occ = read_occupancy(name, cfg)
         except SystemExit:
             continue
-        if holder and holder != me:
+        if foreign_holder(occ, me):
             drop_local(data)
 
 

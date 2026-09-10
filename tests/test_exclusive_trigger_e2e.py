@@ -179,6 +179,23 @@ def test_two_client_handoff_is_exclusive_under_ten_seconds(monkeypatch, tmp_path
     monkeypatch.setattr(hub, "finish_handoff", finish_handoff)
     monkeypatch.setattr(hub, "claim_generation", claim_generation)
 
+    def claim_occupancy(_name, cfg=None):
+        with state_lock:
+            state.update(state="owned", holder="tm_new", generation=4, handoff=None)
+            return {"ok": True, "holder": "tm_new", "generation": 4, "claimed_at": 1}
+
+    def read_occupancy(_name, cfg=None):
+        with state_lock:
+            return {
+                "ok": True,
+                "holder": state["holder"],
+                "generation": state["generation"],
+                "claimed_at": 1,
+            }
+
+    monkeypatch.setattr("dual_tmux.occupancy.claim_occupancy", claim_occupancy)
+    monkeypatch.setattr("dual_tmux.occupancy.read_occupancy", read_occupancy)
+
     worker = threading.Thread(
         target=lambda: (
             time.sleep(0.1),
@@ -408,14 +425,25 @@ def test_control_resume_restores_input_ready_trigger_under_ten_seconds(
     monkeypatch.setattr(
         hub, "claim_generation", lambda *_a, **_kw: pytest.fail("no claim")
     )
+
+    def claim_occupancy(_name, cfg=None):
+        with state_lock:
+            state.update(state="owned", holder="tm_new", generation=4, handoff=None)
+            return {"ok": True, "holder": "tm_new", "generation": 4, "claimed_at": 1}
+
+    def read_occupancy(_name, cfg=None):
+        with state_lock:
+            return {
+                "ok": True,
+                "holder": state["holder"],
+                "generation": state["generation"],
+                "claimed_at": 1,
+            }
+
+    monkeypatch.setattr("dual_tmux.occupancy.claim_occupancy", claim_occupancy)
+    monkeypatch.setattr("dual_tmux.occupancy.read_occupancy", read_occupancy)
     monkeypatch.setattr(store, "iter_dt_files", lambda: [old_binding])
 
-    worker = threading.Thread(
-        target=lambda: (
-            time.sleep(0.1),
-            daemon.DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True),
-        )
-    )
     try:
         deadline = time.monotonic() + 3
         while time.monotonic() < deadline and tmux.attached_clients(op_name) != 1:
@@ -423,9 +451,13 @@ def test_control_resume_restores_input_ready_trigger_under_ten_seconds(
         assert tmux.attached_clients(op_name) == 1
 
         started = time.monotonic()
-        worker.start()
+        from dual_tmux.occupancy import claim_occupancy as _claim
+        _claim("dt-shared")
+        daemon.DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline and not returned.exists():
+            time.sleep(0.05)
         result = ControlService().resume("dt-shared").data
-        worker.join(timeout=3)
 
         assert result["ownership_generation"] == 4
         assert state["holder"] == "tm_new"
@@ -447,7 +479,6 @@ def test_control_resume_restores_input_ready_trigger_under_ten_seconds(
         assert "INPUT_ACK:control-resume-ready" in pane
         assert time.monotonic() - started < ownership.HANDOFF_TAKEOVER_TIMEOUT
     finally:
-        worker.join(timeout=3)
         tmux.kill_session(op_name)
         tmux.kill_session(run_name)
         os.close(fd)

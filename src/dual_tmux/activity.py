@@ -59,8 +59,8 @@ def activity_path() -> Path:
     return home_dir() / "activity.log"
 
 
-def pane_hash(tmux_name: str) -> str:
-    text = tmux_ops.capture_pane(tmux_name, start=-10)
+def pane_hash(tmux_name: str, start: int = -20) -> str:
+    text = tmux_ops.capture_pane(tmux_name, start=start)
     clean = ANSI.sub("", text)
     return hashlib.sha1(clean.encode("utf-8", "replace")).hexdigest()[:16]
 
@@ -191,9 +191,8 @@ def activity_evidence(
 
 
 def fingerprint(data: dict) -> str:
-    op = pane_hash(data.get("op") or "")
-    run = pane_hash(data.get("run") or "")
-    return hashlib.sha1(f"{op}:{run}".encode()).hexdigest()[:16]
+    """Trigger-pane fingerprint: last 20 lines, strip ANSI, SHA-1."""
+    return pane_hash(data.get("op") or "", start=-20)
 
 
 def sample_line(data: dict) -> str:
@@ -206,15 +205,140 @@ def sample_line(data: dict) -> str:
     return f"{epoch} {stamp} {name} {op_cmd} {run_cmd} {fp}"
 
 
+def ticks_path(data: dict) -> Path:
+    op = str(data.get("op") or "")
+    if op:
+        return home_dir() / "ops" / op / "ticks.log"
+    return activity_path()
+
+
+def persist_ticks_path(source: str, op: str, root: Path | None = None) -> Path:
+    from .oc import persist_root
+
+    return (root or persist_root()) / source / "ticks" / f"{op}.log"
+
+
+def _tick_tenant() -> str:
+    from .oc import persist_tenant
+
+    tenant = persist_tenant()
+    if tenant:
+        return tenant
+    try:
+        from .config import load_config
+
+        return persist_tenant(load_config().client)
+    except (OSError, SystemExit, ValueError):
+        return ""
+
+
+def _last_fingerprint(path: Path, name: str) -> str:
+    if not path.is_file():
+        return ""
+    for raw in reversed(path.read_text(encoding="utf-8", errors="replace").splitlines()):
+        parts = raw.split()
+        if len(parts) >= 6 and parts[2] == name:
+            return parts[-1]
+    return ""
+
+
+def last_tick_epoch(path: Path, name: str) -> int:
+    """Epoch of the last fingerprint-change tick for this tunnel."""
+    if not path.is_file():
+        return 0
+    for raw in reversed(path.read_text(encoding="utf-8", errors="replace").splitlines()):
+        parts = raw.split()
+        if len(parts) >= 6 and parts[2] == name:
+            try:
+                return int(parts[0])
+            except ValueError:
+                return 0
+    return 0
+
+
+def source_tick_epoch(
+    source: str,
+    data: dict,
+    *,
+    local: str = "",
+    root: Path | None = None,
+) -> int:
+    op = str(data.get("op") or "")
+    name = str(data.get("name") or "")
+    if not op or not name:
+        return 0
+    epoch = last_tick_epoch(persist_ticks_path(source, op, root), name)
+    if source == local:
+        epoch = max(epoch, last_tick_epoch(ticks_path(data), name))
+    return epoch
+
+
+def preferred_source(
+    data: dict,
+    *,
+    local: str = "",
+    root: Path | None = None,
+) -> str:
+    """Pick the tm_* whose trigger fingerprint last changed most recently."""
+    from .identity import legal_source
+    from .oc import persist_root
+
+    base = root or persist_root()
+    sources: list[str] = []
+    if base.is_dir():
+        sources = [
+            path.name
+            for path in sorted(base.iterdir())
+            if path.is_dir() and legal_source(path.name)
+        ]
+    if local and legal_source(local) and local not in sources:
+        sources.append(local)
+    live = [
+        (source_tick_epoch(source, data, local=local, root=base), source)
+        for source in sources
+    ]
+    live = [row for row in live if row[0] > 0]
+    if not live:
+        return ""
+    newest = max(epoch for epoch, _source in live)
+    winners = [source for epoch, source in live if epoch == newest]
+    if local in winners:
+        return local
+    return min(winners)
+
+
+def _mirror_ticks(data: dict) -> None:
+    op = str(data.get("op") or "")
+    src = ticks_path(data)
+    tenant = _tick_tenant()
+    if not op or not tenant or not src.is_file():
+        return
+    dest = persist_ticks_path(tenant, op)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(src.read_text(encoding="utf-8", errors="replace"), encoding="utf-8")
+
+
 def append_sample(data: dict) -> str:
     line = sample_line(data)
+    name = str(data.get("name") or "")
+    op = str(data.get("op") or "")
+    fp = line.split()[-1] if line.split() else ""
     path = activity_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as fh:
-        fh.write(line + "\n")
-    rows = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    if len(rows) > MAX_LINES:
-        path.write_text("\n".join(rows[-MAX_LINES:]) + "\n", encoding="utf-8")
+    local = ticks_path(data)
+    tenant = _tick_tenant()
+    last = _last_fingerprint(local, name)
+    if not last and tenant and op:
+        last = _last_fingerprint(persist_ticks_path(tenant, op), name)
+    if fp and last == fp:
+        return line
+    for target in dict.fromkeys((local, path)):
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with target.open("a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+        rows = target.read_text(encoding="utf-8", errors="replace").splitlines()
+        if len(rows) > MAX_LINES:
+            target.write_text("\n".join(rows[-MAX_LINES:]) + "\n", encoding="utf-8")
+    _mirror_ticks(data)
     return line
 
 

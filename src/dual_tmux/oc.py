@@ -638,7 +638,7 @@ def _snapshot_revision(path: Path, expected_sid: str = "") -> SnapshotRevision |
 
 
 def resolve_snapshots(
-    info: dict, root: Path | None = None
+    info: dict, root: Path | None = None, source: str | None = None
 ) -> tuple[SnapshotRevision, ...]:
     """Resolve every verified per-Client revision for append-only union."""
     from .identity import legal_source
@@ -651,16 +651,18 @@ def resolve_snapshots(
     if not base.is_dir():
         return ()
     hits: set[Path] = set()
-    for source in sorted(base.iterdir()):
-        if not source.is_dir() or not legal_source(source.name):
+    for source_dir in sorted(base.iterdir()):
+        if source and source_dir.name != source:
+            continue
+        if not source_dir.is_dir() or not legal_source(source_dir.name):
             continue
         if slug:
-            candidate = source / f"{slug}.json"
+            candidate = source_dir / f"{slug}.json"
             if candidate.is_file():
                 hits.add(candidate)
         if not sid:
             continue
-        for path in source.glob("*.json"):
+        for path in source_dir.glob("*.json"):
             try:
                 data = json.loads(path.read_text())
             except (OSError, json.JSONDecodeError):
@@ -966,6 +968,26 @@ def export_snapshot(
     return dest
 
 
+def _tick_snapshots(
+    info: dict, source: str | None, role: str, sid: str, local: object
+) -> tuple[SnapshotRevision, ...]:
+    """Pick one MACHINE snapshot from ticks, never union all tm_* trees."""
+    if source:
+        snapshots = resolve_snapshots(info, source=source)
+        if snapshots:
+            return snapshots
+        local_tenant = persist_tenant()
+        if source == local_tenant and local:
+            return ()
+        slug = info.get("slug") or "—"
+        raise SystemExit(
+            f"[err] {role} session {sid} ({slug}) has no persist JSON under "
+            f"{persist_root()}/{source}/. Pull persist, then dt resume."
+        )
+    newest = resolve_snapshot(info)
+    return (newest,) if newest else ()
+
+
 def ensure_local(
     info: dict,
     *,
@@ -974,17 +996,24 @@ def ensure_local(
     prepare_replace=None,
     role: str = "trigger",
     dry_run: bool = False,
+    pick: str = "union",
+    source: str | None = None,
 ) -> bool:
     """Converge a local OpenCode session to the union of persisted revisions.
 
     Returns True if import ran. Existing rows are preserved; compatible IDs
     found only on another Client are imported after one local backup.
+    pick='tick' uses one MACHINE chosen by fingerprint ticks instead of union.
     """
     sid = (info.get("session_id") or "").strip()
     if not sid:
         return False
     local = by_id(sid)
-    snapshots = resolve_snapshots(info)
+    snapshots = (
+        _tick_snapshots(info, source, role, sid, local)
+        if pick == "tick"
+        else resolve_snapshots(info)
+    )
     if not snapshots:
         if local:
             return False
@@ -1047,6 +1076,12 @@ def ensure_local(
     return True
 
 
-def preflight_local(info: dict, *, role: str = "trigger") -> None:
+def preflight_local(
+    info: dict,
+    *,
+    role: str = "trigger",
+    pick: str = "union",
+    source: str | None = None,
+) -> None:
     """Validate OpenCode snapshot convergence without changing panes or data."""
-    ensure_local(info, role=role, dry_run=True)
+    ensure_local(info, role=role, dry_run=True, pick=pick, source=source)

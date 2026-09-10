@@ -1,8 +1,14 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-09 21:04 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-10 15:00 +08:00 | 更新者: Codex PM
 
 ## 状态树
+
+### v0.4.56 (RELEASED) — Occupancy 独热与 tick 来源 Resume
+
+- **feature/occupancy-tick-core**: 热路径拆掉 4s lease / handoff wait。Resume 写 occupancy（last writer wins），daemon 仅在 occupancy 属于其他 Client 时 park 本地 tmux；Hub 不可用不踢会话。Trigger 新鲜度用 pane 最近 20 行去 ANSI 后的 SHA-1 ticks，存在 `ops/<op>/ticks.log` 并镜像到 persist；resume 先拉用户级 DST，再按 tick 选一个 `tm_*` 快照。
+- 合并 `main` 上 post11–post14 的 stale-trigger 替换、binding 读取与 cases；handoff 热路径测试改为 occupancy claim。ownership worker 单步 `RuntimeError` 不再杀死线程。兼容 sidecar 仍写 86400s lease，供未升级 Client 过渡。
+- 全量 431 passed + 2 skipped。Hub 上遗留 lease/handoff API 留到 S6 删除，不进本版热路径。
 
 ### v0.4.55.post12 (RELEASED) — Handoff 实时 Bullet 绑定
 
@@ -164,7 +170,7 @@
 
 ## 当前焦点
 
-- 让所有参与独热接管的 Client 升级至 v0.4.55.post4，再进入 v0.4.56 Web 体验演进。
+- v0.4.56 主线：占用文件独热 + trigger tick 选源；热路径已拆除 4 秒租约。S6 删除残留 lease/handoff 代码。CLI 不阉割。
 
 ## Backlog
 

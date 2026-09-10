@@ -1,3 +1,5 @@
+目标机制见 [core-architecture.md](core-architecture.md)。Trigger 按 USER/MACHINE 同步；远程 bullet 会话不同步。
+
 # Persist sync (tenant layer)
 
 This is the contract between dual-tmux and the optional persist tools.
@@ -8,7 +10,7 @@ This is the contract between dual-tmux and the optional persist tools.
 | Tree | Client | Server (hub) | Owns |
 |------|--------|--------------|------|
 | tmux persist | `~/sessions/tmux/<tm_*>/` | `~/<user>/sessions/tmux/<tm_*>/` | windows / pane snapshot |
-| OpenCode persist | `~/sessions/opencode/<tm_*>/` | `~/<user>/sessions/opencode/<tm_*>/` | conversation JSON |
+| OpenCode persist | `~/sessions/opencode/<tm_*>/` | `~/<user>/sessions/opencode/<tm_*>/` | conversation JSON + `ticks/<op>.log` |
 | dt hub | `~/.dual-tmux/{tunnels,entries}` | `~/<user>/dual-tmux/` | DT/DST binding only |
 
 `user` is the person (`andy`), not a hostname and not `tm_*`.

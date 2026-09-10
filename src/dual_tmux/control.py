@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import threading
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
@@ -302,111 +301,85 @@ class ControlService:
         from . import hub, ownership, recovery
         from . import log as ev
         from . import oc as oc_ops
-        from .cli import _apply_resume_legacy, _preflight_resume_snapshots, write_entry
+        from .cli import (
+            _apply_resume_legacy,
+            _preflight_resume_snapshots,
+            refresh_resume_inputs,
+            write_entry,
+        )
+        from .resume_shadow import ResumeShadow
         from .store import find_dt, save
 
-        original = _translate(lambda: self._get_tunnel_readonly(name))
-        remote_opencode = bool((original.get("runtime") or {}).get("server")) and (
-            ((original.get("bullet") or {}).get("tool") or "opencode") == "opencode"
-        )
-        route = (
-            _translate(lambda: recovery.reconcile_remote_runtime(original))
-            if remote_opencode
-            else {"status": "not-applicable", "changed": False, "locations": []}
-        )
-        if route["status"] == "ambiguous":
-            names = ", ".join(item["location"] for item in route["locations"])
-            raise ControlError(
-                "runtime_ambiguous",
-                f"[err] bullet session exists in multiple remote locations ({names}); runtime was not changed",
-                status=409,
-            )
-        if (
-            remote_opencode
-            and route["status"] == "missing"
-            and oc_ops.persist_snapshot(original.get("bullet") or {}) is None
-        ):
-            sid = (original.get("bullet") or {}).get("session_id") or ""
-            raise ControlError(
-                "session_missing",
-                f"[err] bullet session {sid} missing remotely and no local persist JSON",
-                status=409,
-            )
-        if route["changed"]:
-            _translate(lambda: save(find_dt(str(original.get("name") or "")), original))
-            _translate(
-                lambda: write_entry(
-                    str(original.get("run") or ""),
-                    str((original.get("runtime") or {}).get("cmd") or ""),
-                )
-            )
-            hub.sync_best_effort()
-        plan = _translate(lambda: ownership.plan_resume(original))
-
-        def sync_opencode_snapshots(data: dict) -> None:
-            local_opencode = any(
-                ((data.get(role) or {}).get("tool") or "opencode") == "opencode"
-                and not (
-                    role == "bullet" and (data.get("runtime") or {}).get("server")
-                )
-                for role in ("trigger", "bullet")
-            )
-            if local_opencode and hub.enabled():
-                from .config import load_config
-                from .hotfix import sync_persist
-
-                _translate(lambda: sync_persist("opencode", load_config()))
-
-        if plan.get("action") != "request_handoff":
-            sync_opencode_snapshots(original)
-            _translate(lambda: _preflight_resume_snapshots(original))
-        token = _translate(
-            lambda: ownership.acquire_for_resume(original, plan, force=force)
-        )
-        generation = int(token.get("generation") or 0)
-        keepalive_stop = threading.Event()
-        keepalive_thread = None
-        if generation and hub.enabled():
-
-            def keepalive() -> None:
-                while not keepalive_stop.wait(1.0):
-                    try:
-                        hub.renew_ownership(str(original.get("name") or ""), generation)
-                    except (OSError, SystemExit, ValueError):
-                        pass
-
-            keepalive_thread = threading.Thread(
-                target=keepalive,
-                daemon=True,
-                name=f"dt-resume-lease-{original.get('name') or 'tunnel'}",
-            )
-            keepalive_thread.start()
-        commit_started = False
-        committed_data = original
         try:
+            original = _translate(lambda: self._get_tunnel_readonly(name))
+        except ControlError:
+            from .cli import _resolve
+
+            original = _translate(lambda: _resolve(name))
+        original = _translate(lambda: refresh_resume_inputs(original))
+        shadow = ResumeShadow.start(original)
+        try:
+            remote_opencode = bool((original.get("runtime") or {}).get("server")) and (
+                ((original.get("bullet") or {}).get("tool") or "opencode") == "opencode"
+            )
+            route = (
+                _translate(lambda: recovery.reconcile_remote_runtime(original))
+                if remote_opencode
+                else {"status": "not-applicable", "changed": False, "locations": []}
+            )
+            if route["status"] == "ambiguous":
+                names = ", ".join(item["location"] for item in route["locations"])
+                raise ControlError(
+                    "runtime_ambiguous",
+                    f"[err] bullet session exists in multiple remote locations ({names}); runtime was not changed",
+                    status=409,
+                )
             if (
-                plan.get("action") == "request_handoff"
-                and plan.get("reason") != "owner_evidence_stale"
+                remote_opencode
+                and route["status"] == "missing"
+                and oc_ops.persist_snapshot(original.get("bullet") or {}) is None
             ):
-                # The old owner freezes and publishes its live binding while
-                # this Client is waiting.  The object loaded before requesting
-                # handoff is therefore stale by construction.
-                original = _translate(
-                    lambda: hub.read_tunnel_binding(str(original.get("name") or ""))
+                sid = (original.get("bullet") or {}).get("session_id") or ""
+                raise ControlError(
+                    "session_missing",
+                    f"[err] bullet session {sid} missing remotely and no local persist JSON",
+                    status=409,
                 )
-                committed_data = original
-            if plan.get("action") == "request_handoff":
-                sync_opencode_snapshots(original)
-                _translate(lambda: _preflight_resume_snapshots(original))
-            native_sides = [
-                role
-                for role in ("trigger", "bullet")
-                if (original.get(role) or {}).get("tool") in {"codex", "claude"}
-                and not (
-                    role == "bullet"
-                    and (original.get("runtime") or {}).get("server")
+            if route["changed"]:
+                _translate(
+                    lambda: save(find_dt(str(original.get("name") or "")), original)
                 )
-            ]
+                _translate(
+                    lambda: write_entry(
+                        str(original.get("run") or ""),
+                        str((original.get("runtime") or {}).get("cmd") or ""),
+                    )
+                )
+                hub.sync_best_effort()
+            _translate(lambda: _preflight_resume_snapshots(original))
+            plan = _translate(lambda: ownership.plan_resume(original))
+        except BaseException as exc:
+            shadow.preflight_failed(exc)
+            raise
+        shadow.preflight(original, plan)
+        try:
+            token = _translate(
+                lambda: ownership.acquire_for_resume(original, plan, force=force)
+            )
+        except BaseException as exc:
+            if plan.get("safe"):
+                shadow.ownership_failed(exc)
+            raise
+        shadow.ownership_acquired(token)
+        native_sides = [
+            role
+            for role in ("trigger", "bullet")
+            if (original.get(role) or {}).get("tool") in {"codex", "claude"}
+            and not (role == "bullet" and (original.get("runtime") or {}).get("server"))
+        ]
+        restore_completed = False
+        rollback_started = False
+        try:
             if native_sides:
                 from .config import load_config
 
@@ -415,7 +388,6 @@ class ControlService:
                     from .hotfix import sync_persist
 
                     _translate(lambda: sync_persist("native", cfg))
-            commit_started = True
             data = _translate(
                 lambda: _apply_resume_legacy(
                     name,
@@ -425,45 +397,29 @@ class ControlService:
                     native_generation=int(token.get("generation") or 0),
                 )
             )
-            committed_data = data
-            verified = _translate(lambda: ownership.verify_resume(data, token))
+            shadow.restore_completed()
+            restore_completed = True
+            try:
+                verified = _translate(lambda: ownership.verify_resume(data, token))
+            except BaseException as exc:
+                shadow.verification_failed(exc)
+                rollback_started = True
+                raise
             data["ownership_generation"] = verified["generation"]
-            _translate(
-                lambda: hub.renew_ownership(
-                    str(data.get("name") or ""), int(verified["generation"])
-                )
-            )
             save(find_dt(str(data.get("name") or "")), data)
             ev.emit(
                 "dt.resume", name=data.get("name"), generation=verified["generation"]
             )
-        except BaseException:
-            if token.get("newly_acquired"):
-                parked = True
-                if commit_started:
-                    try:
-                        hub.park_local(committed_data)
-                    except (OSError, SystemExit):
-                        parked = False
-                if parked:
-                    try:
-                        hub.release(
-                            str(original.get("name") or ""),
-                            generation=int(token.get("generation") or 0),
-                        )
-                    except SystemExit:
-                        pass
-                else:
-                    ev.emit(
-                        "ownership.rollback.park_failed",
-                        name=original.get("name"),
-                        generation=token.get("generation"),
-                    )
+            shadow.verification_passed(verified)
+        except BaseException as exc:
+            if not restore_completed:
+                shadow.restore_failed(exc)
+            elif not rollback_started:
+                shadow.verification_failed(exc)
+            # Occupancy is already claimed. Do not park local tmux or release
+            # a lease: a failed resume must not kick the operator out.
+            shadow.rollback_completed(parked=False, lease_released=False)
             raise
-        finally:
-            keepalive_stop.set()
-            if keepalive_thread is not None:
-                keepalive_thread.join(timeout=2)
         hub.push_best_effort()
         return ControlResult("session.resume", data, _event("session.resume"))
 
@@ -520,9 +476,9 @@ class ControlService:
                 ):
                     plan.update(
                         safe=True,
-                        action="request_handoff",
-                        reason="owner_evidence_stale",
-                        steps=["request_handoff", "prepare", "restore", "verify"],
+                        action="claim",
+                        reason="occupancy_steal",
+                        steps=["claim", "prepare", "restore", "verify"],
                     )
         plan["cache"] = {
             key: cached.get(key) for key in ("cached_at", "age_seconds", "freshness")
