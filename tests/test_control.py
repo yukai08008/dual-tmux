@@ -401,16 +401,20 @@ def test_native_pull_failure_releases_new_generation_before_commit(monkeypatch):
     service = ControlService()
     monkeypatch.setattr(ControlService, "_get_tunnel_readonly", lambda self, name: data)
     monkeypatch.setattr(ownership, "plan_resume", lambda _data: {"safe": True})
+    claimed = []
     monkeypatch.setattr(
         ownership,
         "acquire_for_resume",
-        lambda *_a, **_kw: {"generation": 13, "newly_acquired": True},
+        lambda *_a, **_kw: claimed.append(True)
+        or {"generation": 13, "newly_acquired": True},
     )
     monkeypatch.setattr(
         "dual_tmux.config.load_config",
         lambda: AppConfig(client="tm_a", server="tom7r", user="andy"),
     )
     monkeypatch.setattr("dual_tmux.hub.pull", lambda: "hub")
+    monkeypatch.setattr(cli, "find_dt", lambda _name: "binding")
+    monkeypatch.setattr(cli, "load", lambda _path: data)
     monkeypatch.setattr(
         hotfix,
         "sync_persist",
@@ -430,6 +434,7 @@ def test_native_pull_failure_releases_new_generation_before_commit(monkeypatch):
 
     with pytest.raises(ControlError, match="native pull failed"):
         service.resume("dt-msg")
+    assert claimed == []
     assert released == []
 
 

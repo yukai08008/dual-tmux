@@ -316,6 +316,8 @@ class ControlService:
             from .cli import _resolve
 
             original = _translate(lambda: _resolve(name))
+        # Pull DST + persist/ticks, then preflight. Occupancy is claimed only
+        # after the winning machine's data is already local.
         original = _translate(lambda: refresh_resume_inputs(original))
         shadow = ResumeShadow.start(original)
         try:
@@ -371,23 +373,9 @@ class ControlService:
                 shadow.ownership_failed(exc)
             raise
         shadow.ownership_acquired(token)
-        native_sides = [
-            role
-            for role in ("trigger", "bullet")
-            if (original.get(role) or {}).get("tool") in {"codex", "claude"}
-            and not (role == "bullet" and (original.get("runtime") or {}).get("server"))
-        ]
         restore_completed = False
         rollback_started = False
         try:
-            if native_sides:
-                from .config import load_config
-
-                cfg = load_config()
-                if cfg.hub_enabled:
-                    from .hotfix import sync_persist
-
-                    _translate(lambda: sync_persist("native", cfg))
             data = _translate(
                 lambda: _apply_resume_legacy(
                     name,
