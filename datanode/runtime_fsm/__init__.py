@@ -1,5 +1,6 @@
 """Typed runtime attempt nodes and their FSMs."""
 
+from .binding import BindingEvent, BindingMachine, binding_graph
 from .resume import (
     OccupancyToken,
     OwnershipToken,
@@ -12,6 +13,8 @@ from .resume import (
 )
 
 __all__ = [
+    "BindingEvent",
+    "BindingMachine",
     "OccupancyToken",
     "OwnershipToken",
     "ResumeAttemptNode",
@@ -20,4 +23,5 @@ __all__ = [
     "ResumeMachine",
     "ResumeState",
     "VerificationEvidence",
+    "binding_graph",
 ]

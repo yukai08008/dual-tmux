@@ -17,6 +17,7 @@ from .models import (
     OccupancyNode,
     OwnershipLeaseNode,
     PaneRuntimeNode,
+    RoleBindingNode,
     RuntimeEndpointNode,
     SnapshotRevisionNode,
     SshEndpointNode,
@@ -43,7 +44,7 @@ def _datetime(value: object) -> datetime | None:
     return datetime.fromisoformat(str(value))
 
 
-def _session(raw: object, role: AgentRole) -> AgentSessionNode | None:
+def _session(raw: object) -> AgentSessionNode | None:
     value = raw if isinstance(raw, dict) else {}
     session_id = str(value.get("session_id") or "").strip()
     if not session_id:
@@ -64,15 +65,29 @@ def _session(raw: object, role: AgentRole) -> AgentSessionNode | None:
         )
     return AgentSessionNode(
         session_id=session_id,
-        role=role,
         tool=str(value.get("tool") or "opencode"),
         model=str(value.get("model") or ""),
         slug=str(value.get("slug") or ""),
         agent=str(value.get("agent") or ""),
         directory=str(value.get("directory") or ""),
+        client=client,
+    )
+
+
+def _binding(
+    raw: object, role: AgentRole, tunnel_name: str
+) -> RoleBindingNode | None:
+    session = _session(raw)
+    if session is None:
+        return None
+    value = raw if isinstance(raw, dict) else {}
+    return RoleBindingNode(
+        tunnel_name=tunnel_name,
+        role=role,
+        session=session,
         parser=str(value.get("parser") or ""),
         frozen_at=_datetime(value.get("frozen_at")),
-        client=client,
+        bound_by_client=str(value.get("bound_by_client") or ""),
     )
 
 
@@ -98,8 +113,8 @@ def from_legacy_tunnel(record: dict[str, Any]) -> TunnelNode:
         op=str(record.get("op") or ""),
         run=str(record.get("run") or ""),
         endpoint=_endpoint(record.get("runtime")),
-        trigger=_session(record.get("trigger"), AgentRole.TRIGGER),
-        bullet=_session(record.get("bullet"), AgentRole.BULLET),
+        trigger=_binding(record.get("trigger"), AgentRole.TRIGGER, str(record.get("name") or "")),
+        bullet=_binding(record.get("bullet"), AgentRole.BULLET, str(record.get("name") or "")),
         client=str(record.get("client") or ""),
         user=str(record.get("user") or ""),
         branched_from=(
@@ -109,22 +124,25 @@ def from_legacy_tunnel(record: dict[str, Any]) -> TunnelNode:
     )
 
 
-def _side(node: AgentSessionNode | None, base: object) -> dict[str, Any]:
+def _side(node: RoleBindingNode | None, base: object) -> dict[str, Any]:
     value = deepcopy(base) if isinstance(base, dict) else {}
     if node is None:
         return value
+    session = node.session
     value.update(
-        tool=node.tool,
+        tool=session.tool,
         parser=node.parser,
-        model=node.model,
-        session_id=node.session_id,
-        slug=node.slug,
-        agent=node.agent,
-        directory=node.directory,
+        model=session.model,
+        session_id=session.session_id,
+        slug=session.slug,
+        agent=session.agent,
+        directory=session.directory,
         frozen_at=node.frozen_at.isoformat() if node.frozen_at else "",
     )
-    if node.client is not None:
-        client = node.client.model_dump(mode="json", exclude_none=True)
+    if node.bound_by_client:
+        value["bound_by_client"] = node.bound_by_client
+    if session.client is not None:
+        client = session.client.model_dump(mode="json", exclude_none=True)
         client["collected_at"] = client.get("collected_at") or ""
         value["agent_client"] = client
     return value
@@ -182,7 +200,7 @@ def occupancy_from_hub(payload: dict[str, Any]) -> OccupancyNode:
 
 
 def ownership_from_hub(tunnel_name: str, lease: dict[str, Any]) -> OwnershipLeaseNode:
-    """Convert leftover `hub.read_ownership()` output until S6 deletes lease scripts."""
+    """Convert leftover lease dicts for tests. OccupancyNode is the exclusive-control fact."""
     return OwnershipLeaseNode(
         tunnel_name=tunnel_name,
         generation=int(lease.get("generation") or 0),

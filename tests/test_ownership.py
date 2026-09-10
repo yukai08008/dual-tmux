@@ -45,6 +45,7 @@ def test_snapshot_schema_and_duplicate_writer_fail_closed(monkeypatch):
     assert set(result) == {
         "schema",
         "name",
+        "occupancy",
         "lease",
         "runtime",
         "attached",
@@ -54,6 +55,9 @@ def test_snapshot_schema_and_duplicate_writer_fail_closed(monkeypatch):
         "native_snapshots",
         "takeover",
     }
+    assert result["occupancy"]["ttl"] is None
+    assert "holder" in result["occupancy"]
+    assert result["occupancy"]["generation"] == result["lease"]["generation"]
     assert result["takeover"] == {
         "safe": False,
         "action": "stop",

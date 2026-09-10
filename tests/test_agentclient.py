@@ -325,11 +325,9 @@ def test_freeze_non_opencode_records_client_without_fake_session(
     )
 
     assert cli._freeze_one(data, "trigger", "op_test", "auto", False) is False
-    assert data["trigger"]["tool"] == name
-    assert data["trigger"]["session_id"] == ""
-    assert data["trigger"]["slug"] == ""
-    assert data["trigger"]["model"] == ""
-    assert data["trigger"]["agent_client"]["version"] == "1.2.3"
+    assert data["trigger"]["session_id"] == "ses_old"
+    assert data["trigger"]["slug"] == "old"
+    assert data["trigger"]["model"] == "old/model"
 
 
 def test_freeze_remote_bullet_collects_inside_docker(monkeypatch):

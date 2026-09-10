@@ -366,7 +366,7 @@ def test_admin_tabs_and_search(tmp_path, monkeypatch):
     assert "TABS_KEY" in page
     assert "/api/resume" in page
     assert "ensureResumed" not in page
-    assert "Ownership 与安全接管" in page
+    assert "占用与接管" in page
     assert "/api/resume/plan" in page
     assert "refreshRows" in page
     assert "setInterval(refreshRows, 5000)" in page
@@ -564,7 +564,7 @@ def test_web_ownership_plan_reads_cache_without_live_probe(tmp_path, monkeypatch
 
 def test_tunnels_page_has_explicit_takeover_and_no_automatic_resume():
     page = tunnels_page()
-    assert "Ownership 与安全接管" in page
+    assert "占用与接管" in page
     assert "btn-force-resume" in page
     assert "if (st.name) { tick(); refreshOwnership(st); }" in page
     assert "if (st.name) { ensureResumed(st);" not in page

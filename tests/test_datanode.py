@@ -6,11 +6,16 @@ from pydantic import TypeAdapter, ValidationError
 from datanode import (
     AgentRole,
     AgentSessionNode,
+    BindingAttemptNode,
+    BindingAttemptState,
+    BindingIntent,
+    ClientNode,
     DockerEndpointNode,
     LocalEndpointNode,
     OccupancyNode,
     OwnershipLeaseNode,
     PaneRuntimeNode,
+    RoleBindingNode,
     RuntimeEndpointNode,
     SnapshotRevisionNode,
     SshEndpointNode,
@@ -27,27 +32,34 @@ from datanode import (
 NOW = datetime(2026, 9, 9, tzinfo=timezone.utc)
 
 
-def _sessions():
-    return (
-        AgentSessionNode(
-            session_id="ses_trigger", role=AgentRole.TRIGGER, model="gpt-5.6-sol"
-        ),
-        AgentSessionNode(session_id="ses_bullet", role=AgentRole.BULLET),
+def _session(session_id: str, **kwargs) -> AgentSessionNode:
+    return AgentSessionNode(session_id=session_id, **kwargs)
+
+
+def _binding(role: AgentRole, session_id: str, **kwargs) -> RoleBindingNode:
+    extra = dict(kwargs)
+    model = extra.pop("model", "")
+    return RoleBindingNode(
+        tunnel_name="dt-demo",
+        role=role,
+        session=_session(session_id, model=model) if model else _session(session_id),
+        **extra,
     )
 
 
 def test_valid_business_nodes_and_derived_local_command():
-    trigger, bullet = _sessions()
     node = TunnelNode(
         name="dt-demo",
         op="op_demo",
         run="run_demo",
         endpoint=LocalEndpointNode(directory="/tmp/work"),
-        trigger=trigger,
-        bullet=bullet,
+        trigger=_binding(AgentRole.TRIGGER, "ses_trigger", model="gpt-5.6-sol"),
+        bullet=_binding(AgentRole.BULLET, "ses_bullet"),
     )
     assert node.endpoint.identity == "local:/tmp/work"
     assert node.endpoint.reconnect_command == "cd /tmp/work"
+    assert node.is_dst is True
+    assert node.trigger.session.identity == "opencode:ses_trigger"
 
 
 def test_unknown_fields_and_bad_tunnel_names_are_rejected():
@@ -63,7 +75,7 @@ def test_unknown_fields_and_bad_tunnel_names_are_rejected():
 
 
 def test_roles_and_session_identity_cannot_be_crossed():
-    trigger, _ = _sessions()
+    trigger = _binding(AgentRole.TRIGGER, "ses_trigger", model="gpt-5.6-sol")
     with pytest.raises(ValidationError, match="role=bullet"):
         TunnelNode(
             name="dt-demo",
@@ -79,10 +91,36 @@ def test_roles_and_session_identity_cannot_be_crossed():
             run="run_demo",
             endpoint=LocalEndpointNode(),
             trigger=trigger,
-            bullet=AgentSessionNode(
-                session_id=trigger.session_id, role=AgentRole.BULLET
-            ),
+            bullet=_binding(AgentRole.BULLET, trigger.session.session_id),
         )
+
+
+def test_role_binding_and_client_are_distinct_from_sessions():
+    client = ClientNode(client_id="tm_home", user="andy", display_name="home")
+    binding = _binding(AgentRole.BULLET, "ses_new")
+    assert client.client_id == "tm_home"
+    assert binding.identity == "dt-demo:bullet"
+    with pytest.raises(ValidationError, match="different session"):
+        BindingAttemptNode(
+            attempt_id="att_1",
+            tunnel_name="dt-demo",
+            role=AgentRole.BULLET,
+            intent=BindingIntent.REBUILD,
+            state=BindingAttemptState.COMMITTING,
+            previous_session_id="ses_old",
+            candidate_session_id="ses_old",
+        )
+    committed = BindingAttemptNode(
+        attempt_id="att_2",
+        tunnel_name="dt-demo",
+        role=AgentRole.BULLET,
+        intent=BindingIntent.REBUILD,
+        state=BindingAttemptState.BOUND,
+        previous_session_id="ses_old",
+        candidate_session_id="ses_new",
+        candidate_directory="/workspace",
+    )
+    assert committed.candidate_session_id == "ses_new"
 
 
 @pytest.mark.parametrize(
@@ -205,6 +243,7 @@ def test_legacy_unfrozen_tunnel_is_valid_and_round_trip_preserves_extensions():
     }
     node = from_legacy_tunnel(legacy)
     assert node.trigger is None and node.bullet is None
+    assert node.is_dst is False
     assert node.endpoint.kind == "docker"
 
     restored = to_legacy_tunnel(node, base=legacy)
@@ -229,6 +268,9 @@ def test_legacy_frozen_tunnel_preserves_binding_semantics():
         "bullet": {"tool": "claude", "session_id": "session-b"},
     }
     node = from_legacy_tunnel(legacy)
+    assert node.is_dst is True
+    assert node.trigger.role is AgentRole.TRIGGER
+    assert node.bullet.session.tool == "claude"
     restored = to_legacy_tunnel(node, base=legacy)
     assert restored["trigger"]["session_id"] == "ses_trigger"
     assert restored["trigger"]["custom_future_field"] == "keep"
