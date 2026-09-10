@@ -328,6 +328,64 @@ def test_resume_persists_unique_runtime_repair_before_ownership(monkeypatch):
     assert entries == [("run_msg", "ssh box docker exec work")]
 
 
+def test_resume_reloads_owner_committed_binding_after_handoff(monkeypatch):
+    from dual_tmux import cli, ownership
+
+    stale = _tunnel()
+    stale["trigger"]["session_id"] = "ses_stale"
+    refreshed = _tunnel()
+    refreshed["trigger"]["session_id"] = "ses_live"
+    service = ControlService()
+    monkeypatch.setattr(ControlService, "_get_tunnel_readonly", lambda *_a: stale)
+    monkeypatch.setattr(cli, "refresh_resume_inputs", lambda _data: refreshed)
+    monkeypatch.setattr(
+        ownership,
+        "plan_resume",
+        lambda data: {
+            "safe": True,
+            "action": "claim",
+            "reason": "occupancy_steal",
+            "ownership": {"lease": {"generation": 8}},
+        },
+    )
+    monkeypatch.setattr(
+        ownership,
+        "acquire_for_resume",
+        lambda *_a, **_kw: {"generation": 9, "newly_acquired": True},
+    )
+    monkeypatch.setattr(
+        "dual_tmux.config.load_config",
+        lambda: AppConfig(client="tm_a", server="tom7r", user="andy"),
+    )
+    calls = []
+    monkeypatch.setattr(
+        cli,
+        "_preflight_resume_snapshots",
+        lambda data: calls.append(("preflight", data["trigger"]["session_id"])),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_apply_resume_legacy",
+        lambda _name, _force, **_kw: (
+            calls.append(("resume", refreshed["trigger"]["session_id"])) or refreshed
+        ),
+    )
+    monkeypatch.setattr(
+        ownership, "verify_resume", lambda *_a: {"generation": 9, "writers": {}}
+    )
+    monkeypatch.setattr("dual_tmux.hub.push_best_effort", lambda: None)
+    monkeypatch.setattr("dual_tmux.store.find_dt", lambda _name: "binding")
+    monkeypatch.setattr("dual_tmux.store.save", lambda *_a: None)
+
+    result = service.resume("dt-msg")
+
+    assert result.data["trigger"]["session_id"] == "ses_live"
+    assert calls == [
+        ("preflight", "ses_live"),
+        ("resume", "ses_live"),
+    ]
+
+
 def test_native_pull_failure_releases_new_generation_before_commit(monkeypatch):
     from dual_tmux import cli, hotfix, hub, ownership
 
@@ -335,6 +393,10 @@ def test_native_pull_failure_releases_new_generation_before_commit(monkeypatch):
     data["trigger"] = {
         "tool": "codex",
         "session_id": "00000000-0000-0000-0000-000000000001",
+    }
+    data["bullet"] = {
+        "tool": "codex",
+        "session_id": "00000000-0000-0000-0000-000000000002",
     }
     service = ControlService()
     monkeypatch.setattr(ControlService, "_get_tunnel_readonly", lambda self, name: data)
@@ -372,11 +434,12 @@ def test_native_pull_failure_releases_new_generation_before_commit(monkeypatch):
 
 
 def test_resume_snapshot_preflight_rejects_before_claim_or_tmux(monkeypatch):
-    from dual_tmux import cli, ownership
+    from dual_tmux import cli, hub, ownership
 
     data = _tunnel()
     service = ControlService()
     monkeypatch.setattr(ControlService, "_get_tunnel_readonly", lambda *_a: data)
+    monkeypatch.setattr(hub, "enabled", lambda: False)
     monkeypatch.setattr(
         cli,
         "_preflight_resume_snapshots",

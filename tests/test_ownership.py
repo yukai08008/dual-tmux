@@ -232,6 +232,32 @@ def test_handoff_timeout_is_fail_closed_and_never_force_claims(monkeypatch):
     assert token == {"generation": 9, "newly_acquired": True}
 
 
+def test_stale_handoff_timeout_escalates_through_verified_stalled_takeover(monkeypatch):
+    import dual_tmux.occupancy as occ
+
+    monkeypatch.setattr(
+        occ,
+        "claim_occupancy",
+        lambda name, cfg=None: {"ok": True, "holder": "tm_here", "generation": 9},
+    )
+    token = ownership.acquire_for_resume(
+        _data(),
+        {
+            "safe": True,
+            "action": "request_handoff",
+            "reason": "owner_evidence_stale",
+            "ownership": {
+                "lease": {
+                    "state": "foreign",
+                    "holder": "tm_other",
+                    "generation": 8,
+                }
+            },
+        },
+    )
+    assert token == {"generation": 9, "newly_acquired": True}
+
+
 def test_handoff_timeout_reconciles_transfer_that_won_cancel_race(monkeypatch):
     import dual_tmux.occupancy as occ
 

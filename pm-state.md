@@ -1,8 +1,27 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-09 09:30 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-10 15:00 +08:00 | 更新者: Codex PM
 
 ## 状态树
+
+### v0.4.56 (RELEASED) — Occupancy 独热与 tick 来源 Resume
+
+- **feature/occupancy-tick-core**: 热路径拆掉 4s lease / handoff wait。Resume 写 occupancy（last writer wins），daemon 仅在 occupancy 属于其他 Client 时 park 本地 tmux；Hub 不可用不踢会话。Trigger 新鲜度用 pane 最近 20 行去 ANSI 后的 SHA-1 ticks，存在 `ops/<op>/ticks.log` 并镜像到 persist；resume 先拉用户级 DST，再按 tick 选一个 `tm_*` 快照。
+- 合并 `main` 上 post11–post14 的 stale-trigger 替换、binding 读取与 cases；handoff 热路径测试改为 occupancy claim。ownership worker 单步 `RuntimeError` 不再杀死线程。兼容 sidecar 仍写 86400s lease，供未升级 Client 过渡。
+- 全量 431 passed + 2 skipped。Hub 上遗留 lease/handoff API 留到 S6 删除，不进本版热路径。
+
+### v0.4.55.post12 (RELEASED) — Handoff 实时 Bullet 绑定
+
+- Handoff 在导出与 park 前强制重新 freeze 当前 live Trigger/Bullet；任一侧无法证明当前 session 时 fail-closed，不再沿用历史 binding 接管。远端 OpenCode 探测改用 `/proc/<pid>/stat` 启动 tick 排序，禁止把可回绕 PID 当时间，并排除 subagent 子会话。真实修复 `dt-company_intro_v2`（`ses_f7a0e7...`，`/root/intro_v2`）与 `dt-alex-serp`（`ses_f7a56b...`），hub 已同步正确 binding。
+- `tmux-trigger` polling 固定为 60 行/12KB，禁止扩大 `capture-pane -S` 或重复回灌 pane 历史。全量 380 passed + 2 skipped。
+- PR #53、#54 已合并至 `main`；Release `v0.4.55.post12` 先以 draft 上传并校验 wheel/sdist 后公开，远端 wheel SHA-256 与本地构建一致。本机清理被同 URL 旧资产污染的 uv 缓存后正式安装，CLI 与 package metadata 均为 `0.4.55.post12`。
+
+### v0.4.55.post11 (RELEASED) — Handoff 控制面假活恢复
+
+- **hotfix/v0.4.55-post11-stalled-handoff**: 修复 owner Lease worker 持续续租、串行 ownership worker 已卡死时，显式 Resume 永远 `handoff timed out`。普通超时仍 fail-closed；仅当 evidence 超过 5 分钟、同 claimant 请求已超时、owner snapshot 覆盖最后语义变化、远端 bullet 可验证清场时，才进入 Hub flock 下的 stalled reservation 与 generation fencing。
+- daemon ownership worker 的单次探针/解析异常不再永久杀死线程；fault reservation TTL 从 10 秒增至 30 秒，覆盖有 12 秒硬上限的远端清场。
+- 真实 `dt-company_intro_v2`：确认 OUC evidence 停滞约 6800 秒、snapshot 覆盖最后变化、bullet 0 writer 后，generation 19 fencing 使旧端两 pane 自行退出；本机原子接管 generation 20，导入 trigger 最新 snapshot，并恢复 trigger/bullet。
+- PR #52 已合并至 `main`（merge `2348a8d`）；Release `v0.4.55.post11` 在 draft 阶段先上传并验证 wheel/sdist，随后发布。本机由 post10 正式升级至 post11，并以同 instance 原子续租 generation 20；380 passed + 2 skipped，Ruff 与 build 全绿。
 
 ### v0.4.55.post4 (RELEASED) — 跨 Client 快照自动 Union
 

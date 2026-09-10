@@ -161,6 +161,11 @@ def test_two_client_handoff_is_exclusive_under_ten_seconds(monkeypatch, tmp_path
     monkeypatch.setattr(ownership, "write_cache", lambda *_a, **_kw: None)
     monkeypatch.setattr(cli, "_export_local_snapshots", lambda *_a: [])
     monkeypatch.setattr(cli, "_verify_local_snapshot_exports", lambda *_a: None)
+    monkeypatch.setattr(
+        cli,
+        "freeze_sides",
+        lambda _data, sides, _tool, wait=False: {side: True for side in sides},
+    )
     monkeypatch.setattr(hotfix, "sync_persist", lambda *_a: None)
     monkeypatch.setattr(hub, "push", lambda *_a: None)
     monkeypatch.setattr(hub, "read_ownership", read_ownership)
@@ -399,9 +404,15 @@ def test_control_resume_restores_input_ready_trigger_under_ten_seconds(
     monkeypatch.setattr(ownership, "write_cache", lambda *_a, **_kw: None)
     monkeypatch.setattr(cli, "_export_local_snapshots", lambda *_a: [])
     monkeypatch.setattr(cli, "_verify_local_snapshot_exports", lambda *_a: None)
+    monkeypatch.setattr(
+        cli,
+        "freeze_sides",
+        lambda _data, sides, _tool, wait=False: {side: True for side in sides},
+    )
     monkeypatch.setattr(hotfix, "sync_persist", lambda *_a: None)
     monkeypatch.setattr(hub, "push", lambda *_a: None)
     monkeypatch.setattr(hub, "push_best_effort", lambda *_a, **_kw: None)
+    monkeypatch.setattr(hub, "read_tunnel_binding", lambda _name: dict(tunnel))
     monkeypatch.setattr(hub, "read_ownership", read_ownership)
     monkeypatch.setattr(
         hub,

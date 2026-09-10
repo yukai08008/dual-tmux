@@ -685,7 +685,10 @@ class DualTmuxDaemon:
     def _ownership_worker(self) -> None:
         """Collect potentially slow Hub/runtime facts away from connector supervision."""
         while not self.stop_event.is_set():
-            self._ownership_step()
+            try:
+                self._ownership_step()
+            except (OSError, RuntimeError, SystemExit, ValueError) as exc:
+                log.emit("ownership.worker.step.fail", reason=type(exc).__name__)
             self.stop_event.wait(max(1.0, self.ownership_interval))
 
     def _lease_step(self) -> None:

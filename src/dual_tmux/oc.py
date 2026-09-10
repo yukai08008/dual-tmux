@@ -455,6 +455,10 @@ for raw in glob.glob('/proc/[0-9]*/cmdline'):
    if x in ('-s','--session') and i+1<len(args): sid=args[i+1]
    elif x.startswith('--session='): sid=x.split('=',1)[1]
   cwd=os.path.realpath('/proc/%s/cwd'%pid)
+  # Linux PIDs wrap and may be reused; field 22 is the process start time in
+  # clock ticks and is the only reliable ordering key here.
+  stat=open('/proc/%s/stat'%pid).read()
+  started=int(stat[stat.rfind(')')+2:].split()[19])
   env={}
   for item in open('/proc/%s/environ'%pid,'rb').read().split(b'\\0'):
    key,sep,value=item.partition(b'=')
@@ -469,16 +473,16 @@ for raw in glob.glob('/proc/[0-9]*/cmdline'):
    if not match: match=re.search(r'/([0-9a-f]{64})(?:\\.scope)?(?:\\n|$)',cgroup)
    if match: container_id=match.group(1)
   except OSError: pass
-  found.append((sid,cwd,pid,db,container_id))
+  found.append((sid,cwd,pid,started,db,container_id))
  except (OSError,ValueError): pass
-for sid,cwd,pid,db,container_id in sorted(found,key=lambda x:x[2],reverse=True):
+for sid,cwd,pid,started,db,container_id in sorted(found,key=lambda x:x[3],reverse=True):
  try:
   if not os.path.isfile(db): continue
   c=sqlite3.connect('file:'+db+'?mode=ro',uri=True)
   if sid:
    row=c.execute("SELECT id,slug,IFNULL(title,''),directory,IFNULL(model,''),IFNULL(agent,'') FROM session WHERE id=?",(sid,)).fetchone()
   else:
-   row=c.execute("SELECT id,slug,IFNULL(title,''),directory,IFNULL(model,''),IFNULL(agent,'') FROM session WHERE directory=? AND time_archived IS NULL ORDER BY time_updated DESC LIMIT 1",(cwd,)).fetchone()
+   row=c.execute("SELECT id,slug,IFNULL(title,''),directory,IFNULL(model,''),IFNULL(agent,'') FROM session WHERE directory=? AND parent_id IS NULL AND time_archived IS NULL ORDER BY time_updated DESC LIMIT 1",(cwd,)).fetchone()
   c.close()
   if row:
    print('\\t'.join([*(str(x or '') for x in row),container_id])); raise SystemExit(0)
