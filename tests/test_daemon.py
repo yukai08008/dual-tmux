@@ -311,7 +311,7 @@ def test_failover_message_fence_requires_same_owner_and_generation(
 
 
 def _handoff_setup(monkeypatch, tmp_path):
-    from dual_tmux import activity, daemon, hub, ownership
+    from dual_tmux import activity, cli, daemon, hub, ownership
     from dual_tmux.store import save, tunnels_dir
 
     monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
@@ -328,6 +328,11 @@ def _handoff_setup(monkeypatch, tmp_path):
         },
     )
     monkeypatch.setattr(activity, "activity_evidence", lambda _data: {})
+    monkeypatch.setattr(
+        cli,
+        "freeze_sides",
+        lambda _data, sides, _tool, wait=False: {side: True for side in sides},
+    )
     monkeypatch.setattr(
         hub,
         "read_ownership",
@@ -423,6 +428,22 @@ def test_ownership_watchdog_defaults_to_one_second():
     daemon = DualTmuxDaemon()
     assert daemon.ownership_interval == 1.0
     assert daemon.ownership_cache_interval == 15.0
+
+
+def test_ownership_worker_survives_one_step_failure(monkeypatch):
+    worker = DualTmuxDaemon(ownership_interval=0)
+    calls = []
+
+    def step():
+        calls.append("step")
+        if len(calls) == 1:
+            raise RuntimeError("one bad probe")
+        worker.stop_event.set()
+
+    monkeypatch.setattr(worker, "_ownership_step", step)
+    worker._ownership_worker()
+
+    assert calls == ["step", "step"]
 
 
 def test_foreign_owner_fence_parks_local_tmux(monkeypatch, tmp_path):
@@ -736,6 +757,51 @@ def test_handoff_persist_failure_never_parks_or_releases(monkeypatch, tmp_path):
 
     DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
     assert calls == []
+
+
+def test_handoff_live_freeze_failure_never_exports_or_parks(monkeypatch, tmp_path):
+    from dual_tmux import cli, hotfix
+
+    hub = _handoff_setup(monkeypatch, tmp_path)
+    calls = []
+    monkeypatch.setattr(
+        cli,
+        "freeze_sides",
+        lambda *_a, **_kw: {"trigger": True, "bullet": False},
+    )
+    monkeypatch.setattr(
+        cli, "_export_local_snapshots", lambda *_a: calls.append("export") or []
+    )
+    monkeypatch.setattr(hotfix, "sync_persist", lambda *_a: calls.append("sync"))
+    monkeypatch.setattr(hub, "park_local", lambda *_a: calls.append("park"))
+
+    DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
+
+    assert calls == []
+
+
+def test_handoff_persists_refreshed_live_bindings_before_export(
+    monkeypatch, tmp_path
+):
+    from dual_tmux import cli, hotfix
+
+    hub = _handoff_setup(monkeypatch, tmp_path)
+    observed = []
+    monkeypatch.setattr(
+        cli,
+        "freeze_sides",
+        lambda *_a, **_kw: observed.append("freeze")
+        or {"trigger": True, "bullet": True},
+    )
+    monkeypatch.setattr(
+        cli, "_export_local_snapshots", lambda *_a: observed.append("export") or []
+    )
+    monkeypatch.setattr(hotfix, "sync_persist", lambda *_a: observed.append("sync"))
+    monkeypatch.setattr(hub, "park_local", lambda *_a: observed.append("park"))
+
+    DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
+
+    assert observed == []
 
 
 def test_handoff_persist_keeps_short_lease_alive(monkeypatch, tmp_path):

@@ -150,7 +150,10 @@ def test_ops_launch(monkeypatch, tmp_path):
     assert "Quiet-round cap" in trigger_skill
     assert "are **not** progress" in trigger_skill
     assert "After **8** quiet rounds" in trigger_skill
-    assert "tmux capture-pane -t <run_*> -p -S -80" in trigger_skill
+    assert "tmux capture-pane -t <run_*> -p -S -60 | tail -n 60 | head -c 12000" in trigger_skill
+    assert "The poll window is a hard ceiling" in trigger_skill
+    assert "Never widen it" in trigger_skill
+    assert "Never paste" in trigger_skill
     assert "Models (development)" in trigger_skill
     assert "gpt-5.6-sol" in trigger_skill
     assert "dt model <dt> --run" in trigger_skill

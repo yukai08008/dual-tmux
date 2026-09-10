@@ -439,6 +439,26 @@ def _start_side(
         directory = (data.get("runtime") or {}).get("directory") or ""
         if directory and Path(directory).expanduser().is_dir():
             cwd = str(Path(directory).expanduser())
+    if (
+        side == "trigger"
+        and resume
+        and info.get("session_id")
+        and tmux_ops.pane_command(tmux_name) == "opencode"
+    ):
+        pane = tmux_ops.pane_info(tmux_name) or {}
+        live_sid = oc_ops.id_from_pid(str(pane.get("pid") or ""))
+        target_sid = str(info.get("session_id") or "")
+        if live_sid and live_sid != target_sid:
+            backup = oc_ops.backup_local_snapshot(live_sid)
+            if not tmux_ops.quit_opencode(tmux_name):
+                raise SystemExit(
+                    f"[err] cannot replace stale trigger {live_sid} with {target_sid}; "
+                    f"backup: {backup}"
+                )
+            ui.info(
+                f"stopped stale trigger {live_sid} before resuming {target_sid}; "
+                f"backup: {backup}"
+            )
     if side == "bullet" and _fence_remote_bullet(data, info, tmux_name):
         return
     sent = tmux_ops.ensure_agent(tmux_name, cmd, cwd=cwd)

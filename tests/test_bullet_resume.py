@@ -102,6 +102,40 @@ def test_start_remote_bullet_fences_duplicate_exact_writers(monkeypatch):
     assert started == [True]
 
 
+def test_resume_trigger_backs_up_and_replaces_mismatched_live_session(
+    monkeypatch, tmp_path
+):
+    data = _dst()
+    calls = []
+    monkeypatch.setattr(cli.opsdir, "prepare", lambda _data: tmp_path)
+    monkeypatch.setattr(cli.tmux_ops, "pane_command", lambda _name: "opencode")
+    monkeypatch.setattr(cli.tmux_ops, "pane_info", lambda _name: {"pid": "42"})
+    monkeypatch.setattr(cli.oc_ops, "id_from_pid", lambda _pid: "ses_stale")
+    monkeypatch.setattr(
+        cli.oc_ops,
+        "backup_local_snapshot",
+        lambda sid: calls.append(("backup", sid)) or tmp_path / "backup.json",
+    )
+    monkeypatch.setattr(
+        cli.tmux_ops,
+        "quit_opencode",
+        lambda name: calls.append(("quit", name)) or True,
+    )
+    monkeypatch.setattr(
+        cli.tmux_ops,
+        "ensure_agent",
+        lambda name, cmd, **_kw: calls.append(("start", name, cmd)) or True,
+    )
+
+    cli._start_side(data, "op_msg", "trigger", resume=True)
+
+    assert calls == [
+        ("backup", "ses_stale"),
+        ("quit", "op_msg"),
+        ("start", "op_msg", "opencode --auto -s ses_trigger"),
+    ]
+
+
 def test_capture_runtime_clears_stale_remote_target_for_local_bullet():
     data = _dst()
     wp.capture_runtime(
