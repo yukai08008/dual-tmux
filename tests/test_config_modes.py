@@ -273,3 +273,21 @@ def test_config_switch_changes_only_the_default_workspace(monkeypatch, tmp_path)
         )
     )
     assert load_config().workspace == str(tmp_path)
+
+
+def test_bare_tunnel_name_is_resume():
+    parser = build_parser()
+    argv = cli._argv_with_tunnel_resume(["dt-andy-q"], parser)
+    args = parser.parse_args(argv)
+    assert argv == ["resume", "dt-andy-q"]
+    assert args.command == "resume"
+    assert args.name == "dt-andy-q"
+
+
+def test_known_command_is_not_rewritten_to_resume():
+    parser = build_parser()
+    assert cli._argv_with_tunnel_resume(["ls"], parser) == ["ls"]
+    assert cli._argv_with_tunnel_resume(["resume", "dt-andy-q"], parser) == [
+        "resume",
+        "dt-andy-q",
+    ]

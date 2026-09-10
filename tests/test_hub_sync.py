@@ -21,6 +21,7 @@ def test_rsync_progress_streams_info_progress2(monkeypatch):
         seen.append((argv, kwargs.get("inherit_stdout")))
         return Result()
 
+    monkeypatch.setattr(hub, "_rsync_progress_args", lambda: ["--info=progress2"])
     monkeypatch.setattr(hub, "_run", run)
     hub._rsync(
         "tom7r:/remote/tunnels/",
@@ -30,6 +31,25 @@ def test_rsync_progress_streams_info_progress2(monkeypatch):
     )
     assert "--info=progress2" in seen[0][0]
     assert seen[0][1] is True
+
+
+def test_rsync_progress_uses_openrsync_progress(monkeypatch):
+    seen = []
+
+    class Result:
+        returncode = 0
+        stderr = stdout = ""
+
+    monkeypatch.setattr(hub, "_rsync_progress_args", lambda: ["--progress"])
+    monkeypatch.setattr(hub, "_run", lambda argv, **_k: seen.append(argv) or Result())
+    hub._rsync(
+        "tom7r:/remote/tunnels/",
+        "/local/tunnels/",
+        AppConfig(client="tm_a", server="tom7r", user="a"),
+        progress=True,
+    )
+    assert "--progress" in seen[0]
+    assert "--info=progress2" not in seen[0]
 
 
 def test_rsync_progress_falls_back_when_info_unsupported(monkeypatch):
@@ -44,9 +64,15 @@ def test_rsync_progress_falls_back_when_info_unsupported(monkeypatch):
     def run(argv, **kwargs):
         seen.append(argv)
         if "--info=progress2" in argv:
-            return Result(1, "rsync: --info: unknown option")
+            return Result(
+                1,
+                "rsync: unrecognized option `--info=progress2'\n"
+                "usage: rsync [-0468BCDEFHIKLOPRSTWVabcdghiklnopqrtuvxyz]\n"
+                "\tsource ... directory\n",
+            )
         return Result(0)
 
+    monkeypatch.setattr(hub, "_rsync_progress_args", lambda: ["--info=progress2"])
     monkeypatch.setattr(hub, "_run", run)
     hub._rsync(
         "tom7r:/remote/tunnels/",
@@ -57,6 +83,16 @@ def test_rsync_progress_falls_back_when_info_unsupported(monkeypatch):
     assert "--info=progress2" in seen[0]
     assert "--progress" in seen[1]
     assert "--info=progress2" not in seen[1]
+
+
+def test_rsync_fail_message_skips_openrsync_usage_footer():
+    usage = (
+        "rsync: unrecognized option `--info=progress2'\n"
+        "usage: rsync [-0468BCDEFHIKLOPRSTWVabcdghiklnopqrtuvxyz]\n"
+        "\tsource ... directory\n"
+    )
+    assert "unrecognized option" in hub._rsync_fail_message(usage)
+    assert "source ... directory" not in hub._rsync_fail_message(usage)
 
 
 def test_rsync_can_disable_cross_host_uid_gid_preservation(monkeypatch):
