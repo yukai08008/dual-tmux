@@ -151,7 +151,7 @@
 
 ## 当前焦点
 
-- 让所有参与独热接管的 Client 升级至 v0.4.55.post4，再进入 v0.4.56 Web 体验演进。
+- 核心机制改为占用文件独热（见根目录 ROADMAP.md）。S1–S4 已落地：occupancy 独热、trigger 指纹/tick、resume 按 tick 选 MACHINE。S5/S6 拆除 daemon 租约协议。CLI 不阉割。
 
 ## Backlog
 

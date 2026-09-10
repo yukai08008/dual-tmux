@@ -114,7 +114,7 @@ def _ensure_remote(cfg: AppConfig) -> None:
         (
             f"mkdir -p {remote_root(cfg)}/tunnels {remote_root(cfg)}/entries "
             f"{remote_root(cfg)}/locks {remote_root(cfg)}/activity "
-            f"{remote_root(cfg)}/ownership"
+            f"{remote_root(cfg)}/ownership {remote_root(cfg)}/occupancy"
         )
     ]
     result = _run(dest)
@@ -1309,6 +1309,7 @@ def require_active(data: dict, force: bool = False) -> dict:
 
 
 def enforce_local() -> None:
+    from .occupancy import foreign_holder, read_occupancy
     from .store import iter_dt_files, load
 
     cfg = load_config()
@@ -1319,10 +1320,10 @@ def enforce_local() -> None:
         data = load(path)
         name = data.get("name") or path.stem
         try:
-            holder, _age = read_lock(name)
+            occ = read_occupancy(name, cfg)
         except SystemExit:
             continue
-        if holder and holder != me:
+        if foreign_holder(occ, me):
             drop_local(data)
 
 

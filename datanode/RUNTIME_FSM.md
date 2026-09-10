@@ -1,4 +1,6 @@
 # dual-tmux 运行节点与 FSM 设计基线
+> **机制更正（2026-09-10）**：Lease / Handoff / FaultTakeover 作为日常独热已被判定为过渡设计。权威模型改为占用文件，见 [`docs/core-architecture.md`](../docs/core-architecture.md) 与根目录 `ROADMAP.md`。本文保留供 S6 拆除前对照，不再作为实现方向。
+
 
 > 状态：**核心状态、事件和六项取舍已确认；开始分阶段实现 Graph/Machine**。
 >

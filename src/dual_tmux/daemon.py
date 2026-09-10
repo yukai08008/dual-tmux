@@ -634,6 +634,29 @@ class DualTmuxDaemon:
             if not live and not refresh_cache:
                 continue
             try:
+                from .occupancy import foreign_holder, read_occupancy
+
+                occ = read_occupancy(name, cfg) if cfg.hub_enabled else {}
+            except (OSError, SystemExit, ValueError):
+                occ = {}
+            if cfg.hub_enabled and foreign_holder(occ, cfg.client):
+                try:
+                    parked = hub.park_local(data)
+                    if parked:
+                        log.emit(
+                            "occupancy.fence.park",
+                            name=name,
+                            holder=occ.get("holder") or "none",
+                            generation=int(occ.get("generation") or 0),
+                        )
+                except (OSError, SystemExit):
+                    log.emit(
+                        "occupancy.fence.fail",
+                        name=name,
+                        generation=int(occ.get("generation") or 0),
+                    )
+                continue
+            try:
                 lease = hub.read_ownership(name, cfg)
             except (OSError, SystemExit, ValueError):
                 if cfg.hub_enabled and live:
