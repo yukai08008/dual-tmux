@@ -1,8 +1,12 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-10 15:00 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-10 15:20 +08:00 | 更新者: Codex PM
 
 ## 状态树
+
+### v0.4.56.post1 (RELEASED) — Resume 先拉后占
+
+- Resume 热路径强制：Hub pull DST → persist/ticks 全量拉取 → tick 仲裁源 → 快照预检 → occupancy claim → 启动 tmux。persist 失败 fail-closed，不再 warn 后抢占。native persist 也改到 claim 之前。
 
 ### v0.4.56 (RELEASED) — Occupancy 独热与 tick 来源 Resume
 
