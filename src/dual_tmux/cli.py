@@ -388,6 +388,22 @@ def _pane_shows_agent(tmux_name: str) -> bool:
     return bool(paneparse.RUNNING_RE.search(text) or paneparse.FOOTER_RE.search(text))
 
 
+def _wait_opencode_ready(tmux_name: str, session_id: str, timeout: float = 12) -> None:
+    """Wait until the requested OpenCode session is visible and input-ready."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if tmux_ops.pane_command(tmux_name) == "opencode":
+            pane = tmux_ops.pane_info(tmux_name) or {}
+            live = oc_ops.id_from_pid(str(pane.get("pid") or ""))
+            if live == session_id and _pane_shows_agent(tmux_name):
+                return
+        time.sleep(0.2)
+    raise SystemExit(
+        f"[err] {tmux_name} OpenCode session {session_id} did not become ready "
+        f"within {timeout:g}s"
+    )
+
+
 def _fence_remote_bullet(data: dict, info: dict, tmux_name: str) -> bool:
     """Enforce a single remote bullet instance for the bound session.
 
@@ -443,7 +459,6 @@ def _start_side(
         side == "trigger"
         and resume
         and info.get("session_id")
-        and tmux_ops.pane_command(tmux_name) == "opencode"
     ):
         pane = tmux_ops.pane_info(tmux_name) or {}
         live_sid = oc_ops.id_from_pid(str(pane.get("pid") or ""))
@@ -466,6 +481,13 @@ def _start_side(
         ui.ok(f"{side} {cmd} -> {tmux_name}" + (f"  cwd={cwd}" if cwd else ""))
     else:
         ui.skip(f"{tmux_name} already running {info.get('tool') or 'agent'}")
+    if (
+        side == "trigger"
+        and resume
+        and info.get("tool", "opencode") == "opencode"
+        and tmux_ops.pane_command(tmux_name) == "opencode"
+    ):
+        _wait_opencode_ready(tmux_name, str(info.get("session_id") or ""))
 
 
 def _touch_point(data: dict, which: str) -> None:

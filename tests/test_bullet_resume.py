@@ -126,6 +126,7 @@ def test_resume_trigger_backs_up_and_replaces_mismatched_live_session(
         "ensure_agent",
         lambda name, cmd, **_kw: calls.append(("start", name, cmd)) or True,
     )
+    monkeypatch.setattr(cli, "_wait_opencode_ready", lambda *_args: None)
 
     cli._start_side(data, "op_msg", "trigger", resume=True)
 
@@ -134,6 +135,24 @@ def test_resume_trigger_backs_up_and_replaces_mismatched_live_session(
         ("quit", "op_msg"),
         ("start", "op_msg", "opencode --auto -s ses_trigger"),
     ]
+
+
+def test_resume_waits_for_trigger_session_ready(monkeypatch, tmp_path):
+    data = _dst()
+    monkeypatch.setattr(cli.opsdir, "prepare", lambda _data: tmp_path)
+    monkeypatch.setattr(cli.tmux_ops, "pane_command", lambda _name: "opencode")
+    monkeypatch.setattr(cli.tmux_ops, "pane_info", lambda _name: {"pid": "42"})
+    monkeypatch.setattr(cli.oc_ops, "id_from_pid", lambda _pid: "ses_trigger")
+    ready = iter([False, True])
+    monkeypatch.setattr(cli, "_pane_shows_agent", lambda _name: next(ready))
+    monkeypatch.setattr(cli.tmux_ops, "ensure_agent", lambda *_a, **_kw: True)
+    monkeypatch.setattr(cli.time, "sleep", lambda _seconds: None)
+
+    calls = []
+    monkeypatch.setattr(cli, "_wait_opencode_ready", lambda *args: calls.append(args))
+    cli._start_side(data, "op_msg", "trigger", resume=True)
+
+    assert calls == [("op_msg", "ses_trigger")]
 
 
 def test_capture_runtime_clears_stale_remote_target_for_local_bullet():

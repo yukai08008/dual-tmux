@@ -21,6 +21,8 @@
   使用 handoff 请求前载入的内存副本。
 - 若 claimant 本地 Trigger pane 仍运行与刷新后 binding 不同的 session，先备份该旧
   session，再退出旧 TUI 并恢复目标 session；“pane 已经是 opencode”不能作为跳过依据。
+- 启动或复用 OpenCode Trigger 后，必须等待目标 session ID、OpenCode 进程和可识别
+  footer 同时就绪，并设置有界超时；不能因 `ensure_agent` 已发送命令就立即返回成功。
 - remote OpenCode 按 `/proc/<pid>/stat` field 22 启动 ticks 排序，不按 PID；自动发现只接收
   `parent_id IS NULL` 的顶层 session。
 - 本地接管后，旧 owner 的 Trigger pane 和旧 Bullet 写进程必须退出，保持单一 owner。
@@ -75,6 +77,7 @@ gpt-5.6-sol -> grok-4.6 -> gpt-5.6-terra -> gpt-5.5
 | claimant 用请求前旧 binding 覆盖 owner 新值 | `test_resume_reloads_owner_committed_binding_after_handoff` |
 | 单隧道权威读取被本地时间戳合并覆盖 | `test_read_tunnel_binding_uses_remote_value_without_local_merge` |
 | 本地旧 Trigger TUI 阻止目标 binding 启动 | `test_resume_trigger_backs_up_and_replaces_mismatched_live_session` |
+| Trigger 尚未初始化就提前返回 | `test_resume_waits_for_trigger_session_ready` |
 | live side 无法证明仍继续交接 | `test_handoff_live_freeze_failure_never_exports_or_parks` |
 | persist/commit/park 顺序错误 | `test_handoff_orders_persist_park_ack_release` |
 | persist 期间 Lease 过期 | `test_handoff_persist_keeps_short_lease_alive` |

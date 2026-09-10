@@ -11,6 +11,7 @@
 
 | 日期 | 案例 | 问题 | 解决方案 | 状态 |
 |---|---|---|---|---|
+| 2026-09-10 | Resume 首次进入信息未就绪，第二次才正确 | [trouble](trouble/20260910-resume-first-entry-not-ready.md) | [solution](solution/20260910-resume-first-entry-not-ready-solution.md) | RESOLVED / REGRESSION |
 | 2026-09-09 | 旧 Bullet 交接与 Trigger 上下文污染 | [trouble](trouble/20260909-stale-bullet-handoff-and-trigger-context-pollution.md) | [solution](solution/20260909-stale-bullet-handoff-and-trigger-context-pollution-solution.md) | RESOLVED / REGRESSION |
 | 2026-09-02 | 锁屏 Client 租约误判与有副作用的 resume 拒绝 | [trouble](trouble/20260902-lockscreen-lease-false-active.md) | — | FOUND / PLANNED v0.4.49-v0.4.50 |
 | 2026-09-01 | GitHub Release wheel 无法升级 | [trouble](trouble/20260901-github-release-wheel-cannot-upgrade.md) | [solution](solution/20260901-github-release-upgrade-solution.md) | RESOLVED |
