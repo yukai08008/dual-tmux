@@ -60,7 +60,7 @@ flowchart LR
 
 体验：从 MACHINE1 工作后到 MACHINE2：`dt pull`（或 resume 内置拉取）→ 占用 → 看到同一 trigger 会话。
 
-## S5 daemon 收敛
+## S5 daemon 收敛（已落地）
 
 结构：daemon 不再跑 Lease worker、handoff persist 线程。只做：读占用、该退就退、占用者心跳刷新 lock 时间戳、可选 Feishu mailbox。
 

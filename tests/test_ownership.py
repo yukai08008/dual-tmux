@@ -16,9 +16,9 @@ def _data():
 
 def test_snapshot_schema_and_duplicate_writer_fail_closed(monkeypatch):
     monkeypatch.setattr(
-        ownership.hub,
-        "read_ownership",
-        lambda _name: {
+        ownership,
+        "_occupancy_lease",
+        lambda _data: {
             "state": "owned",
             "holder": "tm_a",
             "generation": 4,
@@ -75,9 +75,9 @@ def test_foreign_idle_detached_can_request_handoff(monkeypatch):
         },
     }
     monkeypatch.setattr(
-        ownership.hub,
-        "read_ownership",
-        lambda _name: {
+        ownership,
+        "_occupancy_lease",
+        lambda _data: {
             "state": "foreign",
             "holder": "tm_other",
             "generation": 8,
@@ -106,9 +106,9 @@ def test_foreign_idle_attached_can_request_explicit_handoff(monkeypatch):
         },
     }
     monkeypatch.setattr(
-        ownership.hub,
-        "read_ownership",
-        lambda _name: {
+        ownership,
+        "_occupancy_lease",
+        lambda _data: {
             "state": "foreign",
             "holder": "tm_other",
             "generation": 8,
@@ -137,9 +137,9 @@ def test_foreign_unknown_attachment_still_fails_closed(monkeypatch):
         },
     }
     monkeypatch.setattr(
-        ownership.hub,
-        "read_ownership",
-        lambda _name: {
+        ownership,
+        "_occupancy_lease",
+        lambda _data: {
             "state": "foreign",
             "holder": "tm_other",
             "generation": 8,
@@ -395,9 +395,9 @@ def test_stale_foreign_evidence_requests_handoff(monkeypatch):
         },
     }
     monkeypatch.setattr(
-        ownership.hub,
-        "read_ownership",
-        lambda _name: {
+        ownership,
+        "_occupancy_lease",
+        lambda _data: {
             "state": "foreign",
             "holder": "tm_other",
             "generation": 8,
@@ -434,9 +434,9 @@ def test_native_client_store_allows_protocol_handoff(monkeypatch):
         },
     }
     monkeypatch.setattr(
-        ownership.hub,
-        "read_ownership",
-        lambda _name: {
+        ownership,
+        "_occupancy_lease",
+        lambda _data: {
             "state": "foreign",
             "holder": "tm_other",
             "generation": 8,
@@ -473,9 +473,9 @@ def test_native_snapshot_conflict_blocks_takeover(monkeypatch):
         },
     }
     monkeypatch.setattr(
-        ownership.hub,
-        "read_ownership",
-        lambda _name: {
+        ownership,
+        "_occupancy_lease",
+        lambda _data: {
             "state": "foreign",
             "holder": "tm_other",
             "generation": 8,
