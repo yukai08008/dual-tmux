@@ -159,9 +159,64 @@ def _takeover(lease: dict, sides: dict, writers: dict) -> dict:
     return {"safe": True, "action": "resume", "reason": "already_owned"}
 
 
+def _occupancy_lease(data: dict) -> dict:
+    """Map occupancy to the lease-shaped fact used by existing callers."""
+    from .config import load_config
+    from .occupancy import foreign_holder, read_occupancy
+
+    name = str(data.get("name") or "")
+    try:
+        cfg = load_config()
+    except SystemExit:
+        return {
+            "state": "local",
+            "holder": "",
+            "generation": int(data.get("ownership_generation") or 0),
+            "source": "occupancy",
+            "conflict": False,
+            "evidence": {},
+        }
+    if not cfg.hub_enabled:
+        return {
+            "state": "local",
+            "holder": cfg.client,
+            "generation": int(data.get("ownership_generation") or 0),
+            "source": "occupancy",
+            "conflict": False,
+            "evidence": {},
+        }
+    try:
+        occ = read_occupancy(name, cfg)
+    except SystemExit:
+        return {
+            "state": "owned",
+            "holder": cfg.client,
+            "generation": int(data.get("ownership_generation") or 0),
+            "source": "occupancy",
+            "conflict": False,
+            "evidence": {},
+        }
+    holder = str(occ.get("holder") or "")
+    generation = int(occ.get("generation") or 0)
+    if foreign_holder(occ, cfg.client):
+        state = "foreign"
+    elif holder:
+        state = "owned"
+    else:
+        state = "free"
+    return {
+        "state": state,
+        "holder": holder or cfg.client,
+        "generation": generation,
+        "source": "occupancy",
+        "conflict": False,
+        "evidence": {},
+    }
+
+
 def snapshot(data: dict, *, lease: dict | None = None) -> dict:
     name = str(data.get("name") or "")
-    lease = lease or hub.read_ownership(name)
+    lease = lease or _occupancy_lease(data)
     local_evidence = read_evidence(name)
     evidence = (
         local_evidence
@@ -431,30 +486,19 @@ def acquire_for_resume(data: dict, plan: dict, *, force: bool = False) -> dict:
 
 
 def verify_resume(data: dict, token: dict) -> dict:
+    from .config import load_config
+    from .occupancy import read_occupancy
+
     name = str(data.get("name") or "")
-    current = hub.read_ownership(name)
     expected = int(token.get("generation") or 0)
-    if int(current.get("generation") or 0) != expected:
-        raise SystemExit("[err] ownership generation changed during resume")
-    deadline = time.monotonic() + 5
-    writers = {role: probe_writers(data, role) for role in ("trigger", "bullet")}
-    while (
-        any(
-            value["status"] == "ok" and value["count"] == 0
-            for value in writers.values()
-        )
-        and time.monotonic() < deadline
-    ):
-        time.sleep(0.25)
-        writers = {role: probe_writers(data, role) for role in ("trigger", "bullet")}
-    bad = [
-        role
-        for role, value in writers.items()
-        if value["status"] != "ok" or value["count"] != 1
-    ]
-    if bad:
-        raise SystemExit(f"[err] resume writer verification failed: {','.join(bad)}")
-    current = hub.read_ownership(name)
-    if int(current.get("generation") or 0) != expected:
-        raise SystemExit("[err] ownership generation changed during resume")
-    return {"generation": expected, "writers": writers}
+    cfg = load_config()
+    if not cfg.hub_enabled:
+        return {"generation": expected, "writers": {}}
+    current = read_occupancy(name, cfg)
+    holder = str(current.get("holder") or "")
+    if holder and holder != cfg.client:
+        raise SystemExit("[err] occupancy changed during resume")
+    generation = int(current.get("generation") or 0)
+    if expected and generation and generation != expected:
+        raise SystemExit("[err] occupancy generation changed during resume")
+    return {"generation": generation or expected, "writers": {}}

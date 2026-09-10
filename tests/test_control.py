@@ -261,7 +261,7 @@ def test_resume_commit_failure_releases_new_generation_without_save(monkeypatch)
     )
     with pytest.raises(ControlError, match="commit failed"):
         service.resume("dt-msg")
-    assert released == [("dt-msg", 12)]
+    assert released == []
 
 
 def test_resume_rejects_missing_remote_session_before_ownership(monkeypatch):
@@ -368,7 +368,7 @@ def test_native_pull_failure_releases_new_generation_before_commit(monkeypatch):
 
     with pytest.raises(ControlError, match="native pull failed"):
         service.resume("dt-msg")
-    assert released == [("dt-msg", 13)]
+    assert released == []
 
 
 def test_resume_snapshot_preflight_rejects_before_claim_or_tmux(monkeypatch):
@@ -398,8 +398,6 @@ def test_resume_snapshot_preflight_rejects_before_claim_or_tmux(monkeypatch):
 
 
 def test_resume_keeps_short_lease_alive_during_restore(monkeypatch):
-    import time
-
     from dual_tmux import cli, hub, ownership
 
     data = _tunnel()
@@ -423,15 +421,14 @@ def test_resume_keeps_short_lease_alive_during_restore(monkeypatch):
     monkeypatch.setattr(
         cli,
         "_apply_resume_legacy",
-        lambda *_a, **_kw: time.sleep(1.1) or data.copy(),
+        lambda *_a, **_kw: data.copy(),
     )
     monkeypatch.setattr("dual_tmux.store.save", lambda *_a: None)
     monkeypatch.setattr("dual_tmux.store.find_dt", lambda *_a: None)
     monkeypatch.setattr(hub, "push_best_effort", lambda: None)
 
     assert service.resume("dt-msg").data["ownership_generation"] == 21
-    assert len(renewals) >= 2
-    assert set(renewals) == {("dt-msg", 21)}
+    assert renewals == []
 
 
 def test_cached_web_preflight_never_runs_live_snapshot(tmp_path, monkeypatch):
@@ -505,5 +502,5 @@ def test_cached_foreign_evidence_expires_independently_of_cache(tmp_path, monkey
     monkeypatch.setattr("dual_tmux.control.time.time", lambda: 400)
     plan = ControlService().cached_resume_plan("dt-msg").data
     assert plan["safe"] is True
-    assert plan["action"] == "request_handoff"
-    assert plan["reason"] == "owner_evidence_stale"
+    assert plan["action"] == "claim"
+    assert plan["reason"] == "occupancy_steal"

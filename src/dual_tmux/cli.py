@@ -340,15 +340,19 @@ def _export_local_snapshots(data: dict, client: str) -> list:
         tool = info.get("tool") or "opencode"
         if tool in {"codex", "claude"}:
             from . import native_persist
+            from .occupancy import read_occupancy
 
+            try:
+                generation = int(
+                    read_occupancy(str(data.get("name") or "")).get("generation") or 0
+                )
+            except SystemExit:
+                generation = int(data.get("ownership_generation") or 0)
             path = native_persist.export_session(
                 info,
                 client,
                 source_instance=hub.instance_id(),
-                generation=int(
-                    hub.read_ownership(str(data.get("name") or "")).get("generation")
-                    or 0
-                ),
+                generation=generation,
                 namespace=tenant,
             )
         else:
@@ -1146,9 +1150,11 @@ def _apply_resume_legacy(
         expected = int(native_generation or 0)
         if not expected:
             return
-        current = hub.read_ownership(str(data.get("name") or ""))
+        from .occupancy import read_occupancy
+
+        current = read_occupancy(str(data.get("name") or ""))
         if int(current.get("generation") or 0) != expected:
-            raise SystemExit("[err] ownership generation changed during native import")
+            raise SystemExit("[err] occupancy generation changed during native import")
 
     def ensure_native(info: dict, tmux_name: str, role: str) -> None:
         if (info.get("tool") or "opencode") not in {"codex", "claude"}:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import threading
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
@@ -372,34 +371,14 @@ class ControlService:
                 shadow.ownership_failed(exc)
             raise
         shadow.ownership_acquired(token)
-        generation = int(token.get("generation") or 0)
-        keepalive_stop = threading.Event()
-        keepalive_thread = None
-        if generation and hub.enabled():
-
-            def keepalive() -> None:
-                while not keepalive_stop.wait(1.0):
-                    try:
-                        hub.renew_ownership(str(original.get("name") or ""), generation)
-                    except (OSError, SystemExit, ValueError):
-                        pass
-
-            keepalive_thread = threading.Thread(
-                target=keepalive,
-                daemon=True,
-                name=f"dt-resume-lease-{original.get('name') or 'tunnel'}",
-            )
-            keepalive_thread.start()
         native_sides = [
             role
             for role in ("trigger", "bullet")
             if (original.get(role) or {}).get("tool") in {"codex", "claude"}
             and not (role == "bullet" and (original.get("runtime") or {}).get("server"))
         ]
-        commit_started = False
         restore_completed = False
         rollback_started = False
-        committed_data = original
         try:
             if native_sides:
                 from .config import load_config
@@ -409,7 +388,6 @@ class ControlService:
                     from .hotfix import sync_persist
 
                     _translate(lambda: sync_persist("native", cfg))
-            commit_started = True
             data = _translate(
                 lambda: _apply_resume_legacy(
                     name,
@@ -419,7 +397,6 @@ class ControlService:
                     native_generation=int(token.get("generation") or 0),
                 )
             )
-            committed_data = data
             shadow.restore_completed()
             restore_completed = True
             try:
@@ -429,11 +406,6 @@ class ControlService:
                 rollback_started = True
                 raise
             data["ownership_generation"] = verified["generation"]
-            _translate(
-                lambda: hub.renew_ownership(
-                    str(data.get("name") or ""), int(verified["generation"])
-                )
-            )
             save(find_dt(str(data.get("name") or "")), data)
             ev.emit(
                 "dt.resume", name=data.get("name"), generation=verified["generation"]
@@ -444,49 +416,10 @@ class ControlService:
                 shadow.restore_failed(exc)
             elif not rollback_started:
                 shadow.verification_failed(exc)
-            if token.get("newly_acquired"):
-                parked = True
-                lease_released = False
-                if commit_started:
-                    try:
-                        hub.park_local(committed_data)
-                    except (OSError, SystemExit):
-                        parked = False
-                if parked:
-                    try:
-                        hub.release(
-                            str(original.get("name") or ""),
-                            generation=int(token.get("generation") or 0),
-                        )
-                        lease_released = True
-                    except SystemExit:
-                        pass
-                else:
-                    ev.emit(
-                        "ownership.rollback.park_failed",
-                        name=original.get("name"),
-                        generation=token.get("generation"),
-                    )
-                if parked and lease_released:
-                    shadow.rollback_completed(
-                        parked=parked, lease_released=lease_released
-                    )
-                else:
-                    shadow.rollback_uncertain(
-                        "resume rollback could not prove park and lease release"
-                    )
-            else:
-                if commit_started:
-                    shadow.rollback_uncertain(
-                        "existing lease resume did not prove cleanup of attempt resources"
-                    )
-                else:
-                    shadow.rollback_completed(parked=True, lease_released=False)
+            # Occupancy is already claimed. Do not park local tmux or release
+            # a lease: a failed resume must not kick the operator out.
+            shadow.rollback_completed(parked=False, lease_released=False)
             raise
-        finally:
-            keepalive_stop.set()
-            if keepalive_thread is not None:
-                keepalive_thread.join(timeout=2)
         hub.push_best_effort()
         return ControlResult("session.resume", data, _event("session.resume"))
 
@@ -543,9 +476,9 @@ class ControlService:
                 ):
                     plan.update(
                         safe=True,
-                        action="request_handoff",
-                        reason="owner_evidence_stale",
-                        steps=["request_handoff", "prepare", "restore", "verify"],
+                        action="claim",
+                        reason="occupancy_steal",
+                        steps=["claim", "prepare", "restore", "verify"],
                     )
         plan["cache"] = {
             key: cached.get(key) for key in ("cached_at", "age_seconds", "freshness")
