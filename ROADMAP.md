@@ -1,6 +1,6 @@
 # dual-tmux ROADMAP
 
-> v0.4.58：S7–S9。RoleBinding 为 DST 事实；freeze/rebuild 走 BindingAttempt；CLI/Web 占用语义对齐。
+> v0.4.59：S7–S8。freeze 在 working copy 上证明，经 TunnelNode 投影后才提交；ControlService.freeze 校验节点。Resume FSM 仍是 shadow。
 > CLI 表面能力不阉割：`new / enter / work / freeze / resume / drop / ls / pull / push` 仍可用。
 > 本路线图的权威设计见 [docs/core-architecture.md](docs/core-architecture.md)。
 
@@ -80,30 +80,30 @@ flowchart LR
 体验：用户无感，故障面变小。
 
 
-## S7 节点成为领域支点（进行中）
+## S7 节点成为领域支点（freeze 提交已走 TunnelNode）
 
 结构：Tunnel 拥有 RoleBinding；Session 不再携带 role。Occupancy 是独热事实。Client 是 `tm_*`。
-不建 ClientInstallation，不把 Lease 做成节点生命周期。
+不建 ClientInstallation，不把 Lease 做成节点生命周期。CLI dict 仍是磁盘格式；提交时 `from_legacy_tunnel` / `to_legacy_tunnel` 往返。
 
-功能：人和 Agent 都对着同一组 Pydantic 节点看隧道、DST、占用。CLI 仍走 dict，adapter 往返。
+功能：freeze 证明阶段只改 working copy。Guard 通过后投影 TunnelNode，再写 run entry。原 tunnel dict 在 `bound` 前不变。
 
-体验：freeze / rebuild 的目标从“改 JSON 字段”变成“提交一条 RoleBinding”。
+体验：freeze / rebuild 的目标是“提交一条 RoleBinding”，不是边探测边改 JSON。
 
-## S8 BindingAttempt FSM（Graph 已接入 freeze）
+## S8 BindingAttempt FSM（prove → node commit）
 
-结构：freeze 与“trigger 重建 bullet”走同一 Graph。Guard 无副作用；`on_enter bound` 刷新 binding、endpoint、run entry，并做用户级 rsync。
+结构：freeze 与“trigger 重建 bullet”走同一 Graph。Guard / `on_enter` 无 I/O。worker 在 `live_session_proven` 与 `commit_succeeded` 之间执行 `apply_proven_binding`（TunnelNode 投影 + bullet `persist_run_entry`）。用户级 rsync 仍由 freeze 入口 `hub.push_best_effort` 负责。
 
-功能：重建 bullet 后隧道参数自动对齐，resume 不再先修再续。
+功能：重建 bullet 后 endpoint / `runtime.cmd` / run entry 与新 session 一次对齐。entry 写失败则不改原 binding。
 
-体验：用户或 trigger 发同一条 freeze/rebuild 命令语义；失败 fail-closed，旧 DST 仍可用。
+体验：用户或 trigger 发同一条 freeze 命令；失败 fail-closed，旧 DST 仍可用。
 
-确认稿已实现：[docs/datanode-fsm.md](docs/datanode-fsm.md)。`dt freeze` / 重建会话走 `BindingMachine.send()`；证明失败回滚旧 binding。
+确认稿：[docs/datanode-fsm.md](docs/datanode-fsm.md)。
 
-## S9 ControlService 发事件，入口保持薄（占用表面已对齐）
+## S9 ControlService 发事件，入口保持薄（占用已对齐；Resume 仍 shadow）
 
-结构：CLI / Web / 飞书只调用 ControlService。真正改节点必须 `Machine.send()`。Resume 顺序不变：拉 DST → tick → 预检 → 占用 → 按 binding 恢复。
+结构：CLI / Web / 飞书只调用 ControlService。`freeze` 结束后校验 TunnelNode。真正改节点必须先 `Machine.send(live_session_proven)`。Resume 顺序不变：拉 DST → tick → 预检 → 占用 → 按 binding 恢复；ResumeAttempt 仍写 shadow，本版不升权威。
 
-功能：现有 CLI 动词不减少。Web 面板改占用语义，不再画 Lease/TTL。
+功能：现有 CLI 动词不减少。Web 面板继续占用语义。
 
 体验：换机 `dt upgrade && dt pull && dt resume` 仍是日常路径。
 

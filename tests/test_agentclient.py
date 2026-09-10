@@ -517,6 +517,11 @@ def test_freeze_commits_verified_live_runtime_and_session(monkeypatch):
         ),
     )
     monkeypatch.setattr(cli, "write_entry", lambda *args, **kwargs: None)
+    persisted = []
+    monkeypatch.setattr(
+        "dual_tmux.binding.persist_run_entry",
+        lambda *args, **kwargs: persisted.append(args),
+    )
     monkeypatch.setattr(cli.ev, "emit", lambda *args, **kwargs: None)
 
     assert cli._freeze_one(data, "bullet", "run_test", "auto", False)
@@ -527,6 +532,7 @@ def test_freeze_commits_verified_live_runtime_and_session(monkeypatch):
     assert data["bullet"]["session_id"] == "ses_remote"
     assert data["run_point"]["ssh"] == "root@10.88.0.20"
     assert data["run_point"]["hops"] == []
+    assert persisted == [("run_test", data["runtime"]["cmd"])]
 
 
 def test_partial_freeze_is_saved_but_returns_failure(monkeypatch):
