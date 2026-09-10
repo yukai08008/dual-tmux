@@ -1024,7 +1024,7 @@ def _bind_trigger_workspace(data: dict) -> None:
 
 
 def refresh_resume_inputs(data: dict) -> dict:
-    """Pull user-level DST and trigger persist before snapshot preflight."""
+    """Pull DST, ticks and persist before occupancy. Fail closed on Hub errors."""
     from .config import load_config
     from .hotfix import sync_persist
 
@@ -1035,14 +1035,9 @@ def refresh_resume_inputs(data: dict) -> dict:
     if not cfg.hub_enabled:
         return data
     hub.pull()
-    try:
-        sync_persist("opencode", cfg)
-    except SystemExit as exc:
-        ui.warn(str(exc))
-    try:
-        return load(find_dt(str(data.get("name") or "")))
-    except SystemExit:
-        return data
+    for kind in ("opencode", "native"):
+        sync_persist(kind, cfg)
+    return load(find_dt(str(data.get("name") or "")))
 
 
 def _resume_persist_source(data: dict) -> str:
