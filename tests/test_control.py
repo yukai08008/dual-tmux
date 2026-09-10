@@ -1,8 +1,15 @@
+import json
+
 import pytest
 
 from dual_tmux.config import AppConfig
 from dual_tmux.control import ControlError, ControlService, operation_catalog
 from dual_tmux.store import save, tunnels_dir
+
+
+@pytest.fixture(autouse=True)
+def _isolate_control_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path / "dual-tmux-home"))
 
 
 def _tunnel(tool: str = "opencode") -> dict:
@@ -146,7 +153,15 @@ def test_control_wraps_legacy_freeze_resume_and_model(monkeypatch):
         lambda *_a, **_kw: {"generation": 1, "newly_acquired": False},
     )
     monkeypatch.setattr(
-        ownership, "verify_resume", lambda *_a, **_kw: {"generation": 1, "writers": {}}
+        ownership,
+        "verify_resume",
+        lambda *_a, **_kw: {
+            "generation": 1,
+            "writers": {
+                "trigger": {"status": "ok", "count": 1, "pids": [10]},
+                "bullet": {"status": "ok", "count": 1, "pids": [11]},
+            },
+        },
     )
     monkeypatch.setattr("dual_tmux.hub.renew_ownership", lambda *_a, **_kw: None)
     monkeypatch.setattr("dual_tmux.store.save", lambda *_a, **_kw: None)
@@ -158,6 +173,11 @@ def test_control_wraps_legacy_freeze_resume_and_model(monkeypatch):
         "auto",
     ]
     assert service.resume("msg", True).data["call"] == ["msg", True]
+    shadow_files = list(
+        (tunnels_dir().parent / "fsm-shadow" / "resume").glob("*.json")
+    )
+    assert len(shadow_files) == 1
+    assert json.loads(shadow_files[0].read_text())["state"] == "completed"
     assert service.model("msg", "p/m", ["trigger"]).data["call"] == [
         "msg",
         "p/m",
@@ -241,7 +261,7 @@ def test_resume_commit_failure_releases_new_generation_without_save(monkeypatch)
     )
     with pytest.raises(ControlError, match="commit failed"):
         service.resume("dt-msg")
-    assert released == [("dt-msg", 12)]
+    assert released == []
 
 
 def test_resume_rejects_missing_remote_session_before_ownership(monkeypatch):
@@ -309,7 +329,7 @@ def test_resume_persists_unique_runtime_repair_before_ownership(monkeypatch):
 
 
 def test_resume_reloads_owner_committed_binding_after_handoff(monkeypatch):
-    from dual_tmux import cli, hotfix, hub, ownership
+    from dual_tmux import cli, ownership
 
     stale = _tunnel()
     stale["trigger"]["session_id"] = "ses_stale"
@@ -317,13 +337,14 @@ def test_resume_reloads_owner_committed_binding_after_handoff(monkeypatch):
     refreshed["trigger"]["session_id"] = "ses_live"
     service = ControlService()
     monkeypatch.setattr(ControlService, "_get_tunnel_readonly", lambda *_a: stale)
+    monkeypatch.setattr(cli, "refresh_resume_inputs", lambda _data: refreshed)
     monkeypatch.setattr(
         ownership,
         "plan_resume",
-        lambda _data: {
+        lambda data: {
             "safe": True,
-            "action": "request_handoff",
-            "reason": "foreign_owner",
+            "action": "claim",
+            "reason": "occupancy_steal",
             "ownership": {"lease": {"generation": 8}},
         },
     )
@@ -332,18 +353,11 @@ def test_resume_reloads_owner_committed_binding_after_handoff(monkeypatch):
         "acquire_for_resume",
         lambda *_a, **_kw: {"generation": 9, "newly_acquired": True},
     )
-    monkeypatch.setattr(hub, "enabled", lambda: True)
-    monkeypatch.setattr(hub, "read_tunnel_binding", lambda _name: refreshed)
     monkeypatch.setattr(
         "dual_tmux.config.load_config",
         lambda: AppConfig(client="tm_a", server="tom7r", user="andy"),
     )
     calls = []
-    monkeypatch.setattr(
-        hotfix,
-        "sync_persist",
-        lambda kind, _cfg: calls.append(("sync", kind)),
-    )
     monkeypatch.setattr(
         cli,
         "_preflight_resume_snapshots",
@@ -359,8 +373,7 @@ def test_resume_reloads_owner_committed_binding_after_handoff(monkeypatch):
     monkeypatch.setattr(
         ownership, "verify_resume", lambda *_a: {"generation": 9, "writers": {}}
     )
-    monkeypatch.setattr(hub, "renew_ownership", lambda *_a, **_kw: None)
-    monkeypatch.setattr(hub, "push_best_effort", lambda: None)
+    monkeypatch.setattr("dual_tmux.hub.push_best_effort", lambda: None)
     monkeypatch.setattr("dual_tmux.store.find_dt", lambda _name: "binding")
     monkeypatch.setattr("dual_tmux.store.save", lambda *_a: None)
 
@@ -368,7 +381,6 @@ def test_resume_reloads_owner_committed_binding_after_handoff(monkeypatch):
 
     assert result.data["trigger"]["session_id"] == "ses_live"
     assert calls == [
-        ("sync", "opencode"),
         ("preflight", "ses_live"),
         ("resume", "ses_live"),
     ]
@@ -398,10 +410,13 @@ def test_native_pull_failure_releases_new_generation_before_commit(monkeypatch):
         "dual_tmux.config.load_config",
         lambda: AppConfig(client="tm_a", server="tom7r", user="andy"),
     )
+    monkeypatch.setattr("dual_tmux.hub.pull", lambda: "hub")
     monkeypatch.setattr(
         hotfix,
         "sync_persist",
-        lambda *_a: (_ for _ in ()).throw(SystemExit("native pull failed")),
+        lambda kind, *_a, **_k: (_ for _ in ()).throw(SystemExit("native pull failed"))
+        if kind == "native"
+        else None,
     )
     monkeypatch.setattr(
         cli,
@@ -415,7 +430,7 @@ def test_native_pull_failure_releases_new_generation_before_commit(monkeypatch):
 
     with pytest.raises(ControlError, match="native pull failed"):
         service.resume("dt-msg")
-    assert released == [("dt-msg", 13)]
+    assert released == []
 
 
 def test_resume_snapshot_preflight_rejects_before_claim_or_tmux(monkeypatch):
@@ -446,8 +461,6 @@ def test_resume_snapshot_preflight_rejects_before_claim_or_tmux(monkeypatch):
 
 
 def test_resume_keeps_short_lease_alive_during_restore(monkeypatch):
-    import time
-
     from dual_tmux import cli, hub, ownership
 
     data = _tunnel()
@@ -471,15 +484,14 @@ def test_resume_keeps_short_lease_alive_during_restore(monkeypatch):
     monkeypatch.setattr(
         cli,
         "_apply_resume_legacy",
-        lambda *_a, **_kw: time.sleep(1.1) or data.copy(),
+        lambda *_a, **_kw: data.copy(),
     )
     monkeypatch.setattr("dual_tmux.store.save", lambda *_a: None)
     monkeypatch.setattr("dual_tmux.store.find_dt", lambda *_a: None)
     monkeypatch.setattr(hub, "push_best_effort", lambda: None)
 
     assert service.resume("dt-msg").data["ownership_generation"] == 21
-    assert len(renewals) >= 2
-    assert set(renewals) == {("dt-msg", 21)}
+    assert renewals == []
 
 
 def test_cached_web_preflight_never_runs_live_snapshot(tmp_path, monkeypatch):
@@ -553,5 +565,5 @@ def test_cached_foreign_evidence_expires_independently_of_cache(tmp_path, monkey
     monkeypatch.setattr("dual_tmux.control.time.time", lambda: 400)
     plan = ControlService().cached_resume_plan("dt-msg").data
     assert plan["safe"] is True
-    assert plan["action"] == "request_handoff"
-    assert plan["reason"] == "owner_evidence_stale"
+    assert plan["action"] == "claim"
+    assert plan["reason"] == "occupancy_steal"

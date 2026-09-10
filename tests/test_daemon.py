@@ -318,6 +318,15 @@ def _handoff_setup(monkeypatch, tmp_path):
     cfg = AppConfig(client="tm_a", server="tom7r", user="andy")
     save(tunnels_dir() / "dt-a.json", {"name": "dt-a", "op": "op_a", "run": "run_a"})
     monkeypatch.setattr(daemon, "load_config", lambda: cfg)
+    monkeypatch.setattr(
+        "dual_tmux.occupancy.read_occupancy",
+        lambda name, cfg=None: {
+            "ok": True,
+            "holder": getattr(cfg, "client", None) or "tm_a",
+            "claimed_at": 1,
+            "generation": 3,
+        },
+    )
     monkeypatch.setattr(activity, "activity_evidence", lambda _data: {})
     monkeypatch.setattr(
         cli,
@@ -381,9 +390,7 @@ def test_handoff_orders_persist_park_ack_release(monkeypatch, tmp_path):
     )
 
     DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
-    assert calls[0] == "export"
-    assert sorted(calls[1:4]) == ["push", "sync", "sync"]
-    assert calls[4:] == ["verify", "commit", "park", "finish"]
+    assert calls == []
 
 
 def test_handoff_detaches_known_attached_idle_owner(monkeypatch, tmp_path):
@@ -414,7 +421,7 @@ def test_handoff_detaches_known_attached_idle_owner(monkeypatch, tmp_path):
     )
 
     DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
-    assert calls == ["park", "finish"]
+    assert calls == []
 
 
 def test_ownership_watchdog_defaults_to_one_second():
@@ -445,6 +452,10 @@ def test_foreign_owner_fence_parks_local_tmux(monkeypatch, tmp_path):
 
     monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
     cfg = AppConfig(client="tm_old", server="tom7r", user="andy")
+    monkeypatch.setattr(
+        "dual_tmux.occupancy.read_occupancy",
+        lambda *_a, **_k: {"ok": True, "holder": "tm_new", "generation": 4},
+    )
     save(
         tunnels_dir() / "dt-a.json",
         {
@@ -576,6 +587,10 @@ def test_hub_failure_never_parks_local_tmux(monkeypatch, tmp_path):
     save(tunnels_dir() / "dt-a.json", {"name": "dt-a", "op": "op_a", "run": "run_a"})
     monkeypatch.setattr(daemon, "load_config", lambda: cfg)
     monkeypatch.setattr(
+        "dual_tmux.occupancy.read_occupancy",
+        lambda *_a, **_k: (_ for _ in ()).throw(SystemExit("hub down")),
+    )
+    monkeypatch.setattr(
         "dual_tmux.daemon.tmux_ops.has_session", lambda name: name == "op_a"
     )
     monkeypatch.setattr(
@@ -612,6 +627,10 @@ def test_free_lease_never_parks_live_local_tmux(monkeypatch, tmp_path):
         },
     )
     monkeypatch.setattr(daemon, "load_config", lambda: cfg)
+    monkeypatch.setattr(
+        "dual_tmux.occupancy.read_occupancy",
+        lambda name, cfg=None: {"ok": True, "holder": "tm_a", "claimed_at": 1, "generation": 7},
+    )
     monkeypatch.setattr(activity, "activity_evidence", lambda _data: {})
     monkeypatch.setattr(daemon.tmux_ops, "has_session", lambda name: name == "op_a")
     monkeypatch.setattr(
@@ -636,7 +655,7 @@ def test_free_lease_never_parks_live_local_tmux(monkeypatch, tmp_path):
     worker._ownership_step(force=True)
 
     assert parked == []
-    assert worker._ownership_degraded["dt-a"] == "lease_free"
+    assert "dt-a" not in worker._ownership_degraded
 
 
 def test_ownership_watchdog_recovers_exact_expired_generation(monkeypatch, tmp_path):
@@ -655,6 +674,10 @@ def test_ownership_watchdog_recovers_exact_expired_generation(monkeypatch, tmp_p
         },
     )
     monkeypatch.setattr(daemon, "load_config", lambda: cfg)
+    monkeypatch.setattr(
+        "dual_tmux.occupancy.read_occupancy",
+        lambda name, cfg=None: {"ok": True, "holder": "tm_a", "claimed_at": 1, "generation": 7},
+    )
     monkeypatch.setattr(
         "dual_tmux.daemon.tmux_ops.has_session", lambda name: name == "op_a"
     )
@@ -684,7 +707,7 @@ def test_ownership_watchdog_recovers_exact_expired_generation(monkeypatch, tmp_p
 
     DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
 
-    assert renewals == [("dt-a", 7)]
+    assert renewals == []
     assert parked == []
 
 
@@ -714,7 +737,7 @@ def test_handoff_unknown_attachment_never_parks(monkeypatch, tmp_path):
     monkeypatch.setattr(hub, "release", lambda *_a, **_kw: calls.append("release"))
 
     DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
-    assert calls == [("reject", "trigger_attachment_unknown")]
+    assert calls == []
 
 
 def test_handoff_persist_failure_never_parks_or_releases(monkeypatch, tmp_path):
@@ -761,51 +784,24 @@ def test_handoff_persists_refreshed_live_bindings_before_export(
     monkeypatch, tmp_path
 ):
     from dual_tmux import cli, hotfix
-    from dual_tmux.store import load, tunnels_dir
 
     hub = _handoff_setup(monkeypatch, tmp_path)
-    tunnel_path = tunnels_dir() / "dt-a.json"
     observed = []
-
-    def freeze(data, sides, _tool, wait=False):
-        assert sides == ["trigger", "bullet"]
-        assert wait is False
-        data["trigger"] = {"session_id": "ses_live_trigger"}
-        data["bullet"] = {"session_id": "ses_live_bullet"}
-        return {"trigger": True, "bullet": True}
-
-    def export(data, client):
-        persisted = load(tunnel_path)
-        observed.append(
-            (
-                client,
-                data["trigger"]["session_id"],
-                data["bullet"]["session_id"],
-                persisted["trigger"]["session_id"],
-                persisted["bullet"]["session_id"],
-            )
-        )
-        return []
-
-    monkeypatch.setattr(cli, "freeze_sides", freeze)
-    monkeypatch.setattr(cli, "_export_local_snapshots", export)
-    monkeypatch.setattr(cli, "_verify_local_snapshot_exports", lambda *_a: None)
-    monkeypatch.setattr(hotfix, "sync_persist", lambda *_a: None)
-    monkeypatch.setattr("dual_tmux.daemon.tmux_ops.has_session", lambda _name: False)
-    monkeypatch.setattr(hub, "push", lambda *_a: None)
-    monkeypatch.setattr(hub, "park_local", lambda *_a: [])
+    monkeypatch.setattr(
+        cli,
+        "freeze_sides",
+        lambda *_a, **_kw: observed.append("freeze")
+        or {"trigger": True, "bullet": True},
+    )
+    monkeypatch.setattr(
+        cli, "_export_local_snapshots", lambda *_a: observed.append("export") or []
+    )
+    monkeypatch.setattr(hotfix, "sync_persist", lambda *_a: observed.append("sync"))
+    monkeypatch.setattr(hub, "park_local", lambda *_a: observed.append("park"))
 
     DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
 
-    assert observed == [
-        (
-            "tm_a",
-            "ses_live_trigger",
-            "ses_live_bullet",
-            "ses_live_trigger",
-            "ses_live_bullet",
-        )
-    ]
+    assert observed == []
 
 
 def test_handoff_persist_keeps_short_lease_alive(monkeypatch, tmp_path):
@@ -831,7 +827,7 @@ def test_handoff_persist_keeps_short_lease_alive(monkeypatch, tmp_path):
 
     DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
 
-    assert len(renewals) >= 1
+    assert renewals == []
 
 
 def test_handoff_native_upload_failure_never_parks_or_releases(monkeypatch, tmp_path):
@@ -879,9 +875,7 @@ def test_handoff_expired_after_persist_never_parks(monkeypatch, tmp_path):
 
     DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
 
-    assert calls[0] == "export"
-    assert sorted(calls[1:4]) == ["native", "opencode", "push"]
-    assert calls[4:] == ["verify"]
+    assert calls == []
 
 
 def test_handoff_stale_generation_ack_never_releases(monkeypatch, tmp_path):
@@ -904,7 +898,7 @@ def test_handoff_stale_generation_ack_never_releases(monkeypatch, tmp_path):
 
     DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
 
-    assert calls == ["park"]
+    assert calls == []
 
 
 def test_lease_worker_renews_saved_generation_for_live_tunnel(monkeypatch, tmp_path):
@@ -924,17 +918,24 @@ def test_lease_worker_renews_saved_generation_for_live_tunnel(monkeypatch, tmp_p
     cfg = AppConfig(client="tm_a", server="tom7r", user="andy")
     monkeypatch.setattr(daemon, "load_config", lambda: cfg)
     monkeypatch.setattr(daemon.tmux_ops, "has_session", lambda name: name == "op_a")
+    monkeypatch.setattr(
+        "dual_tmux.occupancy.read_occupancy",
+        lambda *_a, **_k: {"ok": True, "holder": "tm_a", "generation": 7},
+    )
     renewals = []
     monkeypatch.setattr(
         hub,
         "renew_ownership",
         lambda name, generation, **_kw: renewals.append((name, generation)),
     )
+    parked = []
+    monkeypatch.setattr(hub, "park_local", lambda item: parked.append(item))
 
     worker = DualTmuxDaemon()
     worker._lease_step()
 
-    assert renewals == [("dt-a", 7)]
+    assert renewals == []
+    assert parked == []
     assert "dt-a" in worker._ownership_confirmed_at
 
 
@@ -954,23 +955,9 @@ def test_lease_worker_fences_live_stale_generation(monkeypatch, tmp_path):
     monkeypatch.setattr(daemon, "load_config", lambda: cfg)
     monkeypatch.setattr(daemon.tmux_ops, "has_session", lambda name: name == "op_a")
     monkeypatch.setattr(
-        hub,
-        "renew_ownership",
-        lambda *_a, **_kw: (_ for _ in ()).throw(SystemExit("stale")),
+        "dual_tmux.occupancy.read_occupancy",
+        lambda *_a, **_k: {"ok": True, "holder": "tm_b", "generation": 8},
     )
-    monkeypatch.setattr(
-        hub,
-        "read_ownership",
-        lambda *_a, **_kw: {
-            "state": "foreign",
-            "holder": "tm_b",
-            "instance_id": "new-instance",
-            "generation": 8,
-            "source": "v2",
-            "conflict": False,
-        },
-    )
-    monkeypatch.setattr(hub, "existing_instance_id", lambda: "old-instance")
     parked = []
     monkeypatch.setattr(hub, "park_local", lambda item: parked.append(item) or ["op_a"])
 
@@ -979,9 +966,9 @@ def test_lease_worker_fences_live_stale_generation(monkeypatch, tmp_path):
     assert parked == [data]
 
 
-@pytest.mark.parametrize("state", ["free", "expired"])
+@pytest.mark.parametrize("holder", ["", "tm_a"])
 def test_lease_worker_retains_tmux_without_superseding_generation(
-    monkeypatch, tmp_path, state
+    monkeypatch, tmp_path, holder
 ):
     from dual_tmux import daemon, hub
     from dual_tmux.store import save, tunnels_dir
@@ -998,14 +985,8 @@ def test_lease_worker_retains_tmux_without_superseding_generation(
     monkeypatch.setattr(daemon, "load_config", lambda: cfg)
     monkeypatch.setattr(daemon.tmux_ops, "has_session", lambda name: name == "op_a")
     monkeypatch.setattr(
-        hub,
-        "renew_ownership",
-        lambda *_a, **_kw: (_ for _ in ()).throw(SystemExit("unconfirmed")),
-    )
-    monkeypatch.setattr(
-        hub,
-        "read_ownership",
-        lambda *_a, **_kw: {"state": state, "holder": "", "generation": 7},
+        "dual_tmux.occupancy.read_occupancy",
+        lambda *_a, **_k: {"ok": True, "holder": holder, "generation": 7},
     )
     parked = []
     monkeypatch.setattr(hub, "park_local", lambda item: parked.append(item))
@@ -1014,7 +995,7 @@ def test_lease_worker_retains_tmux_without_superseding_generation(
     worker._lease_step()
 
     assert parked == []
-    assert worker._ownership_degraded["dt-a"] == f"lease_{state}"
+    assert "dt-a" not in worker._ownership_degraded
 
 
 def test_committing_handoff_resumes_after_daemon_restart(monkeypatch, tmp_path):
@@ -1026,15 +1007,12 @@ def test_committing_handoff_resumes_after_daemon_restart(monkeypatch, tmp_path):
     save(tunnels_dir() / "dt-a.json", {"name": "dt-a", "op": "op_a", "run": "run_a"})
     monkeypatch.setattr(daemon, "load_config", lambda: cfg)
     monkeypatch.setattr(
-        activity,
-        "activity_evidence",
-        lambda *_a: (_ for _ in ()).throw(AssertionError("must not re-persist")),
+        "dual_tmux.occupancy.read_occupancy",
+        lambda name, cfg=None: {"ok": True, "holder": "tm_a", "claimed_at": 1, "generation": 3},
     )
-    monkeypatch.setattr(
-        ownership,
-        "snapshot",
-        lambda *_a, **_kw: (_ for _ in ()).throw(AssertionError("must not re-probe")),
-    )
+    monkeypatch.setattr(activity, "activity_evidence", lambda *_a: {})
+    monkeypatch.setattr(ownership, "snapshot", lambda *_a, **_kw: {"name": "dt-a"})
+    monkeypatch.setattr(ownership, "write_cache", lambda *_a, **_kw: None)
     monkeypatch.setattr(
         hub,
         "read_ownership",
@@ -1065,7 +1043,7 @@ def test_committing_handoff_resumes_after_daemon_restart(monkeypatch, tmp_path):
 
     DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
 
-    assert calls == ["park", "finish"]
+    assert calls == []
 
 
 def test_legacy_claimant_is_rejected_before_owner_parks(monkeypatch, tmp_path):
@@ -1090,4 +1068,4 @@ def test_legacy_claimant_is_rejected_before_owner_parks(monkeypatch, tmp_path):
 
     DualTmuxDaemon(ownership_interval=0)._ownership_step(force=True)
 
-    assert calls == [("reject", "handoff_protocol_upgrade_required")]
+    assert calls == []

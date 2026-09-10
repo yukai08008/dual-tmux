@@ -340,15 +340,19 @@ def _export_local_snapshots(data: dict, client: str) -> list:
         tool = info.get("tool") or "opencode"
         if tool in {"codex", "claude"}:
             from . import native_persist
+            from .occupancy import read_occupancy
 
+            try:
+                generation = int(
+                    read_occupancy(str(data.get("name") or "")).get("generation") or 0
+                )
+            except SystemExit:
+                generation = int(data.get("ownership_generation") or 0)
             path = native_persist.export_session(
                 info,
                 client,
                 source_instance=hub.instance_id(),
-                generation=int(
-                    hub.read_ownership(str(data.get("name") or "")).get("generation")
-                    or 0
-                ),
+                generation=generation,
                 namespace=tenant,
             )
         else:
@@ -1019,16 +1023,51 @@ def _bind_trigger_workspace(data: dict) -> None:
         tmux_ops.quit_opencode(op)
 
 
+def refresh_resume_inputs(data: dict) -> dict:
+    """Pull user-level DST and trigger persist before snapshot preflight."""
+    from .config import load_config
+    from .hotfix import sync_persist
+
+    try:
+        cfg = load_config()
+    except SystemExit:
+        return data
+    if not cfg.hub_enabled:
+        return data
+    hub.pull()
+    try:
+        sync_persist("opencode", cfg)
+    except SystemExit as exc:
+        ui.warn(str(exc))
+    try:
+        return load(find_dt(str(data.get("name") or "")))
+    except SystemExit:
+        return data
+
+
+def _resume_persist_source(data: dict) -> str:
+    from .oc import persist_tenant
+
+    try:
+        from .config import load_config
+
+        local = persist_tenant(load_config().client)
+    except SystemExit:
+        local = persist_tenant()
+    return activity.preferred_source(data, local=local)
+
+
 def _preflight_resume_snapshots(data: dict) -> None:
-    """Reject real snapshot divergence before ownership or tmux mutation."""
+    """Reject real snapshot divergence before occupancy or tmux mutation."""
     runtime = data.get("runtime") or {}
     remote_bullet = bool(runtime.get("server"))
     trigger = _side(data, "trigger")
     bullet = _side(data, "bullet")
+    source = _resume_persist_source(data)
     if (trigger.get("tool") or "opencode") == "opencode":
-        oc_ops.preflight_local(trigger, role="trigger")
+        oc_ops.preflight_local(trigger, role="trigger", pick="tick", source=source)
     if not remote_bullet and (bullet.get("tool") or "opencode") == "opencode":
-        oc_ops.preflight_local(bullet, role="bullet")
+        oc_ops.preflight_local(bullet, role="bullet", pick="tick", source=source)
 
 
 def _apply_resume_legacy(
@@ -1108,7 +1147,13 @@ def _apply_resume_legacy(
                 )
             ui.info(f"stopped stale {role} TUI before snapshot import")
 
-        return oc_ops.ensure_local(info, role=role, prepare_replace=stop_loaded_tui)
+        return oc_ops.ensure_local(
+            info,
+            role=role,
+            prepare_replace=stop_loaded_tui,
+            pick="tick",
+            source=_resume_persist_source(data),
+        )
 
     if (trigger.get("tool") or "opencode") == "opencode" and ensure_snapshot(
         trigger, data["op"], "trigger"
@@ -1125,9 +1170,11 @@ def _apply_resume_legacy(
         expected = int(native_generation or 0)
         if not expected:
             return
-        current = hub.read_ownership(str(data.get("name") or ""))
+        from .occupancy import read_occupancy
+
+        current = read_occupancy(str(data.get("name") or ""))
         if int(current.get("generation") or 0) != expected:
-            raise SystemExit("[err] ownership generation changed during native import")
+            raise SystemExit("[err] occupancy generation changed during native import")
 
     def ensure_native(info: dict, tmux_name: str, role: str) -> None:
         if (info.get("tool") or "opencode") not in {"codex", "claude"}:
@@ -1401,21 +1448,18 @@ def cmd_tick(_: argparse.Namespace) -> None:
             continue
         if not cfg.hub_enabled and (data.get("runtime") or {}).get("server"):
             continue
+        lease = None
         try:
             lease = hub.read_ownership(name, cfg)
         except SystemExit:
-            continue
-        if lease.get("state") == "foreign":
-            hub.drop_local(data)
-            continue
-        if lease.get("state") != "owned" or lease.get("holder") != cfg.client:
-            continue
+            lease = None
         activity.append_sample(data)
         activity.activity_evidence(data)
-        try:
-            ownership.write_cache(ownership.snapshot(data, lease=lease))
-        except (OSError, SystemExit, ValueError):
-            pass
+        if lease:
+            try:
+                ownership.write_cache(ownership.snapshot(data, lease=lease))
+            except (OSError, SystemExit, ValueError):
+                pass
         recovery.observe(data)
         try:
             written = _export_local_snapshots(data, cfg.client)

@@ -493,3 +493,31 @@ def test_persist_script_uses_tenant_not_login_home():
     assert "2>/dev/null || true" not in next(
         line for line in body.splitlines() if line.startswith('names="$(ssh')
     )
+
+
+def test_ensure_local_tick_pick_uses_one_machine(tmp_path: Path, monkeypatch):
+    root = tmp_path / "sessions" / "opencode"
+    older = root / "tm_home" / "eager-orchid.json"
+    newer = root / "tm_other" / "eager-orchid.json"
+    _write_json(older, "ses_fdbe", "eager-orchid", updated=100, messages=("msg_old",))
+    _write_json(newer, "ses_fdbe", "eager-orchid", updated=50, messages=("msg_new",))
+    monkeypatch.setenv("OPENCODE_SESSIONS", str(root))
+    imported: list[Path] = []
+    imported_ids: set[str] = set()
+
+    def fake_by_id(sid: str):
+        return object() if sid in imported_ids else None
+
+    def fake_import(path: Path) -> None:
+        imported.append(path)
+        imported_ids.add("ses_fdbe")
+
+    monkeypatch.setattr("dual_tmux.oc.by_id", fake_by_id)
+    monkeypatch.setattr("dual_tmux.oc.local_has_message", lambda *_a: True)
+    assert ensure_local(
+        {"session_id": "ses_fdbe", "slug": "eager-orchid"},
+        importer=fake_import,
+        pick="tick",
+        source="tm_other",
+    )
+    assert imported == [newer]

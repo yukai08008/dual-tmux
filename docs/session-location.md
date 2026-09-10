@@ -19,8 +19,9 @@ copied anywhere:
   the live agent TUI it does nothing; otherwise orphaned processes holding the
   same session on the server are terminated first (TERM, then KILL). One
   session, one writer.
-- Hub mode additionally enforces a single active Client via the per-tunnel
-  lock (`holder` + idle check).
+- Hub mode enforces a single active Client via occupancy
+  (`occupancy/<dt-name>.json` = current `tm_*`). Resume overwrites it; other
+  daemons drop local tmux. See [core-architecture.md](core-architecture.md).
 
 A **local-mode** bullet (runtime has no server) lives in the Client sqlite and
 follows the trigger rules below.
@@ -50,8 +51,9 @@ Properties of the export (implemented in `oc.export_snapshot`, driven by
   (`~/.config/session-persist/name`, falling back to the dt `client` id).
 - `dt pull` synchronously pulls OpenCode/tmux persist trees after tunnel metadata;
   SSH/rsync failures are reported instead of silently treated as success.
-- Resume picks the newest verified snapshot across all `tm_*` sources by the
-  payload's `info.time.updated`, never by file mtime.
+- Resume picks one `tm_*` source by the last trigger fingerprint-change tick
+  (`ops/<op>/ticks.log`, mirrored under that machine's persist tree). No ticks:
+  newest verified snapshot by `info.time.updated`, never file mtime.
 - A same-ID local session is still compared. If persisted data is newer, dt
   verifies that it contains the local tail, exports a recovery backup under
   `~/.dual-tmux/backups/opencode/`, imports it, and verifies the new tail.

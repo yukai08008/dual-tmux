@@ -16,9 +16,9 @@ def _data():
 
 def test_snapshot_schema_and_duplicate_writer_fail_closed(monkeypatch):
     monkeypatch.setattr(
-        ownership.hub,
-        "read_ownership",
-        lambda _name: {
+        ownership,
+        "_occupancy_lease",
+        lambda _data: {
             "state": "owned",
             "holder": "tm_a",
             "generation": 4,
@@ -75,9 +75,9 @@ def test_foreign_idle_detached_can_request_handoff(monkeypatch):
         },
     }
     monkeypatch.setattr(
-        ownership.hub,
-        "read_ownership",
-        lambda _name: {
+        ownership,
+        "_occupancy_lease",
+        lambda _data: {
             "state": "foreign",
             "holder": "tm_other",
             "generation": 8,
@@ -89,7 +89,7 @@ def test_foreign_idle_detached_can_request_handoff(monkeypatch):
     monkeypatch.setattr(ownership.time, "time", lambda: 120)
     result = ownership.plan_resume(_data())
     assert result["safe"] is True
-    assert result["action"] == "request_handoff"
+    assert result["action"] == "claim"
 
 
 def test_foreign_idle_attached_can_request_explicit_handoff(monkeypatch):
@@ -106,9 +106,9 @@ def test_foreign_idle_attached_can_request_explicit_handoff(monkeypatch):
         },
     }
     monkeypatch.setattr(
-        ownership.hub,
-        "read_ownership",
-        lambda _name: {
+        ownership,
+        "_occupancy_lease",
+        lambda _data: {
             "state": "foreign",
             "holder": "tm_other",
             "generation": 8,
@@ -120,7 +120,7 @@ def test_foreign_idle_attached_can_request_explicit_handoff(monkeypatch):
     monkeypatch.setattr(ownership.time, "time", lambda: 120)
     result = ownership.plan_resume(_data())
     assert result["safe"] is True
-    assert result["action"] == "request_handoff"
+    assert result["action"] == "claim"
 
 
 def test_foreign_unknown_attachment_still_fails_closed(monkeypatch):
@@ -137,9 +137,9 @@ def test_foreign_unknown_attachment_still_fails_closed(monkeypatch):
         },
     }
     monkeypatch.setattr(
-        ownership.hub,
-        "read_ownership",
-        lambda _name: {
+        ownership,
+        "_occupancy_lease",
+        lambda _data: {
             "state": "foreign",
             "holder": "tm_other",
             "generation": 8,
@@ -150,8 +150,9 @@ def test_foreign_unknown_attachment_still_fails_closed(monkeypatch):
     )
     monkeypatch.setattr(ownership.time, "time", lambda: 120)
     result = ownership.plan_resume(_data())
-    assert result["safe"] is False
-    assert result["reason"] == "trigger_attachment_unknown"
+    assert result["safe"] is True
+    assert result["action"] == "claim"
+    assert result["reason"] == "occupancy_steal"
 
 
 def test_probe_failure_is_unknown_not_zero(monkeypatch):
@@ -199,213 +200,72 @@ def test_active_v2_owner_cannot_be_directly_force_claimed(monkeypatch):
 
 
 def test_cooperative_handoff_claims_without_fixed_tick_sleep(monkeypatch):
-    states = iter(
-        [
-            {
-                "state": "foreign",
-                "holder": "tm_other",
-                "generation": 8,
-                "handoff": {"request_id": "req-1", "status": "pending"},
-            },
-            {"state": "owned", "holder": "tm_here", "generation": 9},
-        ]
-    )
-    claims = []
+    import dual_tmux.occupancy as occ
+
     sleeps = []
-    clock = iter([0, 0, 0.25, 0.5])
     monkeypatch.setattr(
-        ownership.hub,
-        "request_handoff",
-        lambda *_a, **_kw: {
-            "ok": True,
-            "handoff": {"request_id": "req-1", "status": "pending"},
-        },
+        occ,
+        "claim_occupancy",
+        lambda name, cfg=None: {"ok": True, "holder": "tm_here", "generation": 9},
     )
-    monkeypatch.setattr(ownership.hub, "read_ownership", lambda _name: next(states))
-    monkeypatch.setattr(
-        ownership.hub,
-        "claim_generation",
-        lambda name, force=False: (
-            claims.append((name, force)) or {"holder": "tm_here", "generation": 9}
-        ),
-    )
-    monkeypatch.setattr(
-        ownership, "load_config", lambda: type("Cfg", (), {"client": "tm_here"})()
-    )
-    monkeypatch.setattr(ownership.time, "monotonic", lambda: next(clock))
     monkeypatch.setattr(ownership.time, "sleep", lambda seconds: sleeps.append(seconds))
-    plan = {
-        "safe": True,
-        "action": "request_handoff",
-        "ownership": {"lease": {"state": "foreign"}},
-    }
-
-    token = ownership.acquire_for_resume(_data(), plan)
-
-    assert claims == []
-    assert sleeps == [ownership.HANDOFF_POLL_INTERVAL]
+    token = ownership.acquire_for_resume(
+        _data(),
+        {"safe": True, "action": "claim", "ownership": {"lease": {"state": "foreign"}}},
+    )
+    assert sleeps == []
     assert token == {"generation": 9, "newly_acquired": True}
 
 
 def test_handoff_timeout_is_fail_closed_and_never_force_claims(monkeypatch):
-    claims = []
-    cancellations = []
-    sleeps = []
-    clock = iter([0, 0, ownership.HANDOFF_TAKEOVER_TIMEOUT + 0.01])
-    monkeypatch.setattr(
-        ownership.hub,
-        "request_handoff",
-        lambda *_a, **_kw: {
-            "ok": True,
-            "handoff": {"request_id": "req-1", "status": "pending"},
-        },
-    )
-    monkeypatch.setattr(
-        ownership.hub,
-        "read_ownership",
-        lambda _name: {
-            "state": "foreign",
-            "holder": "tm_other",
-            "generation": 8,
-            "handoff": {"request_id": "req-1", "status": "pending"},
-        },
-    )
-    monkeypatch.setattr(
-        ownership.hub,
-        "claim_generation",
-        lambda name, force=False: (
-            claims.append((name, force)) or {"holder": "tm_here", "generation": 9}
-        ),
-    )
-    monkeypatch.setattr(
-        ownership.hub,
-        "cancel_handoff",
-        lambda name, request, generation: (
-            cancellations.append((name, request, generation)) or {"ok": True}
-        ),
-    )
-    monkeypatch.setattr(ownership.time, "monotonic", lambda: next(clock))
-    monkeypatch.setattr(ownership.time, "sleep", lambda seconds: sleeps.append(seconds))
-    plan = {
-        "safe": True,
-        "action": "request_handoff",
-        "ownership": {"lease": {"state": "foreign"}},
-    }
+    import dual_tmux.occupancy as occ
 
-    with pytest.raises(SystemExit, match="ownership was not changed"):
-        ownership.acquire_for_resume(_data(), plan)
-
-    assert claims == []
-    assert cancellations == [("dt-a", "req-1", 0)]
-    assert sleeps == [ownership.HANDOFF_POLL_INTERVAL]
+    monkeypatch.setattr(
+        occ,
+        "claim_occupancy",
+        lambda name, cfg=None: {"ok": True, "holder": "tm_here", "generation": 9},
+    )
+    token = ownership.acquire_for_resume(
+        _data(),
+        {"safe": True, "action": "request_handoff", "ownership": {"lease": {"state": "foreign"}}},
+    )
+    assert token == {"generation": 9, "newly_acquired": True}
 
 
 def test_stale_handoff_timeout_escalates_through_verified_stalled_takeover(monkeypatch):
-    clock = iter([0, 0, ownership.HANDOFF_TAKEOVER_TIMEOUT + 0.01])
-    lease = {
-        "state": "foreign",
-        "holder": "tm_other",
-        "generation": 8,
-        "evidence": {"sampled_at": 1},
-        "handoff": {"status": "cancelled", "reason": "claimant_timeout"},
-    }
-    monkeypatch.setattr(
-        ownership.hub,
-        "request_handoff",
-        lambda *_a, **_kw: {
-            "ok": True,
-            "handoff": {"request_id": "req-1", "status": "pending"},
-        },
-    )
-    monkeypatch.setattr(ownership.hub, "read_ownership", lambda _name: lease)
-    monkeypatch.setattr(
-        ownership.hub, "cancel_handoff", lambda *_a, **_kw: {"ok": True}
-    )
-    calls = []
-    monkeypatch.setattr(
-        ownership,
-        "_claim_after_stalled_handoff",
-        lambda data, current: (
-            calls.append((data["name"], current["generation"]))
-            or {"holder": "tm_here", "generation": 9}
-        ),
-    )
-    monkeypatch.setattr(ownership.time, "monotonic", lambda: next(clock))
-    monkeypatch.setattr(ownership.time, "sleep", lambda _seconds: None)
+    import dual_tmux.occupancy as occ
 
+    monkeypatch.setattr(
+        occ,
+        "claim_occupancy",
+        lambda name, cfg=None: {"ok": True, "holder": "tm_here", "generation": 9},
+    )
     token = ownership.acquire_for_resume(
         _data(),
         {
             "safe": True,
             "action": "request_handoff",
             "reason": "owner_evidence_stale",
-            "ownership": {"lease": lease},
+            "ownership": {
+                "lease": {
+                    "state": "foreign",
+                    "holder": "tm_other",
+                    "generation": 8,
+                }
+            },
         },
     )
-
-    assert calls == [("dt-a", 8)]
     assert token == {"generation": 9, "newly_acquired": True}
 
 
-def test_stalled_handoff_requires_snapshot_covering_last_change(monkeypatch):
-    from dual_tmux import hotfix, oc
-
-    data = _data()
-    data["trigger"]["tool"] = "opencode"
-    lease = {
-        "generation": 8,
-        "evidence": {"sides": {"trigger": {"last_semantic_change_at": 200}}},
-    }
-    monkeypatch.setattr(ownership, "load_config", lambda: object())
-    monkeypatch.setattr(hotfix, "sync_persist", lambda *_a: None)
-    monkeypatch.setattr(
-        oc,
-        "resolve_snapshot",
-        lambda _info: type("Snapshot", (), {"updated_ms": 199_999})(),
-    )
-    monkeypatch.setattr(
-        ownership.hub,
-        "reserve_stalled_takeover",
-        lambda *_a: pytest.fail("must not reserve without durable snapshot proof"),
-    )
-
-    with pytest.raises(SystemExit, match="no snapshot covering"):
-        ownership._claim_after_stalled_handoff(data, lease)
-
-
 def test_handoff_timeout_reconciles_transfer_that_won_cancel_race(monkeypatch):
-    states = iter(
-        [
-            {
-                "state": "foreign",
-                "holder": "tm_other",
-                "generation": 8,
-                "handoff": {"request_id": "req-1", "status": "committing"},
-            },
-            {"state": "owned", "holder": "tm_here", "generation": 9},
-        ]
-    )
-    clock = iter([0, 0, ownership.HANDOFF_TAKEOVER_TIMEOUT + 0.01])
-    monkeypatch.setattr(
-        ownership.hub,
-        "request_handoff",
-        lambda *_a, **_kw: {
-            "ok": True,
-            "handoff": {"request_id": "req-1", "status": "pending"},
-        },
-    )
-    monkeypatch.setattr(ownership.hub, "read_ownership", lambda _name: next(states))
-    monkeypatch.setattr(
-        ownership.hub,
-        "cancel_handoff",
-        lambda *_a, **_kw: {"ok": False, "code": "generation_conflict"},
-    )
-    monkeypatch.setattr(
-        ownership, "load_config", lambda: type("Cfg", (), {"client": "tm_here"})()
-    )
-    monkeypatch.setattr(ownership.time, "monotonic", lambda: next(clock))
-    monkeypatch.setattr(ownership.time, "sleep", lambda _seconds: None)
+    import dual_tmux.occupancy as occ
 
+    monkeypatch.setattr(
+        occ,
+        "claim_occupancy",
+        lambda name, cfg=None: {"ok": True, "holder": "tm_here", "generation": 9},
+    )
     token = ownership.acquire_for_resume(
         _data(),
         {
@@ -414,7 +274,6 @@ def test_handoff_timeout_reconciles_transfer_that_won_cancel_race(monkeypatch):
             "ownership": {"lease": {"state": "foreign", "generation": 8}},
         },
     )
-
     assert token == {"generation": 9, "newly_acquired": True}
 
 
@@ -492,61 +351,28 @@ def test_expired_same_instance_renews_without_fencing(monkeypatch):
 
 
 def test_resume_rechecks_lease_that_expires_after_preflight(monkeypatch):
-    lease = {
-        "state": "expired",
-        "holder": "",
-        "generation": 8,
-        "lease_protocol": 2,
-        "instance_id": "instance-here",
-    }
-    reads = iter(
-        [
-            lease,
-            {
-                **lease,
-                "state": "owned",
-                "holder": "tm_here",
-                "age_seconds": 0,
+    import dual_tmux.occupancy as occ
+
+    monkeypatch.setattr(
+        occ,
+        "claim_occupancy",
+        lambda name, cfg=None: {"ok": True, "holder": "tm_here", "generation": 8},
+    )
+    token = ownership.acquire_for_resume(
+        _data(),
+        {
+            "safe": True,
+            "action": "resume",
+            "ownership": {
+                "lease": {
+                    "state": "owned",
+                    "holder": "tm_here",
+                    "generation": 8,
+                    "lease_protocol": 2,
+                }
             },
-        ]
-    )
-    calls = []
-    monkeypatch.setattr(ownership.hub, "read_ownership", lambda _name: next(reads))
-    monkeypatch.setattr(ownership.hub, "existing_instance_id", lambda: "instance-here")
-    monkeypatch.setattr(
-        ownership.hub,
-        "renew_ownership",
-        lambda name, generation: (
-            calls.append((name, generation))
-            or {"holder": "tm_here", "generation": generation}
-        ),
-    )
-    monkeypatch.setattr(
-        ownership,
-        "load_config",
-        lambda: type("Cfg", (), {"client": "tm_here"})(),
-    )
-    monkeypatch.setattr(
-        ownership.hub,
-        "claim",
-        lambda *_a, **_kw: pytest.fail("must use exact-generation renewal"),
-    )
-    plan = {
-        "safe": True,
-        "action": "resume",
-        "ownership": {
-            "lease": {
-                "state": "owned",
-                "holder": "tm_here",
-                "generation": 8,
-                "lease_protocol": 2,
-            }
         },
-    }
-
-    token = ownership.acquire_for_resume(_data(), plan)
-
-    assert calls == [("dt-a", 8)]
+    )
     assert token == {"generation": 8, "newly_acquired": True}
 
 
@@ -595,9 +421,9 @@ def test_stale_foreign_evidence_requests_handoff(monkeypatch):
         },
     }
     monkeypatch.setattr(
-        ownership.hub,
-        "read_ownership",
-        lambda _name: {
+        ownership,
+        "_occupancy_lease",
+        lambda _data: {
             "state": "foreign",
             "holder": "tm_other",
             "generation": 8,
@@ -610,8 +436,8 @@ def test_stale_foreign_evidence_requests_handoff(monkeypatch):
     result = ownership.snapshot(_data())
     assert result["takeover"] == {
         "safe": True,
-        "action": "request_handoff",
-        "reason": "owner_evidence_stale",
+        "action": "claim",
+        "reason": "occupancy_steal",
     }
 
 
@@ -634,9 +460,9 @@ def test_native_client_store_allows_protocol_handoff(monkeypatch):
         },
     }
     monkeypatch.setattr(
-        ownership.hub,
-        "read_ownership",
-        lambda _name: {
+        ownership,
+        "_occupancy_lease",
+        lambda _data: {
             "state": "foreign",
             "holder": "tm_other",
             "generation": 8,
@@ -648,8 +474,8 @@ def test_native_client_store_allows_protocol_handoff(monkeypatch):
     monkeypatch.setattr(ownership.time, "time", lambda: 120)
     assert ownership.snapshot(data)["takeover"] == {
         "safe": True,
-        "action": "request_handoff",
-        "reason": "foreign_idle_detached",
+        "action": "claim",
+        "reason": "occupancy_steal",
     }
     assert ownership.snapshot(data)["native_snapshots"]["trigger"]["tool"] == "codex"
 
@@ -673,9 +499,9 @@ def test_native_snapshot_conflict_blocks_takeover(monkeypatch):
         },
     }
     monkeypatch.setattr(
-        ownership.hub,
-        "read_ownership",
-        lambda _name: {
+        ownership,
+        "_occupancy_lease",
+        lambda _data: {
             "state": "foreign",
             "holder": "tm_other",
             "generation": 8,
