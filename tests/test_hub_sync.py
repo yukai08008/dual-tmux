@@ -10,6 +10,55 @@ from dual_tmux.config import AppConfig
 from dual_tmux.hub import merge_snapshot
 
 
+def test_rsync_progress_streams_info_progress2(monkeypatch):
+    seen = []
+
+    class Result:
+        returncode = 0
+        stderr = stdout = ""
+
+    def run(argv, **kwargs):
+        seen.append((argv, kwargs.get("inherit_stdout")))
+        return Result()
+
+    monkeypatch.setattr(hub, "_run", run)
+    hub._rsync(
+        "tom7r:/remote/tunnels/",
+        "/local/tunnels/",
+        AppConfig(client="tm_a", server="tom7r", user="a"),
+        progress=True,
+    )
+    assert "--info=progress2" in seen[0][0]
+    assert seen[0][1] is True
+
+
+def test_rsync_progress_falls_back_when_info_unsupported(monkeypatch):
+    seen = []
+
+    class Result:
+        def __init__(self, code, stderr=""):
+            self.returncode = code
+            self.stderr = stderr
+            self.stdout = ""
+
+    def run(argv, **kwargs):
+        seen.append(argv)
+        if "--info=progress2" in argv:
+            return Result(1, "rsync: --info: unknown option")
+        return Result(0)
+
+    monkeypatch.setattr(hub, "_run", run)
+    hub._rsync(
+        "tom7r:/remote/tunnels/",
+        "/local/tunnels/",
+        AppConfig(client="tm_a", server="tom7r", user="a"),
+        progress=True,
+    )
+    assert "--info=progress2" in seen[0]
+    assert "--progress" in seen[1]
+    assert "--info=progress2" not in seen[1]
+
+
 def test_rsync_can_disable_cross_host_uid_gid_preservation(monkeypatch):
     seen = []
 
@@ -17,7 +66,7 @@ def test_rsync_can_disable_cross_host_uid_gid_preservation(monkeypatch):
         returncode = 0
         stderr = stdout = ""
 
-    monkeypatch.setattr(hub, "_run", lambda argv: seen.append(argv) or Result())
+    monkeypatch.setattr(hub, "_run", lambda argv, **_k: seen.append(argv) or Result())
     hub._rsync(
         "/local/route.json",
         "tom7r:/remote/route.json",

@@ -426,3 +426,48 @@ def test_resume_rebinds_trigger_workspace(monkeypatch, tmp_path):
     assert data["trigger"]["directory"] == str(launch)
     assert f"bind:ses_trigger:{launch}" in calls
     assert f"cwd:op_msg:{launch}" in calls
+
+
+def test_cmd_resume_attaches_only_after_restore(monkeypatch):
+    import argparse
+
+    data = _dst()
+    order = []
+    monkeypatch.setattr(
+        cli, "apply_resume", lambda *_a, **_k: order.append("resume") or data
+    )
+    monkeypatch.setattr(cli.oc_ops, "by_id", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        cli.tmux_ops, "attach", lambda name: order.append(("attach", name))
+    )
+    monkeypatch.setattr(cli.ui, "ok", lambda *_a, **_k: None)
+    monkeypatch.setattr(cli.ui, "info", lambda *_a, **_k: None)
+    cli.cmd_resume(argparse.Namespace(name="dt-msg", plan=False, force=False, attach=True))
+    assert order == ["resume", ("attach", "op_msg")]
+
+
+def test_cmd_resume_does_not_attach_when_sync_fails(monkeypatch):
+    import argparse
+
+    attached = []
+    monkeypatch.setattr(
+        cli,
+        "apply_resume",
+        lambda *_a, **_k: (_ for _ in ()).throw(
+            SystemExit("[err] persist opencode sync: failed")
+        ),
+    )
+    monkeypatch.setattr(cli.tmux_ops, "attach", lambda name: attached.append(name))
+    monkeypatch.setattr(
+        cli.tmux_ops,
+        "ensure_session",
+        lambda *_a, **_k: attached.append("ensure_session"),
+    )
+    monkeypatch.setattr(
+        cli.tmux_ops, "reconnect", lambda *_a, **_k: attached.append("reconnect")
+    )
+    with pytest.raises(SystemExit, match="persist opencode sync"):
+        cli.cmd_resume(
+            argparse.Namespace(name="dt-msg", plan=False, force=False, attach=True)
+        )
+    assert attached == []

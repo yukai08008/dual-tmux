@@ -121,7 +121,7 @@ def test_pull_syncs_persist_snapshots(monkeypatch, tmp_path):
     monkeypatch.setattr(
         cli.hotfix_ops,
         "sync_persist",
-        lambda kind, cfg: calls.append((kind, cfg.server)),
+        lambda kind, cfg, **_k: calls.append((kind, cfg.server)),
     )
     monkeypatch.setattr(cli.statusbar, "refresh", lambda _items: None)
 

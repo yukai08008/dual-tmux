@@ -490,6 +490,9 @@ def test_persist_script_uses_tenant_not_login_home():
     assert 'grep -Fqx "server = \\"$HOST\\""' in body
     assert 'WAIT="${2:-}"' in body
     assert 'exit "$failed"' in body
+    assert "--info=progress2" in body
+    assert '[ "$WAIT" = "--wait" ] && [ -t 1 ]' in body
+    assert "$PROGRESS" in body
     assert "2>/dev/null || true" not in next(
         line for line in body.splitlines() if line.startswith('names="$(ssh')
     )
@@ -521,3 +524,32 @@ def test_ensure_local_tick_pick_uses_one_machine(tmp_path: Path, monkeypatch):
         source="tm_other",
     )
     assert imported == [newer]
+
+
+def test_sync_persist_streams_progress(monkeypatch, tmp_path):
+    from dual_tmux import hotfix
+    from dual_tmux.config import AppConfig
+
+    script = tmp_path / "dt-persist-opencode"
+    script.write_text("#!/bin/sh\nexit 0\n")
+    seen = {}
+
+    class Result:
+        returncode = 0
+        stderr = ""
+        stdout = ""
+
+    def run(**kwargs):
+        seen.update(kwargs)
+        return Result()
+
+    monkeypatch.setattr(hotfix, "persist_bin", lambda _kind: script)
+    monkeypatch.setattr(hotfix.subprocess, "run", run)
+    hotfix.sync_persist(
+        "opencode",
+        AppConfig(client="tm_a", server="tom7r", user="andy"),
+        progress=True,
+    )
+    assert seen["args"] == [str(script), "tom7r", "--wait"]
+    assert seen.get("capture_output") is None
+    assert seen.get("stderr") is hotfix.subprocess.PIPE

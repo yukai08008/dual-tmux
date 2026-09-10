@@ -1061,9 +1061,13 @@ def refresh_resume_inputs(data: dict) -> dict:
         return data
     if not cfg.hub_enabled:
         return data
-    hub.pull()
-    for kind in ("opencode", "native"):
-        sync_persist(kind, cfg)
+    ui.info("pulling Hub state")
+    hub.pull(progress=True)
+    ui.info("syncing OpenCode sessions")
+    sync_persist("opencode", cfg, progress=True)
+    ui.info("syncing native sessions")
+    sync_persist("native", cfg, progress=True)
+    ui.info("session sync complete")
     return load(find_dt(str(data.get("name") or "")))
 
 

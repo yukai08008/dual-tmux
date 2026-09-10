@@ -26,3 +26,10 @@ Resume 已完成 JSON import，但 `_start_side` 发送 `opencode --auto -s` 后
 - Trigger 的后续输入可能在初始化期间排队或被错误处理。
 - 自动化流程可能在 session 尚未可读时开始轮询，制造重复 resume。
 
+
+
+## 后续补充：同步未完成就进入 tmux
+
+用户在 resume 时第一次切进去会话信息不对，第二次才正确。怀疑是 session / persist 还没 rsync 完就 attach 了。
+
+这不是“同步可能比较慢”的软问题。`dt resume` 当时把 Hub pull 和 persist rsync 做成了静默 subprocess：没有进度，失败或未完成时用户已经看到 tmux。正确体验是：rsync 进度条没走完，根本不进入 tmux。
