@@ -6,16 +6,14 @@
 `RuntimeEndpointNode`，只覆盖了 `dt new / freeze / resume / enter / work` 主链路的
 第一组核心业务概念，不能视为 dual-tmux 的全部业务节点。
 
-进一步从第一性原理审视后，当前第一稿需要做两项结构调整：
+当前模型已完成两项结构调整：
 
 1. 从 `AgentSessionNode` 中拆出 `RoleBindingNode`。Agent 会话是独立对象，trigger 和
    bullet 是它在某条 Tunnel 中承担的角色，不是 Session 的固有属性。
-2. 将 `RuntimeEndpointNode` 调整为 `TunnelNode` 内部的值对象。Endpoint 没有独立
-   生命周期，不应为了类型清晰而被误称为独立节点。
+2. `RuntimeEndpoint` 是 `TunnelNode` 内部的值对象，没有独立生命周期。
 
-此外，独热控制依赖的 Client 身份目前仍散落在配置和字符串中，应补充
-`ClientNode` 与 `ClientInstallationNode`，把用户认识的操作端和安全机制使用的安装
-实例明确区分。
+Client 身份用 `ClientNode`（`tm_*`）表达。占用 holder 就是这个 id。不再引入
+`ClientInstallationNode`：独热是 occupancy 后写覆盖，不靠 installation fence。
 
 ## 什么是业务节点
 
@@ -28,8 +26,7 @@
 - 用户登记了一条什么 Tunnel；
 - Tunnel 两端分别绑定了哪个可恢复的 Agent Session；
 - Bullet 的稳定工作位置在哪里；
-- 用户拥有哪些可识别的 Client；
-- 哪个安装实例属于哪个 Client；
+- 用户拥有哪些可识别的 Client（`tm_*`）；
 - Trigger/Bullet 分配了哪些技能；
 - 哪些长期事实、笔记、操作者身份和路由需要跨进程保留。
 
@@ -57,8 +54,7 @@ flowchart LR
   end
 
   subgraph ClientDomain["多端协作域"]
-    Client["ClientNode<br/>id: user + client_id"]
-    Installation["ClientInstallationNode<br/>id: instance_id"]
+    Client["ClientNode<br/>id: tm_*"]
   end
 
   subgraph Capability["能力与知识域"]
@@ -78,7 +74,6 @@ flowchart LR
   Tunnel -->|"包含 1:1"| Endpoint
   Tunnel -->|"可选包含"| Lineage
   Tunnel -->|"登记于 1:1"| Client
-  Client -->|"拥有 1:N"| Installation
   Assignment -->|"引用作用域/角色"| Binding
   Assignment -->|"引用 1:1"| Skill
   Memory -->|"作用于 global/client/tunnel/session"| Tunnel
@@ -232,26 +227,10 @@ daemon 进程，也不是某次 ownership holder 记录。
 
 Client 是业务节点，因为用户会配置、识别和选择它；即使当前离线，这个端仍然存在。
 
-### `ClientInstallationNode`
+### 不再建立 `ClientInstallationNode`
 
-`ClientInstallationNode` 表示安全机制可验证的稳定安装实例，身份为 `instance_id`。
-
-它与 Client 的区别：
-
-```text
-ClientNode              用户认为“这是哪一端”
-ClientInstallationNode  独热协议确认“这是哪个具体安装”
-OwnershipLeaseNode      此刻哪个安装持有哪个 generation
-```
-
-一个 Client 重装或迁移后可能拥有新的 installation；旧 installation 应显式撤销或标记
-失效，不能继续凭相同 client name 续约。
-
-该节点使独热机制可以稳定表达：
-
-- 同一 installation、同一 generation 的短暂过期可以原子续约；
-- 同名 Client 但不同 installation 仍必须执行交接或 fenced takeover；
-- 只有另一 installation 的更高 generation 或明确 handoff 才构成旧 trigger 清退证据。
+占用文件写的是 `tm_*`。同一 Client 名就是同一端。重装后仍用同一个 `tm_*` 声明占用。
+物理故障在 Hub 上清 occupancy / 旧 lock，不在日常路径做 installation fence。
 
 ## 能力与知识域
 
@@ -305,13 +284,12 @@ Memory 不能与 Note 合并，因为它默认参与后续行为决策。
 
 ## 推荐的业务节点清单
 
-只看 dual-tmux 的核心隧道能力，建议最终收敛为五个业务节点：
+只看 dual-tmux 的核心隧道能力，业务节点收敛为四个：
 
-1. `TunnelNode`：隧道聚合根；
+1. `TunnelNode`：隧道聚合根；DST = 两端 RoleBinding 都在；
 2. `AgentSessionNode`：Agent 原生可恢复会话；
 3. `RoleBindingNode`：Tunnel 角色到 Session 的绑定；
-4. `ClientNode`：用户可识别的操作端；
-5. `ClientInstallationNode`：独热协议使用的稳定安装身份。
+4. `ClientNode`：用户可识别的操作端 `tm_*`。
 
 附属值对象：
 
@@ -332,22 +310,13 @@ Memory 不能与 Note 合并，因为它默认参与后续行为决策。
 
 当前实现是可运行验证的隧道核心第一稿，不是最终模型：
 
-| 当前实现 | 当前问题 | 建议调整 |
-|---|---|---|
-| `TunnelNode` | 直接包含两个 Session | 改为拥有两个可选 RoleBinding |
-| `AgentSessionNode.role` | 把关系属性放入实体 | role 移到 RoleBinding |
-| `AgentSessionNode.frozen_at/parser` | 把绑定事实放入 Session | 移到 RoleBinding |
-| `RuntimeEndpointNode` | 被命名为独立节点 | 保留类型与校验，调整为值对象 |
-| `client: str` | Client 业务身份没有建模 | 引用 ClientNode |
-| `instance_id` 仅见于 Lease | 安装身份依附运行记录 | 建立 ClientInstallationNode |
+| 项目 | 状态 |
+|---|---|
+| `TunnelNode` 拥有 0..2 `RoleBindingNode` | 已实现 |
+| Session 不再携带 role/parser/frozen_at | 已实现 |
+| Endpoint 作为值对象 | 已实现 |
+| `ClientNode` | 已实现模型；Tunnel.client 仍是字符串引用 |
+| `ClientInstallationNode` | 明确不做 |
+| BindingAttempt FSM | 设计待确认，见 `docs/datanode-fsm.md` |
 
-因此下一步不应立即让 CLI 大范围依赖第一稿，而应先完成以下设计收敛：
-
-1. 实现 `RoleBindingNode`，调整 Session 与 Tunnel 边界；
-2. 实现 `ClientNode`、`ClientInstallationNode`；
-3. 将 Endpoint 明确标为值对象；
-4. 使用现有 13 个 tunnel 和真实 ownership 数据重新验证转换；
-5. 再进入 shadow validation，发现旧数据异常时只记录诊断、不阻断现有 CLI。
-
-本轮只确定节点、关系和值对象边界，不设计 ownership 或 binding 的 FSM。后续状态迁移
-必须建立在这些稳定身份和不变量之上。
+CLI 继续走 dict。下一步是确认 BindingAttempt 状态/事件，再接到 freeze/rebuild。
