@@ -443,7 +443,7 @@ def verify_resume(data: dict, token: dict) -> dict:
     expected = int(token.get("generation") or 0)
     cfg = load_config()
     if not cfg.hub_enabled:
-        return {"generation": expected, "writers": {}}
+        return {"generation": expected, "holder": cfg.client, "writers": {}}
     current = read_occupancy(name, cfg)
     holder = str(current.get("holder") or "")
     if holder and holder != cfg.client:
@@ -451,4 +451,8 @@ def verify_resume(data: dict, token: dict) -> dict:
     generation = int(current.get("generation") or 0)
     if expected and generation and generation != expected:
         raise SystemExit("[err] occupancy generation changed during resume")
-    return {"generation": generation or expected, "writers": {}}
+    return {
+        "generation": generation or expected,
+        "holder": holder or cfg.client,
+        "writers": {},
+    }

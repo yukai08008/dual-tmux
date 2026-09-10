@@ -1,8 +1,16 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-10 21:50 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-11 00:20 +08:00 | 更新者: Codex PM
 
 ## 状态树
+
+### v0.4.60 (RELEASED) — ResumeAttempt 权威门禁
+
+- ControlService.resume 在 `preflight_passed` 之前不占用，在 `ownership_acquired` 之前不 restore。
+- 校验改为 occupancy holder/generation；允许未探测 writer（0）。多 writer 仍拒绝。
+- 失败 resume 不踢本机 tmux；FSM 记 `attention` 并保留 occupancy。
+- 快照目录从 `fsm-shadow/resume` 改为 `fsm/resume`。CLI 动词与独热语义不变。
+- 叠在 v0.4.59.post1/post2 上：同步完成前不 attach；macOS openrsync 进度降级保留。
 
 ### v0.4.59.post2 (RELEASED) — macOS openrsync 进度降级
 
@@ -207,7 +215,7 @@
 
 ## 当前焦点
 
-- v0.4.59 已发布。下一步 S9：ResumeAttempt 从 shadow 升权威；ControlService 入口继续收薄到只发事件。CLI 不阉割。
+- v0.4.60 已发布。S7–S9 主路径已按 DataNode/FSM 门禁落地。后续把剩余 CLI 写路径（model/reconnect）也收成事件。CLI 不阉割。
 
 ## Backlog
 
