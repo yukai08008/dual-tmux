@@ -132,6 +132,52 @@ def _ensure_remote(cfg: AppConfig) -> None:
         raise SystemExit(f"[err] hub mkdir: {err[-1] if err else 'failed'}")
 
 
+_RSYNC_PROGRESS_ARGS: list[str] | None = None
+
+
+def _rsync_progress_args() -> list[str]:
+    """Prefer overall progress, but macOS openrsync only has --progress."""
+    global _RSYNC_PROGRESS_ARGS
+    if _RSYNC_PROGRESS_ARGS is None:
+        try:
+            probe = subprocess.run(
+                ["rsync", "--info=help"],
+                capture_output=True,
+                text=True,
+                timeout=3,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            _RSYNC_PROGRESS_ARGS = ["--progress"]
+        else:
+            _RSYNC_PROGRESS_ARGS = (
+                ["--info=progress2"] if probe.returncode == 0 else ["--progress"]
+            )
+    return list(_RSYNC_PROGRESS_ARGS)
+
+
+def _progress_flag_unsupported(stderr: str) -> bool:
+    text = (stderr or "").lower()
+    return "unknown option" in text or "unrecognized option" in text
+
+
+def _rsync_fail_message(stderr: str, stdout: str = "") -> str:
+    lines = [
+        line.strip()
+        for line in ((stderr or "") + chr(10) + (stdout or "")).splitlines()
+        if line.strip()
+    ]
+    for line in lines:
+        low = line.lower()
+        if "unrecognized option" in low or "unknown option" in low:
+            return line
+        if low.startswith("rsync error:"):
+            return line
+        if low.startswith("rsync:") and "usage:" not in low:
+            return line
+    return lines[0] if lines else "failed"
+
+
 def _rsync(
     src: str,
     dest: str,
@@ -147,20 +193,19 @@ def _rsync(
     if update:
         argv.append("--update")
     if progress:
-        argv.append("--info=progress2")
+        argv.extend(_rsync_progress_args())
     argv.extend(["-e", rsync_ssh(cfg), src, dest])
     result = _run(argv, inherit_stdout=progress)
-    if (
-        progress
-        and result.returncode != 0
-        and "unknown option" in (result.stderr or "").lower()
+    if progress and result.returncode != 0 and _progress_flag_unsupported(
+        result.stderr or ""
     ):
-        argv = [item for item in argv if item != "--info=progress2"]
+        argv = [item for item in argv if item not in {"--info=progress2", "--progress"}]
         argv.insert(2, "--progress")
         result = _run(argv, inherit_stdout=True)
     if result.returncode != 0:
-        err = (result.stderr or result.stdout or "rsync failed").strip().splitlines()
-        raise SystemExit(f"[err] rsync: {err[-1] if err else 'failed'}")
+        raise SystemExit(
+            f"[err] rsync: {_rsync_fail_message(result.stderr or '', result.stdout or '')}"
+        )
 
 
 def push(cfg: AppConfig | None = None) -> str:

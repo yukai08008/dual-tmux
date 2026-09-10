@@ -1,8 +1,13 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-10 21:40 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-10 21:50 +08:00 | 更新者: Codex PM
 
 ## 状态树
+
+### v0.4.59.post2 (RELEASED) — macOS openrsync 进度降级
+
+- Hub pull 在 macOS 自带 openrsync 上不再把 `--info=progress2` 的 usage 最后一行 `source ... directory` 当成失败。
+- 不支持 `--info=` 时改用 `--progress`；`dt dt-name` 视为 resume。
 
 ### v0.4.59.post1 (RELEASED) — Resume 同步完成前不进 tmux
 

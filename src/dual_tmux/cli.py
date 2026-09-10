@@ -2206,9 +2206,21 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _argv_with_tunnel_resume(argv: list[str], parser: argparse.ArgumentParser) -> list[str]:
+    """Treat a bare dt-* token as resume, matching how people name tunnels."""
+    if not argv or argv[0].startswith("-"):
+        return argv
+    choices = parser._subparsers._group_actions[0].choices
+    if argv[0] in choices:
+        return argv
+    if argv[0].startswith("dt-"):
+        return ["resume", *argv]
+    return argv
+
+
 def main() -> None:
     parser = build_parser()
-    args = parser.parse_args()
+    args = parser.parse_args(_argv_with_tunnel_resume(sys.argv[1:], parser))
     if args.version:
         cmd_version(args)
         return
