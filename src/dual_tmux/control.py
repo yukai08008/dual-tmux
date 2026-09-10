@@ -474,11 +474,12 @@ class ControlService:
         return ControlResult("session.resume.plan", plan, _event("session.resume.plan"))
 
     def handoff(self, name: str, *, reason: str = "") -> ControlResult:
-        from . import hub, ownership
+        """Occupancy steal uses the same pull-then-claim resume path."""
+        from . import ownership
 
         data = _translate(lambda: self._get_tunnel_readonly(name))
         plan = _translate(lambda: ownership.plan_resume(data))
-        if not plan.get("safe") or plan.get("action") != "request_handoff":
+        if not plan.get("safe"):
             raise ControlError(
                 "handoff_preflight_rejected",
                 f"handoff preflight rejected: {plan.get('reason') or 'unsafe'}",
@@ -489,10 +490,7 @@ class ControlService:
                     "reason": plan.get("reason") or "unsafe",
                 },
             )
-        result = _translate(
-            lambda: hub.request_handoff(str(data.get("name") or ""), reason=reason)
-        )
-        return ControlResult("ownership.handoff", result, _event("ownership.handoff"))
+        return self.resume(name)
 
     def model(self, name: str, model: str, sides: list[str]) -> ControlResult:
         data = self.get_tunnel(name).data

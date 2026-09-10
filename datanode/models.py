@@ -167,8 +167,26 @@ class TunnelNode(NodeModel):
         return self
 
 
+class OccupancyNode(NodeModel):
+    """Hub occupancy: last resume writer owns the trigger. No TTL."""
+
+    tunnel_name: str = Field(pattern=r"^dt-")
+    holder: str = ""
+    generation: int = Field(ge=0)
+    claimed_at: datetime | None = None
+
+    @computed_field
+    @property
+    def identity(self) -> str:
+        return f"{self.tunnel_name}@{self.generation}"
+
+    def is_foreign(self, client: str) -> bool:
+        return bool(self.holder and self.holder != client)
+
+
 class OwnershipLeaseNode(NodeModel):
-    """Hub-owned exclusive-control fact for one tunnel generation."""
+    """Legacy lease snapshot. OccupancyNode is the exclusive-control fact."""
+
 
     tunnel_name: str = Field(pattern=r"^dt-")
     generation: int = Field(ge=0)
