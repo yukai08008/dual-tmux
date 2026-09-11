@@ -105,6 +105,10 @@
       onSend: async (payload) => {
         await new Promise(r => setTimeout(r, 400));
         console.log('Mock sent to', payload.target, payload.text);
+      },
+      onInterrupt: async (payload) => {
+        await new Promise(r => setTimeout(r, 400));
+        console.log('Mock interrupted', payload.target, payload.kind);
       }
     });
     sender.render();

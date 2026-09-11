@@ -747,29 +747,15 @@ def tunnels_page(selected: str = "") -> str:
         <h2>trigger 问答</h2>
         <div class="thread" id="thread"></div>
       </div>
-      <div class="card">
-        <div class="h2row">
-          <div style="display:flex; align-items:center; gap:14px;">
-            <h2>发给 trigger（op_*）</h2>
-            <div class="target-selector" style="display:inline-flex; align-items:center; gap:12px; font-size:12px;">
-              <label style="cursor:pointer; display:inline-flex; align-items:center; gap:4px;"><input type="radio" name="send-target" value="op" checked> Trigger (op_*)</label>
-              <label style="cursor:pointer; display:inline-flex; align-items:center; gap:4px;"><input type="radio" name="send-target" value="run"> Bullet (run_*)</label>
-            </div>
-          </div>
-          <div class="lamps">
-            <span class="lamp-wrap"><i class="lamp gray" id="lamp-op"></i> trigger</span>
-            <span class="lamp-wrap"><i class="lamp gray" id="lamp-run"></i> bullet</span>
-          </div>
-        </div>
-        <form id="sendf">
-          <input type="hidden" name="t" id="tname" value="{sel}">
-          <textarea name="text" id="box" rows="10" placeholder="提交后 send-keys 到选定 pane" {"disabled" if not selected else ""}></textarea>
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px">
-            <span class="sub" id="send-target-hint">将向 Trigger pane (op_*) 注入 send-keys</span>
-            <button type="submit" {"disabled" if not selected else ""}>提交</button>
-          </div>
-        </form>
-      </div>
+      <div id="command-sender-wrap" style="margin-top:12px;"></div>
+      <!-- 隐藏兼容节点 -->
+      <form id="sendf" style="display:none;">
+        <input type="hidden" name="t" id="tname" value="{sel}">
+        <textarea name="text" id="box"></textarea>
+        <button type="submit"></button>
+        <span id="lamp-op" class="lamp gray"></span>
+        <span id="lamp-run" class="lamp gray"></span>
+      </form>
       <div class="card">
         <div class="h2row pollhead idle" id="pollhead">
           <h2>轮询状态</h2>
@@ -778,6 +764,9 @@ def tunnels_page(selected: str = "") -> str:
         <div class="log idle" id="log"></div>
       </div>
       <div id="dual-terminal-wrap" style="margin-top:12px;"></div>
+      <div class="dt-page-footer" style="padding: 28px 0 72px 0; display: flex; align-items: center; justify-content: center; color: var(--dt-text-muted); font-size: 12px;">
+        <span>· dual-tmux 会话视窗到底 · 已预留底部操作空白 ·</span>
+      </div>
     </div>
 <script>
 let rows = {names};
@@ -806,6 +795,21 @@ window.terminal.updatePane('run', {{
   text: {json.dumps(bullet_out if selected else "选定隧道后显示 Bullet 会话...")},
   live: false,
 }});
+
+window.commandSender = new CommandSenderComponent({{
+  container: document.getElementById('command-sender-wrap'),
+  target: 'op',
+  onSend: async ({{ target, text }}) => {{
+    await handleSend(target, text);
+  }},
+  onInterrupt: async ({{ target, kind }}) => {{
+    await handleInterrupt(target, kind);
+  }},
+}});
+window.commandSender.render();
+if (!{json.dumps(selected)}) {{
+  window.commandSender.setDisabled(true);
+}}
 const opout = document.getElementById('dt-screen-op');
 const runout = document.getElementById('dt-screen-run');
 const oplabel = document.getElementById('dt-title-op');
@@ -973,6 +977,9 @@ function applyState(st) {{
   q.value = st.name || '';
   box.disabled = !st.name;
   sendf.querySelector('button').disabled = !st.name;
+  if (window.commandSender) {{
+    window.commandSender.setDisabled(!st.name);
+  }}
   const row = rows.find(r => r.name === st.name);
   const mop = document.getElementById('m-op');
   const mrun = document.getElementById('m-run');
@@ -1350,6 +1357,9 @@ async function tick() {{
   const lampRunPane = document.getElementById('lamp-run-pane');
   if (lampOpPane) setLamp(lampOpPane, j.op_live ? 'green' : 'gray');
   if (lampRunPane) setLamp(lampRunPane, j.run_live ? 'green' : 'gray');
+  if (window.commandSender) {{
+    window.commandSender.updateLamps({{ opLive: !!j.op_live, runLive: !!j.run_live }});
+  }}
   if (j.sync) renderSync(j.sync);
   refreshOwnership(st);
   autoOp.hidden = !st.name || j.trigger_tool !== 'opencode' || j.op_auto !== false || !j.op_live;
@@ -1500,35 +1510,33 @@ document.getElementById('recent').addEventListener('click',e=>{{
   const name=btn.dataset.reopen, existing=tabs.find(st=>st.name===name);
   if(existing) activate(existing); else addTab(name);
 }});
-sendf.addEventListener('submit', async (e) => {{
-  e.preventDefault();
+async function handleSend(targetSide, prompt) {{
   const st = activeTab;
-  if (!st || !st.name || !box.value.trim() || st.waiting) return;
-  const prompt=box.value.trim();
-  let baseline={{}};
+  if (!st || !st.name || !prompt || st.waiting) return;
+  let baseline = {{}};
   try {{
-    const baselineResponse=await fetch('/api/tunnel?t='+encodeURIComponent(st.name));
-    if (baselineResponse.ok) baseline=await baselineResponse.json();
+    const baselineResponse = await fetch('/api/tunnel?t=' + encodeURIComponent(st.name));
+    if (baselineResponse.ok) baseline = await baselineResponse.json();
   }} catch (_) {{}}
-  const baselineParsed=baseline.op_parsed||{{}};
+  const baselineParsed = baseline.op_parsed || {{}};
   st.lastAsk = prompt;
   const preview = st.lastAsk.replace(/\\s+/g, ' ').slice(0, 80);
   addBubble('ask', st.lastAsk);
   logLine('send', preview || '(empty)');
-  st.opAtSend = baseline.op_text||st.lastOp||'';
-  st.lastCompletion = baselineParsed.completion_id||st.lastCompletion||'';
-  st.completionAtSend = baselineParsed.completion_id||st.lastCompletion||'';
+  st.opAtSend = baseline.op_text || st.lastOp || '';
+  st.lastCompletion = baselineParsed.completion_id || st.lastCompletion || '';
+  st.completionAtSend = baselineParsed.completion_id || st.lastCompletion || '';
   st.waiting = true;
   st.pollQuiet = 0;
   st.waitStartedAt = Date.now();
   st.lastProgressAt = st.waitStartedAt;
   st.lastMeaningfulKey = '';
   st.longWarned = st.stallWarned = st.attentionWarned = false;
-  st.pending={{
-    id:'turn-'+st.waitStartedAt.toString(36)+'-'+Math.random().toString(36).slice(2,10),
-    status:'pending',
-    startedAt:new Date(st.waitStartedAt).toISOString(),
-    baselineCompletion:st.completionAtSend,
+  st.pending = {{
+    id: 'turn-' + st.waitStartedAt.toString(36) + '-' + Math.random().toString(36).slice(2, 10),
+    status: 'pending',
+    startedAt: new Date(st.waitStartedAt).toISOString(),
+    baselineCompletion: st.completionAtSend,
   }};
   setLamp(lampOp, 'yellow');
   setLamp(lampRun, 'yellow');
@@ -1537,13 +1545,12 @@ sendf.addEventListener('submit', async (e) => {{
   try {{
     await persistTabsNow();
   }} catch(err) {{
-    const msg='未发送：pending turn 无法持久化 · '+String(err.message||err);
-    logLine('err',msg); addBubble('fail',msg);
-    st.waiting=false; st.pending=null; st.waitStartedAt=0; st.finalOp='red';
-    setLamp(lampOp,'red'); setPollBusy(false); renderTabs();
-    return;
+    const msg = '未发送：pending turn 无法持久化 · ' + String(err.message || err);
+    logLine('err', msg); addBubble('fail', msg);
+    st.waiting = false; st.pending = null; st.waitStartedAt = 0; st.finalOp = 'red';
+    setLamp(lampOp, 'red'); setPollBusy(false); renderTabs();
+    throw err;
   }}
-  const targetSide = (document.querySelector('input[name="send-target"]:checked')?.value) || 'op';
   const body = new URLSearchParams({{ t: st.name, side: targetSide, text: prompt }});
   const r = await fetch('/send', {{ method: 'POST', headers: {{ 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' }}, body }});
   if (!r.ok) {{
@@ -1559,16 +1566,66 @@ sendf.addEventListener('submit', async (e) => {{
     setPollBusy(false);
     renderTabs();
     await persistTabsNow();
-    return;
+    throw new Error(err);
   }}
   st.lastSent = Date.now();
   st.waiting = true;
   st.pollQuiet = 0;
-  box.value = '';
-  logLine('send', '已提交到 trigger，开始轮询');
+  logLine('send', '已提交到 ' + (targetSide === 'run' ? 'bullet' : 'trigger') + '，开始轮询');
   renderTabs();
   await persistTabsNow();
   tick();
+}}
+
+async function handleInterrupt(targetSide, kind) {{
+  const st = activeTab;
+  if (!st || !st.name) {{
+    throw new Error('请先选择隧道');
+  }}
+  const body = new URLSearchParams({{
+    t: st.name,
+    side: targetSide === 'run' ? 'run' : 'op',
+    kind: kind || 'ctrl_c',
+  }});
+  const r = await fetch('/api/interrupt', {{
+    method: 'POST',
+    headers: {{ 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' }},
+    body
+  }});
+  if (!r.ok) {{
+    const text = await r.text();
+    let msg = text;
+    try {{
+      const p = JSON.parse(text);
+      msg = (p.error && p.error.message) || text;
+    }} catch(_) {{}}
+    throw new Error(msg);
+  }}
+  // 中断成功：解除前端等待阻塞状态
+  st.waiting = false;
+  st.pending = null;
+  st.waitStartedAt = 0;
+  st.pollQuiet = 0;
+  st.lastPollKey = '';
+  setPollBusy(false);
+  setLamp(lampOp, st.finalOp || 'gray');
+  setLamp(lampRun, st.finalRun || 'gray');
+  renderTabs();
+  await persistTabsNow();
+  const kindLabel = kind === 'escape' ? 'Escape 中断' : 'Ctrl+C 强行打断';
+  const targetLabel = targetSide === 'run' ? 'Bullet (run_*)' : 'Trigger (op_*)';
+  logLine('done', '已向 ' + targetLabel + ' 发送 ' + kindLabel + '，解除等待锁定');
+  addBubble('ans', '🛑 [系统] 已向 ' + targetLabel + ' 发送 ' + kindLabel + '。前端轮询锁定已重置。');
+  tick();
+}}
+
+sendf.addEventListener('submit', async (e) => {{
+  e.preventDefault();
+  const targetSide = (document.querySelector('input[name="send-target"]:checked')?.value) || 'op';
+  try {{
+    await handleSend(targetSide, box.value.trim());
+    box.value = '';
+  }} catch(_) {{}}
 }});
 async function postForm(url, fields) {{
   const body = new URLSearchParams(fields);

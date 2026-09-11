@@ -262,6 +262,15 @@ def send_keys(name: str, text: str) -> None:
     )
 
 
+def send_interrupt(name: str, key: str = "C-c") -> None:
+    if not has_session(name):
+        raise SystemExit(f"[err] 无此会话: {name}")
+    normalized = "Escape" if str(key).strip().lower() in {"esc", "escape"} else "C-c"
+    subprocess.run(
+        [bin(), "send-keys", "-t", exact_pane(name), normalized], check=False
+    )
+
+
 def start_opencode(name: str, extra: str = "") -> None:
     ensure_session(name)
     current = pane_command(name)
