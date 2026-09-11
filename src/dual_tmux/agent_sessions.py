@@ -274,14 +274,48 @@ def explicit(args):
     if uuid_re.fullmatch(value): return value
  return ''
 found=[]
-for raw in glob.glob('/proc/[0-9]*/cmdline'):
+if os.path.isdir('/proc'):
+ for raw in glob.glob('/proc/[0-9]*/cmdline'):
+  try:
+   pid=int(raw.split('/')[2]); args=[x.decode('utf-8','replace') for x in open(raw,'rb').read().split(b'\0') if x]
+   if not any(norm(x)==tool for x in args[:4]): continue
+   cwd=os.path.realpath('/proc/%s/cwd'%pid); sid=explicit(args)
+   stat=open('/proc/%s/stat'%pid).read().split(); ticks=os.sysconf(os.sysconf_names['SC_CLK_TCK']); uptime=float(open('/proc/uptime').read().split()[0]); started=int((time.time()-(uptime-float(stat[21])/ticks))*1000)
+   found.append((pid,sid,cwd,started))
+  except (OSError,ValueError,IndexError): pass
+else:
+ import subprocess
+ me={os.getpid(),os.getppid()}
  try:
-  pid=int(raw.split('/')[2]); args=[x.decode('utf-8','replace') for x in open(raw,'rb').read().split(b'\0') if x]
-  if not any(norm(x)==tool for x in args[:4]): continue
-  cwd=os.path.realpath('/proc/%s/cwd'%pid); sid=explicit(args)
-  stat=open('/proc/%s/stat'%pid).read().split(); ticks=os.sysconf(os.sysconf_names['SC_CLK_TCK']); uptime=float(open('/proc/uptime').read().split()[0]); started=int((time.time()-(uptime-float(stat[21])/ticks))*1000)
-  found.append((pid,sid,cwd,started))
- except (OSError,ValueError,IndexError): pass
+  ps_res=subprocess.run(['ps','-eo','pid,etime,command'],capture_output=True,text=True)
+  for line in (ps_res.stdout or '').splitlines():
+   p=line.strip().split(None,2)
+   if len(p)<3: continue
+   try: pid=int(p[0])
+   except ValueError: continue
+   if pid in me: continue
+   etime_str,cmdline=p[1],p[2]
+   args=cmdline.split()
+   if not any(norm(x)==tool for x in args[:4]): continue
+   cwd=''
+   for lsof_cmd in ('lsof','/usr/sbin/lsof'):
+    try:
+     l_out=subprocess.run([lsof_cmd,'-a','-p',str(pid),'-d','cwd','-Fn'],capture_output=True,text=True).stdout or ''
+     for l in l_out.splitlines():
+      if l.startswith('n'): cwd=os.path.realpath(l[1:]); break
+     if cwd: break
+    except Exception: pass
+   days=0; raw_etime=etime_str
+   if '-' in raw_etime: d,raw_etime=raw_etime.split('-',1); days=int(d)
+   pt=[int(x) for x in raw_etime.split(':') if x.isdigit()]
+   if len(pt)==3: sec=days*86400+pt[0]*3600+pt[1]*60+pt[2]
+   elif len(pt)==2: sec=days*86400+pt[0]*60+pt[1]
+   elif len(pt)==1: sec=days*86400+pt[0]
+   else: sec=0
+   started=int((time.time()-sec)*1000)
+   sid=explicit(args)
+   found.append((pid,sid,cwd,started))
+ except Exception: pass
 if expected: found=[x for x in found if x[2]==expected]
 if len(found)!=1: raise SystemExit(1)
 pid,sid,cwd,started=found[0]
