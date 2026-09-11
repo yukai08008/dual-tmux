@@ -388,13 +388,22 @@ def _pane_shows_agent(tmux_name: str) -> bool:
     return bool(paneparse.RUNNING_RE.search(text) or paneparse.FOOTER_RE.search(text))
 
 
+def _live_session_id(pane: dict) -> str:
+    pid = str(pane.get("pid") or "")
+    cwd = str(pane.get("cwd") or "")
+    try:
+        return oc_ops.id_from_pid(pid, cwd=cwd)
+    except TypeError:
+        return oc_ops.id_from_pid(pid)
+
+
 def _wait_opencode_ready(tmux_name: str, session_id: str, timeout: float = 12) -> None:
     """Wait until the requested OpenCode session is visible and input-ready."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if tmux_ops.pane_command(tmux_name) == "opencode":
             pane = tmux_ops.pane_info(tmux_name) or {}
-            live = oc_ops.id_from_pid(str(pane.get("pid") or ""))
+            live = _live_session_id(pane)
             if live == session_id and _pane_shows_agent(tmux_name):
                 return
         time.sleep(0.2)
@@ -461,7 +470,7 @@ def _start_side(
         and info.get("session_id")
     ):
         pane = tmux_ops.pane_info(tmux_name) or {}
-        live_sid = oc_ops.id_from_pid(str(pane.get("pid") or ""))
+        live_sid = _live_session_id(pane)
         target_sid = str(info.get("session_id") or "")
         if live_sid and live_sid != target_sid:
             backup = oc_ops.backup_local_snapshot(live_sid)
@@ -1065,14 +1074,16 @@ def refresh_resume_inputs(data: dict) -> dict:
         return data
     if not cfg.hub_enabled:
         return data
+    name = str(data.get("name") or "")
+    run = str(data.get("run") or "")
     ui.info("pulling Hub state")
-    hub.pull(progress=True)
+    hub.pull(name=name, run=run, progress=True)
     ui.info("syncing OpenCode sessions")
     sync_persist("opencode", cfg, progress=True)
     ui.info("syncing native sessions")
     sync_persist("native", cfg, progress=True)
     ui.info("session sync complete")
-    return load(find_dt(str(data.get("name") or "")))
+    return load(find_dt(name))
 
 
 def _resume_persist_source(data: dict) -> str:
