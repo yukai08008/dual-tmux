@@ -55,6 +55,13 @@ class TunnelRepository:
         raw = json.loads(path.read_text(encoding="utf-8"))
         return from_legacy_tunnel(raw)
 
+    def get_or_none(self, name: str) -> TunnelNode | None:
+        """Get a TunnelNode if it exists and is valid, or None."""
+        try:
+            return self.get(name)
+        except (KeyError, OSError, ValueError):
+            return None
+
     def get_raw(self, name: str) -> dict[str, Any]:
         """Get raw legacy dict record."""
         path = self._path_for(name)
@@ -76,6 +83,12 @@ class TunnelRepository:
         payload = json.dumps(record, ensure_ascii=False, indent=2) + "\n"
         path.write_text(payload, encoding="utf-8")
         return path
+
+    def save_raw(self, data: dict[str, Any]) -> TunnelNode:
+        """Validate raw dictionary as a TunnelNode and persist to disk."""
+        node = from_legacy_tunnel(data)
+        self.save(node, base=data)
+        return node
 
     def delete(self, name: str) -> bool:
         """Delete a tunnel file if it exists."""

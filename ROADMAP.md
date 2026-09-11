@@ -1,5 +1,6 @@
 # dual-tmux ROADMAP
 
+> v0.4.64：DataNode 全链路收敛与全层级接入（100% 闭环）。models 补齐 auto_recover；repository 新增 save_raw / get_or_none；store.save 全量接入 TunnelNode 不变量校验守卫，防止写出坏文件；web.py 彻底拔除 iter_dt_files / load 磁盘裸读，全面经由 ControlService.list_tunnel_nodes 与 TunnelRepository 获取领域事实。
 > v0.4.63：DataNode 仓储层落地（TunnelRepository）。新增 datanode.TunnelRepository，统一封装磁盘 JSON 与强类型 TunnelNode 的校验转换；ControlService 对接仓储层，提供 list_tunnel_nodes / get_tunnel_node / save_tunnel_node 强类型契约，为 Web 控制台铺平标准 API。
 > CLI 表面能力不阉割：`new / enter / work / freeze / resume / drop / ls / pull / push` 仍可用。
 > 本路线图的权威设计见 [docs/core-architecture.md](docs/core-architecture.md)。

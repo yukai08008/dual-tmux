@@ -24,7 +24,7 @@ from .control import ControlError, get_control_service
 from .paneparse import parse_pane, parser_id_for_side
 from .paths import home_dir
 from .recovery import read_state as read_health_state
-from .store import find_dt, iter_dt_files, load, normalize_dt
+from .store import normalize_dt
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8787
@@ -194,33 +194,49 @@ def _multipart(raw: bytes, content_type: str) -> tuple[dict[str, str], list[byte
 
 
 def _tunnels() -> list[dict]:
+    service = get_control_service()
+    nodes = service.list_tunnel_nodes()
     rows = []
-    for path in iter_dt_files():
-        data = load(path)
-        op = data.get("op") or ""
-        run = data.get("run") or ""
+    for node in nodes:
+        raw = service.repository.get_raw(node.name)
+        op = node.op
+        run = node.run
         op_info = tmux_ops.pane_info(op) if op else {}
         run_info = tmux_ops.pane_info(run) if run else {}
+        trig = node.trigger
+        bull = node.bullet
+        trig_ses = trig.session if trig else None
+        bull_ses = bull.session if bull else None
+        raw_trig = raw.get("trigger") or {}
+        raw_bull = raw.get("bullet") or {}
         rows.append(
             {
-                "name": data.get("name") or path.stem,
-                "dst": oc_ops.is_dst(data),
+                "name": node.name,
+                "dst": node.is_dst,
                 "op": op,
                 "run": run,
                 "op_live": bool(op) and tmux_ops.has_session(op),
                 "run_live": bool(run) and tmux_ops.has_session(run),
                 "op_cmd": op_info.get("cmd") or "",
                 "run_cmd": run_info.get("cmd") or "",
-                "trigger": (data.get("trigger") or {}).get("slug") or "",
-                "bullet": (data.get("bullet") or {}).get("slug") or "",
-                "trigger_model": (data.get("trigger") or {}).get("model") or "",
-                "bullet_model": (data.get("bullet") or {}).get("model") or "",
-                "trigger_tool": (data.get("trigger") or {}).get("tool") or "opencode",
-                "bullet_tool": (data.get("bullet") or {}).get("tool") or "opencode",
-                "trigger_client": (data.get("trigger") or {}).get("agent_client") or {},
-                "bullet_client": (data.get("bullet") or {}).get("agent_client") or {},
-                "auto_recover": bool(data.get("auto_recover")),
-                "health": read_health_state(data.get("name") or path.stem),
+                "trigger": trig_ses.slug if trig_ses else (raw_trig.get("slug") or ""),
+                "bullet": bull_ses.slug if bull_ses else (raw_bull.get("slug") or ""),
+                "trigger_model": trig_ses.model if trig_ses else (raw_trig.get("model") or ""),
+                "bullet_model": bull_ses.model if bull_ses else (raw_bull.get("model") or ""),
+                "trigger_tool": trig_ses.tool if trig_ses else (raw_trig.get("tool") or "opencode"),
+                "bullet_tool": bull_ses.tool if bull_ses else (raw_bull.get("tool") or "opencode"),
+                "trigger_client": (
+                    trig_ses.client.model_dump(mode="json", exclude_none=True)
+                    if trig_ses and trig_ses.client
+                    else (raw_trig.get("agent_client") or {})
+                ),
+                "bullet_client": (
+                    bull_ses.client.model_dump(mode="json", exclude_none=True)
+                    if bull_ses and bull_ses.client
+                    else (raw_bull.get("agent_client") or {})
+                ),
+                "auto_recover": node.auto_recover,
+                "health": read_health_state(node.name),
             }
         )
     rows.sort(key=lambda r: r["name"])
@@ -236,9 +252,11 @@ def _pane_name(data: dict, side: str) -> str:
 def _switch_trigger_auto(name: str) -> dict:
     """Restart a tunnel's bound trigger session in OpenCode auto mode."""
     with _LIFECYCLE_LOCK:
-        data = load(find_dt(name))
-        op = data.get("op") or ""
-        trigger = data.get("trigger") or {}
+        service = get_control_service()
+        raw = service.repository.get_raw(name)
+        node = service.get_tunnel_node(name)
+        op = node.op
+        trigger = raw.get("trigger") or {}
         if not op or not tmux_ops.has_session(op):
             raise SystemExit("[err] trigger pane is offline")
         if (trigger.get("tool") or "opencode") != "opencode":
@@ -918,8 +936,11 @@ def tunnels_page(selected: str = "") -> str:
     data = {}
     if selected:
         try:
-            data = load(find_dt(selected))
-        except SystemExit:
+            from datanode.adapters import to_legacy_tunnel
+
+            node = get_control_service().get_tunnel_node(selected)
+            data = to_legacy_tunnel(node)
+        except (ControlError, KeyError, SystemExit):
             data = {}
     op = data.get("op") or ""
     run = data.get("run") or ""
@@ -2011,8 +2032,11 @@ class Handler(BaseHTTPRequestHandler):
             name = (qs.get("t") or [""])[0]
             if name:
                 try:
-                    data = load(find_dt(name))
-                except SystemExit as exc:
+                    from datanode.adapters import to_legacy_tunnel
+
+                    node = get_control_service().get_tunnel_node(name)
+                    data = to_legacy_tunnel(node)
+                except (ControlError, KeyError, SystemExit) as exc:
                     self._send(
                         404,
                         json.dumps({"error": str(exc)}),
