@@ -242,7 +242,11 @@ def test_feishu_pair_rejects_any_manual_app_credentials(tmp_path, monkeypatch):
     request = Request(
         f"http://127.0.0.1:{server.server_port}/api/feishu/pair",
         data=json.dumps(
-            {"app_id": "cli_app", "redirect_uri": "https://hub/callback", "app_secret": "must-not-pass"}
+            {
+                "app_id": "cli_app",
+                "redirect_uri": "https://hub/callback",
+                "app_secret": "must-not-pass",
+            }
         ).encode(),
         headers={"Content-Type": "application/json"},
     )
@@ -574,7 +578,11 @@ def test_web_force_resume_requires_exact_name(monkeypatch):
     service = type(
         "Service",
         (),
-        {"resume": lambda *_a, **_kw: pytest.fail("must not execute without confirmation")},
+        {
+            "resume": lambda *_a, **_kw: pytest.fail(
+                "must not execute without confirmation"
+            )
+        },
     )()
     monkeypatch.setattr("dual_tmux.web.get_control_service", lambda: service)
     server = WebHTTPServer(("127.0.0.1", 0), Handler)
@@ -596,3 +604,64 @@ def test_web_force_resume_requires_exact_name(monkeypatch):
         thread.join(timeout=3)
     assert caught.value.code == 409
     assert payload["error"]["code"] == "confirmation_required"
+
+
+def test_tunnels_page_dual_pane_and_target_selector():
+    page = tunnels_page()
+    # Dual-pane view layout controls
+    assert "view-split" in page
+    assert "view-op" in page
+    assert "view-run" in page
+    assert "panes-wrap" in page
+    assert "lamp-op-pane" in page
+    assert "lamp-run-pane" in page
+    assert "并排双屏" in page
+
+    # Dual-target selector
+    assert "send-target" in page
+    assert "send-target-hint" in page
+    assert "Trigger (op_*)" in page
+    assert "Bullet (run_*)" in page
+
+    # DST / Draft banner and reason text
+    assert "dst-banner" in page
+    assert "badge-dst" in page
+    assert "badge-draft" in page
+    assert "尚未固化为 DST（请先在终端运行 dt work 验证并执行 dt freeze）" in page
+
+
+def test_web_send_endpoint_supports_bullet_side(monkeypatch):
+    calls = []
+
+    class DummyService:
+        def send(self, name, text, side):
+            calls.append((name, text, side))
+
+            class Res:
+                def __init__(self):
+                    self.data = {"pane": "run_test"}
+
+            return Res()
+
+    monkeypatch.setattr("dual_tmux.web.get_control_service", lambda: DummyService())
+    server = WebHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    body = urlencode({"t": "dt-test", "side": "run", "text": "echo hello"}).encode()
+    request = Request(
+        f"http://127.0.0.1:{server.server_port}/send",
+        data=body,
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with urlopen(request, timeout=3) as resp:
+            payload = json.loads(resp.read().decode())
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+    assert payload["ok"] is True
+    assert calls == [("dt-test", "echo hello", "run")]
