@@ -262,6 +262,127 @@ def sync_persist(
     return path
 
 
+def _persist_kind_root(kind: str) -> Path:
+    if kind == "opencode":
+        from .oc import persist_root
+
+        return persist_root()
+    return (sessions_home() / kind).expanduser()
+
+
+def sync_ticks(kind: str, cfg: AppConfig, op: str = "", timeout: int = 30) -> None:
+    """Sync tick logs across terminals via Hub with minimal network overhead."""
+    if kind not in {"tmux", "opencode", "native"}:
+        raise ValueError(f"unsupported persist kind: {kind}")
+    if not cfg.hub_enabled:
+        return
+    from .hub import _rsync_fail_message, rsync_ssh
+    from .paths import home_dir
+
+    target = SshTarget(cfg.server, cfg.ssh_port)
+    host = target.dest
+    rel = f"{cfg.user}/sessions/{kind}"
+    root = _persist_kind_root(kind)
+    root.mkdir(parents=True, exist_ok=True)
+    me = cfg.client
+
+    # 1. Mirror local op tick and push local ticks up to Hub
+    if me:
+        local_ticks_dir = root / me / "ticks"
+        local_ticks_dir.mkdir(parents=True, exist_ok=True)
+        if op:
+            op_log = home_dir() / "ops" / op / "ticks.log"
+            if op_log.is_file():
+                dest_log = local_ticks_dir / f"{op}.log"
+                try:
+                    dest_log.write_text(
+                        op_log.read_text(encoding="utf-8", errors="replace"),
+                        encoding="utf-8",
+                    )
+                except OSError:
+                    pass
+            local_target = local_ticks_dir / f"{op}.log"
+            if local_target.is_file():
+                argv_up = [
+                    "rsync",
+                    "-a",
+                    "--no-owner",
+                    "--no-group",
+                    "-e",
+                    rsync_ssh(cfg),
+                    str(local_target),
+                    f"{host}:{rel}/{me}/ticks/{op}.log",
+                ]
+                subprocess.run(argv_up, capture_output=True, timeout=timeout, check=False)
+        else:
+            if any(local_ticks_dir.iterdir()):
+                argv_up = [
+                    "rsync",
+                    "-a",
+                    "--no-owner",
+                    "--no-group",
+                    "-e",
+                    rsync_ssh(cfg),
+                    str(local_ticks_dir) + "/",
+                    f"{host}:{rel}/{me}/ticks/",
+                ]
+                subprocess.run(argv_up, capture_output=True, timeout=timeout, check=False)
+
+    # 2. Pull ticks from other terminals on Hub
+    filter_args = ["--include=*/", "--include=*/ticks/"]
+    if op:
+        filter_args.extend([f"--include=*/ticks/{op}.log", "--exclude=*"])
+    else:
+        filter_args.extend(["--include=*/ticks/***", "--exclude=*"])
+
+    argv_down = [
+        "rsync",
+        "-a",
+        "--no-owner",
+        "--no-group",
+        *filter_args,
+        "-e",
+        rsync_ssh(cfg),
+        f"{host}:{rel}/",
+        str(root) + "/",
+    ]
+    res = subprocess.run(argv_down, capture_output=True, text=True, timeout=timeout, check=False)
+    if res.returncode != 0:
+        err = _rsync_fail_message(res.stderr or "", res.stdout or "")
+        raise SystemExit(f"[err] ticks sync: {err}")
+
+
+def sync_remote_winner(kind: str, cfg: AppConfig, winner: str, timeout: int = 60) -> None:
+    """Sync session persist for the winning remote terminal only."""
+    if not winner or winner == cfg.client:
+        return
+    if not cfg.hub_enabled:
+        return
+    from .hub import _rsync_fail_message, rsync_ssh
+
+    target = SshTarget(cfg.server, cfg.ssh_port)
+    host = target.dest
+    rel = f"{cfg.user}/sessions/{kind}"
+    root = _persist_kind_root(kind)
+    dest_winner = root / winner
+    dest_winner.mkdir(parents=True, exist_ok=True)
+
+    argv = [
+        "rsync",
+        "-a",
+        "--no-owner",
+        "--no-group",
+        "-e",
+        rsync_ssh(cfg),
+        f"{host}:{rel}/{winner}/",
+        str(dest_winner) + "/",
+    ]
+    res = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False)
+    if res.returncode != 0:
+        err = _rsync_fail_message(res.stderr or "", res.stdout or "")
+        raise SystemExit(f"[err] remote session sync from {winner}: {err}")
+
+
 def install_persist_sync(cfg: AppConfig) -> Step:
     changed = False
     for kind in ("tmux", "opencode", "native"):

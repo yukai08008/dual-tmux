@@ -1064,9 +1064,10 @@ def _bind_trigger_workspace(data: dict) -> None:
 
 
 def refresh_resume_inputs(data: dict) -> dict:
-    """Pull DST, ticks and persist before occupancy. Fail closed on Hub errors."""
+    """Pull DST and ticks before occupancy; sync remote session only if another terminal updated."""
     from .config import load_config
-    from .hotfix import sync_persist
+    from .hotfix import sync_remote_winner, sync_ticks
+    from .oc import persist_tenant
 
     try:
         cfg = load_config()
@@ -1076,13 +1077,27 @@ def refresh_resume_inputs(data: dict) -> dict:
         return data
     name = str(data.get("name") or "")
     run = str(data.get("run") or "")
+
     ui.info("pulling Hub state")
-    hub.pull(name=name, run=run, progress=True)
-    ui.info("syncing OpenCode sessions")
-    sync_persist("opencode", cfg, progress=True)
-    ui.info("syncing native sessions")
-    sync_persist("native", cfg, progress=True)
-    ui.info("session sync complete")
+    hub.pull(name=name, run=run, progress=False)
+
+    op = str(data.get("op") or "")
+    tool = (data.get("trigger") or {}).get("tool") or "opencode"
+    kind = "native" if tool in {"native", "codex", "claude"} else "opencode"
+
+    ui.info("checking trigger activity across terminals")
+    sync_ticks(kind, cfg, op=op)
+
+    source = _resume_persist_source(data)
+    local = persist_tenant(cfg.client)
+
+    if source and source != local:
+        ui.info(f"syncing updated session from remote terminal ({source})")
+        sync_remote_winner(kind, cfg, source)
+        ui.info("session sync complete")
+    else:
+        ui.info("local session is authoritative (no remote sync needed)")
+
     return load(find_dt(name))
 
 

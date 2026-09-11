@@ -433,7 +433,7 @@ def test_native_pull_failure_releases_new_generation_before_commit(monkeypatch):
     monkeypatch.setattr(cli, "load", lambda _path: data)
     monkeypatch.setattr(
         hotfix,
-        "sync_persist",
+        "sync_ticks",
         lambda kind, *_a, **_k: (_ for _ in ()).throw(SystemExit("native pull failed"))
         if kind == "native"
         else None,
