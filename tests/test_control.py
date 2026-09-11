@@ -183,6 +183,24 @@ def test_control_wraps_legacy_freeze_resume_and_model(monkeypatch):
     ]
 
 
+def test_model_rejects_invalid_tunnel_node(monkeypatch):
+    from dual_tmux import cli
+
+    data = _tunnel()
+    service = ControlService()
+    monkeypatch.setattr(
+        ControlService, "get_tunnel", lambda self, name: type("R", (), {"data": data})()
+    )
+    monkeypatch.setattr(
+        cli,
+        "_apply_model_legacy",
+        lambda name, model, sides: {"bad": "schema"},
+    )
+    with pytest.raises(ControlError) as exc_info:
+        service.model("msg", "p/m", ["trigger"])
+    assert exc_info.value.code == "invalid_tunnel_node"
+
+
 def test_remove_and_force_recovery_require_confirmation(monkeypatch):
     service = ControlService()
     data = _tunnel()
