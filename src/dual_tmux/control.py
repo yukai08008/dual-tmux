@@ -41,6 +41,13 @@ _OPERATIONS = (
         "pane.send", "send", "write", ("cli", "web", "feishu"), "control.pane.send"
     ),
     OperationSpec(
+        "pane.interrupt",
+        "send",
+        "write",
+        ("cli", "web", "feishu"),
+        "control.pane.interrupt",
+    ),
+    OperationSpec(
         "session.freeze",
         "metadata_freeze",
         "write",
@@ -316,6 +323,29 @@ class ControlService:
         _translate(lambda: tmux_ops.send_keys(pane, text))
         return ControlResult(
             "pane.send", {"pane": pane, "side": normalized}, _event("pane.send")
+        )
+
+    def interrupt(
+        self, name: str, side: str = "bullet", kind: str = "ctrl_c"
+    ) -> ControlResult:
+        from . import hub
+
+        data = self.get_tunnel(name).data
+        normalized = {"op": "trigger", "run": "bullet"}.get(side, side)
+        if normalized not in {"trigger", "bullet"}:
+            raise ControlError("invalid_side", f"unsupported side: {side}")
+        pane = data.get("op" if normalized == "trigger" else "run") or ""
+        if not pane:
+            raise ControlError(
+                "missing_pane", f"tunnel has no {normalized} pane", status=409
+            )
+        _translate(lambda: hub.require_active(data))
+        key = "Escape" if str(kind).strip().lower() in {"esc", "escape"} else "C-c"
+        _translate(lambda: tmux_ops.send_interrupt(pane, key))
+        return ControlResult(
+            "pane.interrupt",
+            {"pane": pane, "side": normalized, "kind": key},
+            _event("pane.interrupt"),
         )
 
     def freeze(
