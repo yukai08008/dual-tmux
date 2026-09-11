@@ -225,16 +225,50 @@ def push(cfg: AppConfig | None = None) -> str:
     return f"{host}:{root}"
 
 
-def pull(cfg: AppConfig | None = None, *, progress: bool = False) -> str:
+def pull(
+    cfg: AppConfig | None = None,
+    *,
+    name: str = "",
+    run: str = "",
+    progress: bool = False,
+) -> str:
+    from .store import normalize_dt
+
     cfg = cfg or load_config()
     _require_hub(cfg)
     root = remote_root(cfg)
     tunnels_dir().mkdir(parents=True, exist_ok=True)
     entries_dir().mkdir(parents=True, exist_ok=True)
     host = SshTarget(cfg.server, cfg.ssh_port).dest
-    _rsync(f"{host}:{root}/tunnels/", f"{tunnels_dir()}/", cfg, progress=progress)
-    _rsync(f"{host}:{root}/entries/", f"{entries_dir()}/", cfg, progress=progress)
-    ev.emit("hub.pull", host=host, root=root)
+    if name:
+        normalized = normalize_dt(name)
+        if "/" in normalized or normalized in {"dt-.", "dt-.."}:
+            raise SystemExit(f"[err] invalid tunnel name: {name}")
+        target_tunnel = tunnels_dir() / f"{normalized}.json"
+        _rsync(
+            f"{host}:{root}/tunnels/{normalized}.json",
+            str(target_tunnel),
+            cfg,
+            progress=progress,
+        )
+        if not run and target_tunnel.is_file():
+            try:
+                t_data = json.loads(target_tunnel.read_text(encoding="utf-8"))
+                run = str(t_data.get("run") or "")
+            except Exception:
+                pass
+        if run and "/" not in run and not run.startswith("."):
+            _rsync(
+                f"{host}:{root}/entries/{run}.cmd",
+                f"{entries_dir()}/{run}.cmd",
+                cfg,
+                progress=progress,
+            )
+        ev.emit("hub.pull", host=host, root=root, name=normalized)
+    else:
+        _rsync(f"{host}:{root}/tunnels/", f"{tunnels_dir()}/", cfg, progress=progress)
+        _rsync(f"{host}:{root}/entries/", f"{entries_dir()}/", cfg, progress=progress)
+        ev.emit("hub.pull", host=host, root=root)
     return f"{host}:{root}"
 
 
