@@ -1,8 +1,16 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-11 00:20 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-11 01:10 +08:00 | 更新者: Codex PM
 
 ## 状态树
+
+### v0.4.61 (PENDING) — 剥离 Lease 残留与 Model 契约门禁
+
+- Resume FSM 彻底剥离 lease 字段，OccupancyToken 去除 lease_revision。
+- 回滚凭证从 (panes_parked, lease_released) 统一收敛为 occupancy_kept；失败后保留占用，不清退操作者 tmux。
+- cli._apply_model_legacy 移除 freeze 前的早熟 save，当 freeze 失败时 fail-closed 退出，不落盘未经验证的模型。
+- ControlService.model 更新后严格通过 from_legacy_tunnel 校验 TunnelNode 投影契约。
+- 补全 resume FSM、rollback guard、fail-closed model freeze 及 TunnelNode schema 校验单元测试。
 
 ### v0.4.60 (RELEASED) — ResumeAttempt 权威门禁
 

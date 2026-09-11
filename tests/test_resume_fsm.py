@@ -35,7 +35,6 @@ def token(**changes):
         "holder_client_id": "tm-home",
         "holder_instance_id": "mac:one",
         "generation": 8,
-        "lease_revision": "lease:8",
         "newly_acquired": True,
     }
     values.update(changes)
@@ -141,16 +140,15 @@ def test_new_lease_rollback_requires_park_and_release_evidence():
     with pytest.raises(TransitionError, match="guard rejected"):
         machine.send(
             ResumeEvent.ROLLBACK_COMPLETED,
-            {"evidence": ["park:1"], "panes_parked": True, "lease_released": False},
+            {"evidence": ["aborted"], "occupancy_kept": False},
         )
     assert machine.state is ResumeState.ROLLING_BACK
 
     machine.send(
         ResumeEvent.ROLLBACK_COMPLETED,
         {
-            "evidence": ["park:1", "release:8"],
-            "panes_parked": True,
-            "lease_released": True,
+            "evidence": ["occupancy_kept"],
+            "occupancy_kept": True,
         },
     )
     assert machine.state is ResumeState.FAILED

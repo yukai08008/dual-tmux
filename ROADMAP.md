@@ -1,6 +1,6 @@
 # dual-tmux ROADMAP
 
-> v0.4.60：S9。ControlService.resume 受 ResumeAttempt 门禁：preflight_passed 之后才占用，ownership_acquired 之后才 restore。验证改为 occupancy，不再要求每侧一个 writer。
+> v0.4.61：S9 完善与契约收口。Resume FSM 彻底剥离 lease 遗留字段，回滚凭证统一收敛为 occupancy_kept；\`dt model\` 受 freeze 结果严格门禁（失败不落盘未验证 model）并校验 TunnelNode 投影契约。
 > CLI 表面能力不阉割：`new / enter / work / freeze / resume / drop / ls / pull / push` 仍可用。
 > 本路线图的权威设计见 [docs/core-architecture.md](docs/core-architecture.md)。
 

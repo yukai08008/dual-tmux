@@ -80,8 +80,8 @@ def test_attempt_tracks_verified_failure_and_keeps_occupancy(tmp_path, monkeypat
     attempt.verification_failed(SystemExit("duplicate writer"))
     attempt.keep_occupancy_after_failure()
 
-    assert attempt.machine.state is ResumeState.ATTENTION
-    assert attempt.machine.node.error.code == "rollback_uncertain"
+    assert attempt.machine.state is ResumeState.FAILED
+    assert attempt.machine.node.error.code == "verification_failed"
 
 
 def test_atomic_resume_store_round_trip(tmp_path):
