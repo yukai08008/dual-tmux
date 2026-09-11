@@ -49,7 +49,6 @@
   gap: 12px;
   flex: 1;
   min-height: 420px;
-  transition: all 0.2s ease;
 }
 
 /* Layout modes */
@@ -159,9 +158,9 @@
 .dt-pane-viewport {
   position: relative;
   flex: 1;
-  height: 520px;
-  min-height: 380px;
-  max-height: 65vh;
+  height: 580px;
+  min-height: 420px;
+  max-height: 75vh;
   display: flex;
 }
 
@@ -174,10 +173,14 @@
   font-family: var(--dt-font-mono);
   font-size: 12.5px;
   line-height: 1.5;
-  overflow-y: auto;
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
   overflow-x: hidden;
   white-space: pre-wrap;
   word-break: break-all;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* Floating Resume Auto-Scroll Capsule */
@@ -190,7 +193,7 @@
   backdrop-filter: blur(8px);
   border: 1px solid var(--dt-border-strong);
   color: #93c5fd;
-  padding: 6px 12px;
+  padding: 6px 14px;
   border-radius: var(--dt-radius-full);
   font-size: 11.5px;
   cursor: pointer;
@@ -198,16 +201,10 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  transition: all 0.2s ease;
-  animation: dt-fade-in 0.2s ease;
+  user-select: none;
 }
 .dt-scroll-lock-banner:hover {
   background: var(--dt-primary);
   color: #ffffff;
   border-color: var(--dt-primary);
-}
-
-@keyframes dt-fade-in {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
 }

@@ -110,6 +110,7 @@ def ensure_session(name: str, cwd: str = "") -> None:
         if cwd:
             cmd.extend(["-c", cwd])
         subprocess.run(cmd, check=True)
+        subprocess.run([bin(), "set-option", "-t", name, "history-limit", "10000"], check=False)
 
 
 def ensure_session_cwd(name: str, cwd: str) -> bool:
