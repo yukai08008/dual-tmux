@@ -340,7 +340,7 @@ def _capture(name: str) -> str:
         return "(no pane)"
     if not tmux_ops.has_session(name):
         return f"(tmux {name} not running)"
-    return tmux_ops.capture_pane(name, -500) or "(empty pane)"
+    return tmux_ops.capture_pane(name, -3000) or "(empty pane)"
 
 
 from .web_pages import (
