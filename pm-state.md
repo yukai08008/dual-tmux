@@ -1,10 +1,16 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-11 01:30 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-11 01:45 +08:00 | 更新者: Codex PM
 
 ## 状态树
 
-### v0.4.62 (PENDING) — FSM 生命周期钩子标准化 (fsm-agenty 基线)
+### v0.4.63 (PENDING) — DataNode 仓储层落地 (TunnelRepository)
+
+- 落地 datanode.TunnelRepository 统一管理磁盘 JSON 与不可变 TunnelNode 的序列化与加载校验。
+- ControlService 引入 repository 依赖注入，暴露 list_tunnel_nodes、get_tunnel_node、save_tunnel_node 原生类型接口。
+- 补齐 test_datanode_repository.py 单元测试，验证持久化、不变量守卫、字段保留与 ControlService 集成。
+
+### v0.4.62 (RELEASED) — FSM 生命周期钩子标准化 (fsm-agenty 基线)
 
 - 落地 datanode/runtime_fsm/hooks.py，抽象通用 BindingHook 与声明式 TunnelProjectionHook。
 - 将“Trigger 重建 Bullet 刷新隧道参数与写 run entry”的逻辑由过程式胶水代码重构为强类型 Hook。
