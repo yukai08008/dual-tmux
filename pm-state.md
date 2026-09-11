@@ -1,10 +1,17 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-11 01:10 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-11 01:30 +08:00 | 更新者: Codex PM
 
 ## 状态树
 
-### v0.4.61 (PENDING) — 剥离 Lease 残留与 Model 契约门禁
+### v0.4.62 (PENDING) — FSM 生命周期钩子标准化 (fsm-agenty 基线)
+
+- 落地 datanode/runtime_fsm/hooks.py，抽象通用 BindingHook 与声明式 TunnelProjectionHook。
+- 将“Trigger 重建 Bullet 刷新隧道参数与写 run entry”的逻辑由过程式胶水代码重构为强类型 Hook。
+- BindingMachine 增加 register_commit_hook 与 commit_proven 协调器，由状态机统一调度 PROVING -> Hook -> BOUND / FAILED。
+- 补齐 test_binding_hooks.py 单元测试，涵盖 Hook 成功投影、失败 fail-closed 保护。
+
+### v0.4.61 (RELEASED) — 剥离 Lease 残留与 Model 契约门禁
 
 - Resume FSM 彻底剥离 lease 字段，OccupancyToken 去除 lease_revision。
 - 回滚凭证从 (panes_parked, lease_released) 统一收敛为 occupancy_kept；失败后保留占用，不清退操作者 tmux。

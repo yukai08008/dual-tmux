@@ -1,6 +1,6 @@
 # dual-tmux ROADMAP
 
-> v0.4.61：S9 完善与契约收口。Resume FSM 彻底剥离 lease 遗留字段，回滚凭证统一收敛为 occupancy_kept；\`dt model\` 受 freeze 结果严格门禁（失败不落盘未验证 model）并校验 TunnelNode 投影契约。
+> v0.4.62：FSM 生命周期钩子标准化（fsm-agenty 基线）。在 datanode/runtime_fsm/hooks.py 落地声明式 Hook 管线与 TunnelProjectionHook；BindingMachine 支持注册 commit hook 并通过 commit_proven 协调 PROVING -> hook 执行 -> COMMIT_SUCCEEDED / COMMIT_FAILED，消除过程式胶水代码。
 > CLI 表面能力不阉割：`new / enter / work / freeze / resume / drop / ls / pull / push` 仍可用。
 > 本路线图的权威设计见 [docs/core-architecture.md](docs/core-architecture.md)。
 
