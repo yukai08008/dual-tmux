@@ -1266,6 +1266,29 @@ def cmd_resume(args: argparse.Namespace) -> None:
         if not result.get("safe"):
             raise SystemExit(2)
         return
+
+    if args.name:
+        try:
+            local_target = _resolve(args.name)
+            if not oc_ops.is_dst(local_target):
+                has_remote_dst = False
+                try:
+                    cfg = require_config()
+                    if cfg.hub_enabled:
+                        remote_data = hub.read_tunnel_binding(local_target["name"], cfg)
+                        if oc_ops.is_dst(remote_data):
+                            has_remote_dst = True
+                except (OSError, SystemExit, KeyError, ValueError):
+                    has_remote_dst = False
+                if not has_remote_dst:
+                    ui.err(
+                        f"{local_target['name']} 尚未固化为 DST 会话对（缺少 trigger 或 bullet 的 freeze 会话）。\n"
+                        f"新隧道请先运行 dt enter / dt work 进行工作，随后运行 dt freeze 固化。"
+                    )
+                    raise SystemExit(1)
+        except (KeyError, ValueError):
+            pass
+
     data = apply_resume(args.name, force=bool(getattr(args, "force", False)))
     ui.ok(f"resumed DST {data['name']}")
     trigger = data.get("trigger") or {}
