@@ -174,7 +174,6 @@ class ResumeAttempt:
                     "holder_client_id": self.claimant_client_id,
                     "holder_instance_id": self.claimant_instance_id,
                     "generation": generation,
-                    "lease_revision": f"generation:{generation}",
                     "newly_acquired": bool(token.get("newly_acquired")),
                 }
             },
@@ -227,20 +226,13 @@ class ResumeAttempt:
             {"error": self._error("verification_failed", exc, "verification")},
         )
 
-    def rollback_completed(self, *, parked: bool, lease_released: bool) -> None:
-        evidence = []
-        if parked:
-            evidence.append("attempt_resources_parked")
-        if lease_released:
-            evidence.append("new_lease_released")
-        if not evidence:
-            evidence.append("occupancy_kept")
+    def rollback_completed(self, *, occupancy_kept: bool = True) -> None:
+        evidence = ("occupancy_kept",) if occupancy_kept else ("aborted",)
         self._send(
             ResumeEvent.ROLLBACK_COMPLETED,
             {
-                "evidence": tuple(evidence),
-                "panes_parked": parked,
-                "lease_released": lease_released,
+                "evidence": evidence,
+                "occupancy_kept": occupancy_kept,
             },
         )
 
@@ -252,7 +244,7 @@ class ResumeAttempt:
 
     def keep_occupancy_after_failure(self) -> None:
         """Failed resume after claim: do not park local tmux or release occupancy."""
-        self.rollback_uncertain("occupancy_kept")
+        self.rollback_completed(occupancy_kept=True)
 
     def _send(self, event: ResumeEvent, payload: dict):
         try:

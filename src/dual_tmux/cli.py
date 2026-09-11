@@ -891,9 +891,13 @@ def _apply_model_legacy(name: str, model: str, sides: list[str]) -> dict:
         cwd = str(opsdir.prepare(data)) if side == "trigger" else ""
         tmux_ops.ensure_agent(tmux_name, cmd, cwd=cwd)
         ui.ok(f"{side} {cmd} -> {tmux_name}")
-    save(path, data)
     ui.info("waiting for opencode")
-    freeze_sides(data, sides, "opencode", wait=True)
+    results = freeze_sides(data, sides, "opencode", wait=True)
+    failed_sides = [side for side, ok in results.items() if not ok]
+    if failed_sides:
+        raise SystemExit(
+            f"[err] freeze failed for {', '.join(failed_sides)}; unproven model not saved"
+        )
     wp.stamp(data, "freeze_at")
     save(path, data)
     hub.push_best_effort(wait=True)

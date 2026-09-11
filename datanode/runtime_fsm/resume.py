@@ -67,7 +67,6 @@ class OccupancyToken(StrictModel):
     generation: int = Field(ge=0)
     newly_acquired: bool = False
     holder_instance_id: str = ""
-    lease_revision: str = ""
 
 
 OwnershipToken = OccupancyToken
@@ -196,8 +195,7 @@ class VerificationFailed(StrictModel):
 class RollbackCompleted(StrictModel):
     event: Literal[ResumeEvent.ROLLBACK_COMPLETED] = ResumeEvent.ROLLBACK_COMPLETED
     evidence: tuple[str, ...] = Field(min_length=1)
-    panes_parked: bool
-    lease_released: bool
+    occupancy_kept: bool
 
 
 class RollbackUncertain(StrictModel):
@@ -263,12 +261,7 @@ def _verification_matches_occupancy(context: dict) -> bool:
 
 def _rollback_proved(context: dict) -> bool:
     payload = _payload(context)
-    node: ResumeAttemptNode = context["node"]
-    if not isinstance(payload, RollbackCompleted) or not payload.panes_parked:
-        return False
-    if node.ownership_token and node.ownership_token.newly_acquired:
-        return payload.lease_released
-    return True
+    return isinstance(payload, RollbackCompleted) and payload.occupancy_kept
 
 
 def _enter(target: ResumeState):
