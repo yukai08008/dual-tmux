@@ -114,3 +114,54 @@ def test_control_service_exposes_tunnel_nodes(tmp_path: Path, monkeypatch):
     node = service.get_tunnel_node("dt-service-demo")
     assert node.name == "dt-service-demo"
     assert node.bullet.session.session_id == "ses_bull_repo"
+
+
+def test_repository_save_raw_and_get_or_none(tmp_path: Path):
+    repo = TunnelRepository(root=tmp_path)
+    assert repo.get_or_none("dt-nonexistent") is None
+
+    raw_data = {
+        "name": "dt-raw-demo",
+        "op": "op_raw_demo",
+        "run": "run_raw_demo",
+        "auto_recover": True,
+    }
+    node = repo.save_raw(raw_data)
+    assert node.name == "dt-raw-demo"
+    assert node.auto_recover is True
+
+    loaded = repo.get_or_none("dt-raw-demo")
+    assert loaded is not None
+    assert loaded.name == "dt-raw-demo"
+    assert loaded.auto_recover is True
+
+
+def test_store_save_validates_tunnel_invariants(tmp_path: Path, monkeypatch):
+    import pytest
+    from pydantic import ValidationError
+
+    from dual_tmux.store import save
+
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path))
+    tunnels_dir = tmp_path / "tunnels"
+    tunnels_dir.mkdir(parents=True, exist_ok=True)
+
+    # Illegal tunnel: trigger and bullet cannot bind the same session
+    bad_data = {
+        "name": "dt-bad",
+        "op": "op_bad",
+        "run": "run_bad",
+        "trigger": {"session_id": "ses_conflict"},
+        "bullet": {"session_id": "ses_conflict"},
+    }
+    with pytest.raises(ValueError, match="trigger and bullet cannot bind the same session"):
+        save(tunnels_dir / "dt-bad.json", bad_data)
+
+    # Illegal tunnel name pattern
+    bad_name_data = {
+        "name": "illegal_name_without_dt_prefix",
+        "op": "op_illegal",
+        "run": "run_illegal",
+    }
+    with pytest.raises(ValidationError):
+        save(tunnels_dir / "dt-illegal.json", bad_name_data)
