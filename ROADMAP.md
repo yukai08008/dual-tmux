@@ -1,5 +1,9 @@
 # dual-tmux ROADMAP
 
+> v0.4.73：Web 指令发送器（CommandSender）与打断控制落地。引入后端 send_interrupt 原语（C-c / Escape），接入 ControlService 与独热 require_active 活跃态校验；前端集成 CommandSenderComponent，新增打断按钮与状态机解锁；修复 DualTerminal 滚动条同步与 macOS 隐藏问题，增加页面底部 72px 呼吸留白。
+> v0.4.72：双端终端视窗深度扩容与抖动平滑。捕获深度提升至 3000 行，tmux history-limit 提升至 10000 行，增加滚动防抖守卫与滚动条占位。
+> v0.4.71：隧道选择与 Tabs 活跃焦点强化。增加高对比度高亮与活跃会话焦点卡片（Focus Card）。
+> v0.4.70：双端终端视窗组件（DualTerminalComponent）生产环境上线，支持并排双屏与单端专注模式。
 > v0.4.66：Web 控制台现代化与模块化演进（架构组织与全景体验）。将 web.py 单文件混杂代码解耦，抽离独立视图模板模块 web_pages.py；增强双窗格（Dual-Pane）协同监控，支持并排双屏（Split View）与单端专注模式快速切换；增加指令投递双目标选择器（可直接向 Bullet 工作点注入 send-keys）；对齐 DataNode 领域事实，在列表与详情页直观渲染 [DST] / [草稿] 徽章与未冻结操作友好引导横幅。
 > v0.4.65：未冻结隧道 resume 提前熔断与友好拦截（Fail-Fast）。未 freeze 的新隧道在 dt resume 阶段直接在本地检测并短路拦截，不再盲目执行全量 Hub 拉取与跨端同步；将 not_a_frozen_dst 内部错误码全面映射为明确的操作指引（dt enter / dt work -> dt freeze）。
 > v0.4.64：DataNode 全链路收敛与全层级接入（100% 闭环）。models 补齐 auto_recover；repository 新增 save_raw / get_or_none；store.save 全量接入 TunnelNode 不变量校验守卫，防止写出坏文件；web.py 彻底拔除 iter_dt_files / load 磁盘裸读，全面经由 ControlService.list_tunnel_nodes 与 TunnelRepository 获取领域事实。
@@ -28,6 +32,7 @@ flowchart LR
   S6 --> S7["S7 DataNode 支点"]
   S7 --> S8["S8 Binding FSM"]
   S8 --> S9["S9 ControlService 发事件"]
+  S9 --> S10["S10 Web 控制台闭环"]
 ```
 
 ## S1 占用文件独热（已落地）
@@ -109,6 +114,23 @@ flowchart LR
 功能：现有 CLI 动词不减少。失败 resume 不 park 本机 tmux、不释放 occupancy（FSM 进入 `attention`）。验证看 occupancy holder/generation，不把 writer 探针当完成条件。
 
 体验：换机 `dt upgrade && dt pull && dt resume` 仍是日常路径。
+
+## S10 Web 控制台现代化与组件化闭环（已落地 v0.4.73）
+
+结构：
+- 解耦与现代化组件库：抽离 DualTerminal、CommandSender、TunnelPicker、OccupancyCard、TurnThread 等原子组件，依托 `/components` 沙盒独立研发与验证，逐一替换生产页面。
+- 输入流与打断闭环：`tmux.send_interrupt` + `ControlService.interrupt` + `POST /api/interrupt`，统一打通普通 Prompt 注入与 `Ctrl+C` / `Escape` 打断控制流，并由 `hub.require_active` 严密守卫。
+- 深度视窗与视效重构：3000 行深度会话追溯，高对比度深色常驻 WebKit 滚动条，智能吸底防抖，底部 72px 呼吸留白消除贴底不确定感。
+
+功能：
+- 随时向选定端点（Trigger op_* 或 Bullet run_*）发送 Prompt；卡死或 Agent 长思考时随时点击 `🛑 打断 (Ctrl+C)` 或 `⏸️ 中断 (Esc)` 强行或优雅终止。
+- 打断成功即刻解锁前端轮询阻塞（`waiting=false, pending=null`）。
+- 切换会话即刻重置并吸底新会话文本，杜绝多会话交叉残留。
+
+体验：
+- 兼顾终端原生效率与现代 Web GUI 的多端漫游监视，无需频繁附着/脱离 tmux 即可全景协同。
+
+权威规范见 [docs/web-components-and-control.md](docs/web-components-and-control.md)。
 
 ## 不变量（全程）
 
