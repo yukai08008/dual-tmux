@@ -444,37 +444,74 @@ def active_remote(ssh_argv: list[str], container: str = "") -> OcSession | None:
     """Return only the session proven to belong to a live remote OpenCode."""
     code = """import glob,os,sqlite3
 me={os.getpid(),os.getppid()}; found=[]
-for raw in glob.glob('/proc/[0-9]*/cmdline'):
- try:
-  pid=int(raw.split('/')[2])
-  if pid in me: continue
-  args=[x.decode('utf-8','replace') for x in open(raw,'rb').read().split(b'\\0') if x]
-  if not any(os.path.basename(x)=='opencode' or x.endswith('/opencode') for x in args): continue
-  sid=''
-  for i,x in enumerate(args):
-   if x in ('-s','--session') and i+1<len(args): sid=args[i+1]
-   elif x.startswith('--session='): sid=x.split('=',1)[1]
-  cwd=os.path.realpath('/proc/%s/cwd'%pid)
-  # Linux PIDs wrap and may be reused; field 22 is the process start time in
-  # clock ticks and is the only reliable ordering key here.
-  stat=open('/proc/%s/stat'%pid).read()
-  started=int(stat[stat.rfind(')')+2:].split()[19])
-  env={}
-  for item in open('/proc/%s/environ'%pid,'rb').read().split(b'\\0'):
-   key,sep,value=item.partition(b'=')
-   if sep: env[key.decode('utf-8','replace')]=value.decode('utf-8','replace')
-  db=env.get('OPENCODE_DB') or os.path.join(env.get('HOME','/root'),'.local/share/opencode/opencode.db')
-  if os.path.isabs(db): db='/proc/%s/root'%pid+db
-  container_id=''
+if os.path.isdir('/proc'):
+ for raw in glob.glob('/proc/[0-9]*/cmdline'):
   try:
-   cgroup=open('/proc/%s/cgroup'%pid).read()
-   import re
-   match=re.search(r'(?:docker[-/]|docker/)([0-9a-f]{12,64})(?:\\.scope)?',cgroup)
-   if not match: match=re.search(r'/([0-9a-f]{64})(?:\\.scope)?(?:\\n|$)',cgroup)
-   if match: container_id=match.group(1)
-  except OSError: pass
-  found.append((sid,cwd,pid,started,db,container_id))
- except (OSError,ValueError): pass
+   pid=int(raw.split('/')[2])
+   if pid in me: continue
+   args=[x.decode('utf-8','replace') for x in open(raw,'rb').read().split(b'\\0') if x]
+   if not any(os.path.basename(x)=='opencode' or x.endswith('/opencode') for x in args): continue
+   sid=''
+   for i,x in enumerate(args):
+    if x in ('-s','--session') and i+1<len(args): sid=args[i+1]
+    elif x.startswith('--session='): sid=x.split('=',1)[1]
+   cwd=os.path.realpath('/proc/%s/cwd'%pid)
+   # Linux PIDs wrap and may be reused; field 22 is the process start time in
+   # clock ticks and is the only reliable ordering key here.
+   stat=open('/proc/%s/stat'%pid).read()
+   started=int(stat[stat.rfind(')')+2:].split()[19])
+   env={}
+   for item in open('/proc/%s/environ'%pid,'rb').read().split(b'\\0'):
+    key,sep,value=item.partition(b'=')
+    if sep: env[key.decode('utf-8','replace')]=value.decode('utf-8','replace')
+   db=env.get('OPENCODE_DB') or os.path.join(env.get('HOME','/root'),'.local/share/opencode/opencode.db')
+   if os.path.isabs(db): db='/proc/%s/root'%pid+db
+   container_id=''
+   try:
+    cgroup=open('/proc/%s/cgroup'%pid).read()
+    import re
+    match=re.search(r'(?:docker[-/]|docker/)([0-9a-f]{12,64})(?:\\.scope)?',cgroup)
+    if not match: match=re.search(r'/([0-9a-f]{64})(?:\\.scope)?(?:\\n|$)',cgroup)
+    if match: container_id=match.group(1)
+   except OSError: pass
+   found.append((sid,cwd,pid,started,db,container_id))
+  except (OSError,ValueError): pass
+else:
+ import subprocess
+ try:
+  ps_res=subprocess.run(['ps','-eo','pid,etime,command'],capture_output=True,text=True)
+  for line in (ps_res.stdout or '').splitlines():
+   parts=line.strip().split(None,2)
+   if len(parts)<3: continue
+   try: pid=int(parts[0])
+   except ValueError: continue
+   if pid in me: continue
+   etime_str,cmdline=parts[1],parts[2]
+   tokens=cmdline.split()
+   if not any(os.path.basename(t)=='opencode' or t.endswith('/opencode') for t in tokens): continue
+   sid=''
+   for i,t in enumerate(tokens):
+    if t in ('-s','--session') and i+1<len(tokens): sid=tokens[i+1]
+    elif t.startswith('--session='): sid=t.split('=',1)[1]
+   cwd=''
+   for lsof_cmd in ('lsof','/usr/sbin/lsof'):
+    try:
+     l_out=subprocess.run([lsof_cmd,'-a','-p',str(pid),'-d','cwd','-Fn'],capture_output=True,text=True).stdout or ''
+     for l in l_out.splitlines():
+      if l.startswith('n'): cwd=os.path.realpath(l[1:]); break
+     if cwd: break
+    except Exception: pass
+   days=0; raw_etime=etime_str
+   if '-' in raw_etime: d,raw_etime=raw_etime.split('-',1); days=int(d)
+   p=[int(x) for x in raw_etime.split(':') if x.isdigit()]
+   if len(p)==3: sec=days*86400+p[0]*3600+p[1]*60+p[2]
+   elif len(p)==2: sec=days*86400+p[0]*60+p[1]
+   elif len(p)==1: sec=days*86400+p[0]
+   else: sec=0
+   started=-sec
+   db=os.environ.get('OPENCODE_DB') or os.path.expanduser('~/.local/share/opencode/opencode.db')
+   found.append((sid,cwd,pid,started,db,''))
+ except Exception: pass
 for sid,cwd,pid,started,db,container_id in sorted(found,key=lambda x:x[3],reverse=True):
  try:
   if not os.path.isfile(db): continue

@@ -665,3 +665,19 @@ def test_web_send_endpoint_supports_bullet_side(monkeypatch):
         thread.join(timeout=3)
     assert payload["ok"] is True
     assert calls == [("dt-test", "echo hello", "run")]
+
+
+def test_web_components_sandbox_route():
+    server = WebHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with urlopen(f"http://127.0.0.1:{server.server_port}/components?c=terminal", timeout=3) as resp:
+            assert resp.status == 200
+            body = resp.read().decode("utf-8")
+            assert "组件沙箱画廊" in body
+            assert "DualTerminal" in body
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)

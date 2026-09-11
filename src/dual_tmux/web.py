@@ -568,6 +568,12 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path in {"/tunnels", "/t"}:
             self._send(200, tunnels_page((qs.get("t") or [""])[0]))
             return
+        if parsed.path in {"/components", "/sandbox"}:
+            from .web_ui.preview import render_component_preview
+
+            comp = (qs.get("c") or ["terminal"])[0]
+            self._send(200, render_component_preview(comp))
+            return
         if parsed.path == "/feishu":
             self._send(200, feishu_page())
             return
