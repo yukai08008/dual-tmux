@@ -45,18 +45,35 @@ def test_refresh_resume_inputs_pulls_user_and_trigger_persist(monkeypatch):
         "dual_tmux.config.load_config",
         lambda: AppConfig(client="tm_here", server="hub", user="andy"),
     )
+    monkeypatch.setattr(
+        "dual_tmux.oc.persist_tenant",
+        lambda default="": default,
+    )
     monkeypatch.setattr("dual_tmux.hub.pull", lambda **_k: calls.append(("pull", _k.get("progress"))) or "hub")
     monkeypatch.setattr(
-        "dual_tmux.hotfix.sync_persist",
-        lambda kind, cfg, **_k: calls.append((kind, cfg.client, _k.get("progress"))),
+        "dual_tmux.hotfix.sync_ticks",
+        lambda kind, cfg, **_k: calls.append(("sync_ticks", kind, _k.get("op", ""))),
+    )
+    monkeypatch.setattr(
+        "dual_tmux.hotfix.sync_remote_winner",
+        lambda kind, cfg, winner, **_k: calls.append(("sync_remote_winner", winner)),
     )
     monkeypatch.setattr(cli, "load", lambda _path: {**data, "refreshed": True})
     monkeypatch.setattr(cli, "find_dt", lambda _name: "dt-a.json")
+    monkeypatch.setattr(cli, "_resume_persist_source", lambda _data: "tm_here")
     assert cli.refresh_resume_inputs(data)["refreshed"] is True
     assert calls == [
-        ("pull", True),
-        ("opencode", "tm_here", True),
-        ("native", "tm_here", True),
+        ("pull", False),
+        ("sync_ticks", "opencode", ""),
+    ]
+
+    calls.clear()
+    monkeypatch.setattr(cli, "_resume_persist_source", lambda _data: "tm_remote")
+    assert cli.refresh_resume_inputs(data)["refreshed"] is True
+    assert calls == [
+        ("pull", False),
+        ("sync_ticks", "opencode", ""),
+        ("sync_remote_winner", "tm_remote"),
     ]
 
 
@@ -85,10 +102,8 @@ def test_refresh_resume_inputs_fails_closed_when_persist_sync_fails(monkeypatch)
     )
     monkeypatch.setattr("dual_tmux.hub.pull", lambda **_k: "hub")
     monkeypatch.setattr(
-        "dual_tmux.hotfix.sync_persist",
-        lambda kind, cfg, **_k: (_ for _ in ()).throw(SystemExit("persist opencode sync failed"))
-        if kind == "opencode"
-        else None,
+        "dual_tmux.hotfix.sync_ticks",
+        lambda *_a, **_k: (_ for _ in ()).throw(SystemExit("ticks sync failed")),
     )
     monkeypatch.setattr(
         cli,
@@ -98,7 +113,7 @@ def test_refresh_resume_inputs_fails_closed_when_persist_sync_fails(monkeypatch)
     try:
         cli.refresh_resume_inputs({"name": "dt-a"})
     except SystemExit as exc:
-        assert "persist opencode sync failed" in str(exc)
+        assert "ticks sync failed" in str(exc)
     else:
         raise AssertionError("expected SystemExit")
 
@@ -113,26 +128,29 @@ def test_refresh_resume_inputs_prints_sync_stages_before_returning(monkeypatch):
         "dual_tmux.config.load_config",
         lambda: AppConfig(client="tm_here", server="hub", user="andy"),
     )
+    monkeypatch.setattr(
+        "dual_tmux.oc.persist_tenant",
+        lambda default="": default,
+    )
     monkeypatch.setattr(cli.ui, "info", lambda msg: order.append(("info", msg)))
     monkeypatch.setattr(
         "dual_tmux.hub.pull",
         lambda **_k: order.append("pull") or "hub",
     )
     monkeypatch.setattr(
-        "dual_tmux.hotfix.sync_persist",
-        lambda kind, cfg, **_k: order.append(("sync", kind)),
+        "dual_tmux.hotfix.sync_ticks",
+        lambda kind, cfg, **_k: order.append(("ticks", kind)),
     )
     monkeypatch.setattr(cli, "load", lambda _path: {"name": "dt-a", "refreshed": True})
     monkeypatch.setattr(cli, "find_dt", lambda _name: "dt-a.json")
+    monkeypatch.setattr(cli, "_resume_persist_source", lambda _data: "tm_here")
     assert cli.refresh_resume_inputs({"name": "dt-a"})["refreshed"] is True
     assert order == [
         ("info", "pulling Hub state"),
         "pull",
-        ("info", "syncing OpenCode sessions"),
-        ("sync", "opencode"),
-        ("info", "syncing native sessions"),
-        ("sync", "native"),
-        ("info", "session sync complete"),
+        ("info", "checking trigger activity across terminals"),
+        ("ticks", "opencode"),
+        ("info", "local session is authoritative (no remote sync needed)"),
     ]
 
 
