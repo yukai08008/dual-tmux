@@ -287,13 +287,16 @@ class ControlService:
         data = _translate(lambda: self._get_tunnel_readonly(name))
         return ControlResult("tunnel.get", data, _event("tunnel.get"))
 
-    @staticmethod
-    def _get_tunnel_readonly(name: str | None) -> dict:
+    def _get_tunnel_readonly(self, name: str | None) -> dict:
         """Resolve only the local binding; never pull or create directories."""
-        from .store import find_dt, latest_dt
+        if name:
+            try:
+                return self.repository.get_raw(name)
+            except KeyError as exc:
+                raise SystemExit(f"[err] unknown tunnel: {name}") from exc
+        from .store import latest_dt
 
-        path = find_dt(name) if name else latest_dt()
-        return load(path)
+        return load(latest_dt())
 
     def send(self, name: str, text: str, side: str = "bullet") -> ControlResult:
         from . import hub
@@ -573,7 +576,6 @@ class ControlService:
         import argparse
 
         from .cli import cmd_new
-        from .store import find_dt
 
         clean = (name or "").strip()
         if not clean:
@@ -602,13 +604,12 @@ class ControlService:
                 )
             )
         )
-        data = load(find_dt(clean))
+        data = self.repository.get_raw(clean)
         for side, tool in tools.items():
             data.setdefault(side, {})["tool"] = tool
         from . import hub
-        from .store import save
 
-        save(find_dt(clean), data)
+        self.repository.save_raw(data)
         hub.push_best_effort(wait=True)
         return ControlResult("tunnel.create", data, _event("tunnel.create"))
 

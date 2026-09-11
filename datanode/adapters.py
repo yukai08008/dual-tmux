@@ -121,6 +121,7 @@ def from_legacy_tunnel(record: dict[str, Any]) -> TunnelNode:
             str(record["branched_from"]) if record.get("branched_from") else None
         ),
         updated_at=_datetime(record.get("updated_at")),
+        auto_recover=bool(record.get("auto_recover")),
     )
 
 
@@ -162,17 +163,41 @@ def to_legacy_tunnel(
         directory=endpoint.directory,
         cmd=endpoint.reconnect_command,
     )
-    record.update(
-        name=node.name,
-        op=node.op,
-        run=node.run,
-        client=node.client,
-        user=node.user,
-        runtime=runtime,
-        trigger=_side(node.trigger, record.get("trigger")),
-        bullet=_side(node.bullet, record.get("bullet")),
-        updated_at=node.updated_at.isoformat() if node.updated_at else "",
-    )
+    record["name"] = node.name
+    record["op"] = node.op
+    record["run"] = node.run
+    if base is None:
+        record.update(
+            client=node.client,
+            user=node.user,
+            runtime=runtime,
+            trigger=_side(node.trigger, None),
+            bullet=_side(node.bullet, None),
+            updated_at=node.updated_at.isoformat() if node.updated_at else "",
+            auto_recover=node.auto_recover,
+        )
+    else:
+        if node.client or "client" in record:
+            record["client"] = node.client
+        if node.user or "user" in record:
+            record["user"] = node.user
+        if (
+            "runtime" in record
+            or getattr(endpoint, "server", "")
+            or getattr(endpoint, "container", "")
+            or endpoint.directory
+        ):
+            record["runtime"] = runtime
+        if node.trigger is not None or "trigger" in record:
+            record["trigger"] = _side(node.trigger, record.get("trigger"))
+        if node.bullet is not None or "bullet" in record:
+            record["bullet"] = _side(node.bullet, record.get("bullet"))
+        if node.updated_at or "updated_at" in record:
+            record["updated_at"] = (
+                node.updated_at.isoformat() if node.updated_at else ""
+            )
+        if node.auto_recover or "auto_recover" in record:
+            record["auto_recover"] = node.auto_recover
     if node.branched_from:
         record["branched_from"] = node.branched_from
     else:
