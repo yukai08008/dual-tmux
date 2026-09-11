@@ -347,12 +347,18 @@ def _agent_process(pid: str) -> tuple[str, int]:
     return "", 0
 
 
-def id_from_pid(pid: str) -> str:
+def id_from_pid(pid: str, cwd: str = "") -> str:
     if not pid:
         return ""
     text, _started_ms = _agent_process(pid)
     found = SES_RE.findall(text)
-    return found[-1] if found else ""
+    if found:
+        return found[-1]
+    if cwd:
+        session = from_pane(pid, cwd, fallback=False)
+        if session:
+            return session.session_id
+    return ""
 
 
 def from_pane(
