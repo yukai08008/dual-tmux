@@ -517,6 +517,10 @@ class ControlService:
         return self.resume(name)
 
     def model(self, name: str, model: str, sides: list[str]) -> ControlResult:
+        from pydantic import ValidationError
+
+        from datanode.adapters import from_legacy_tunnel
+
         data = self.get_tunnel(name).data
         target_sides = sides or ["bullet"]
         for side in target_sides:
@@ -525,6 +529,14 @@ class ControlService:
         from .cli import _apply_model_legacy
 
         updated = _translate(lambda: _apply_model_legacy(name, model, sides))
+        try:
+            from_legacy_tunnel(updated)
+        except (ValidationError, ValueError) as exc:
+            raise ControlError(
+                "invalid_tunnel_node",
+                f"model update committed an invalid TunnelNode: {exc}",
+                status=409,
+            ) from exc
         return ControlResult("agent.model", updated, _event("agent.model"))
 
     def create_tunnel(
