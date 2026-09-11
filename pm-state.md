@@ -1,9 +1,18 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-11 01:45 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-11 02:00 +08:00 | 更新者: Codex PM
 
 ## 状态树
 
+### v0.4.64 (PENDING) — DataNode 全链路收敛与全层级接入 (100% 闭环)
+
+- models 补齐 auto_recover 字段与适配器双向映射。
+- TunnelRepository 扩充 save_raw 与 get_or_none，支持原始字典的安全校验入库与安全查询。
+- store.save 写入 dt-*.json 时全面拦截并强制经由 TunnelNode 不变量校验投影，从源头封死坏数据落盘。
+- web.py 彻底拔除 iter_dt_files 与 load 裸读，所有隧道展示、Auto切换与健康检查全部调用 ControlService.list_tunnel_nodes 与 TunnelRepository。
+- 补齐测试，全量 455 个测试用例全部通过。
+
+### v0.4.63 (RELEASED) — DataNode 仓储层落地 (TunnelRepository)
 ### v0.4.63 (PENDING) — DataNode 仓储层落地 (TunnelRepository)
 
 - 落地 datanode.TunnelRepository 统一管理磁盘 JSON 与不可变 TunnelNode 的序列化与加载校验。

@@ -32,20 +32,35 @@ def default_names(short: str) -> tuple[str, str, str]:
     return f"dt-{short}", f"op_{safe}", f"run_{safe}"
 
 
+def get_repository() -> Any:
+    from datanode.repository import TunnelRepository
+
+    return TunnelRepository(tunnels_dir())
+
+
 def iter_dt_files() -> list[Path]:
-    root = tunnels_dir()
-    if not root.is_dir():
-        return []
-    return sorted(root.glob("dt-*.json"))
+    return get_repository().list_paths()
 
 
 def load(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text())
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def save(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+    if (
+        path.name.startswith("dt-")
+        and path.name.endswith(".json")
+        and isinstance(data, dict)
+        and data.get("name")
+    ):
+        from datanode.adapters import from_legacy_tunnel, to_legacy_tunnel
+
+        node = from_legacy_tunnel(data)
+        data = to_legacy_tunnel(node, base=data)
+    path.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
 
 
 def find_dt(name: str) -> Path:
@@ -60,7 +75,10 @@ def occupied(field: str, value: str, skip: str = "") -> str:
     for path in iter_dt_files():
         if path.stem == skip:
             continue
-        data = load(path)
+        try:
+            data = load(path)
+        except (OSError, ValueError):
+            continue
         if data.get(field) == value:
             return path.stem
     return ""
