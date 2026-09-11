@@ -1,6 +1,6 @@
 # dual-tmux ROADMAP
 
-> v0.4.62：FSM 生命周期钩子标准化（fsm-agenty 基线）。在 datanode/runtime_fsm/hooks.py 落地声明式 Hook 管线与 TunnelProjectionHook；BindingMachine 支持注册 commit hook 并通过 commit_proven 协调 PROVING -> hook 执行 -> COMMIT_SUCCEEDED / COMMIT_FAILED，消除过程式胶水代码。
+> v0.4.63：DataNode 仓储层落地（TunnelRepository）。新增 datanode.TunnelRepository，统一封装磁盘 JSON 与强类型 TunnelNode 的校验转换；ControlService 对接仓储层，提供 list_tunnel_nodes / get_tunnel_node / save_tunnel_node 强类型契约，为 Web 控制台铺平标准 API。
 > CLI 表面能力不阉割：`new / enter / work / freeze / resume / drop / ls / pull / push` 仍可用。
 > 本路线图的权威设计见 [docs/core-architecture.md](docs/core-architecture.md)。
 

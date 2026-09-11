@@ -13,7 +13,7 @@ from datanode.fsm_core import TransitionError
 
 from . import tmux as tmux_ops
 from .agents import capability_matrix, get_adapter
-from .store import iter_dt_files, load
+from .store import load
 
 
 @dataclass(frozen=True)
@@ -240,6 +240,11 @@ def _translate(call: Callable[[], Any]) -> Any:
 class ControlService:
     """Stable application boundary shared by user-facing control surfaces."""
 
+    def __init__(self, repository: Any | None = None) -> None:
+        from datanode import TunnelRepository
+
+        self.repository = repository or TunnelRepository()
+
     def capabilities(self) -> ControlResult:
         return ControlResult(
             "agent.capabilities", capability_matrix(), "control.agent.capabilities"
@@ -251,8 +256,23 @@ class ControlService:
         )
 
     def list_tunnels(self) -> ControlResult:
-        rows = [load(path) for path in iter_dt_files()]
+        rows = [load(path) for path in self.repository.list_paths()]
         return ControlResult("tunnel.list", rows, _event("tunnel.list"))
+
+    def list_tunnel_nodes(self) -> list[Any]:
+        """Return strongly-typed TunnelNode list from repository."""
+        return self.repository.list()
+
+    def get_tunnel_node(self, name: str | None) -> Any:
+        """Get strongly-typed TunnelNode by name (or latest)."""
+        from datanode import from_legacy_tunnel
+
+        data = self.get_tunnel(name).data
+        return from_legacy_tunnel(data)
+
+    def save_tunnel_node(self, node: Any) -> None:
+        """Save TunnelNode through repository."""
+        self.repository.save(node)
 
     def get_tunnel(self, name: str | None) -> ControlResult:
         # Reuse the established resolver so optional "latest" lookup and an

@@ -29,6 +29,7 @@ from .models import (
     TunnelNode,
     WriterEvidence,
 )
+from .repository import TunnelRepository
 
 __all__ = [
     "AgentClientMetadata",
@@ -49,6 +50,7 @@ __all__ = [
     "SnapshotRevisionNode",
     "SshEndpointNode",
     "TunnelNode",
+    "TunnelRepository",
     "WriterEvidence",
     "from_legacy_tunnel",
     "occupancy_from_hub",
