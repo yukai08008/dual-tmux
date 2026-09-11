@@ -115,8 +115,17 @@
   function initPickerSandbox() {
     controls.innerHTML = `
       <div class="dt-control-title">🎮 隧道选择与 Tabs 测试台</div>
-      <div style="font-size:12px; color:var(--dt-text-muted);">
-        在搜索框输入字母（如 alex, company, a 等）测试模糊匹配，点击标签切换会话，点击 + 新增。
+      <div class="dt-control-actions">
+        <button type="button" class="dt-btn dt-btn-primary dt-btn-sm" id="btn-mock-add-tab">➕ 触发“打开新会话”</button>
+        <button type="button" class="dt-btn dt-btn-ghost dt-btn-sm" id="btn-mock-switch-1">👉 切到 dt-company_intro_v2</button>
+        <button type="button" class="dt-btn dt-btn-ghost dt-btn-sm" id="btn-mock-switch-2">👉 切到 dt-alex-serp</button>
+        <button type="button" class="dt-btn dt-btn-ghost dt-btn-sm" id="btn-mock-switch-3">👉 切到 dt-new-event-v2</button>
+      </div>
+      <div style="font-size:11.5px; color:var(--dt-text-muted); margin-top:4px;">
+        💡 <b>焦点验证指引</b>：
+        1. 观察上方 Tab 激活状态（鲜艳蓝顶条 + 发光阴影 + 白色加粗字体）；
+        2. 观察 Tab 下方的 <b>📍 当前编辑与监视会话看板</b>，无论切到哪个 Tab，当前编辑对象一目了然；
+        3. 点击 “+ 新增会话” 体验新建流程（出现高亮暂态 Tab，搜索框自动清空并弹出候选池，回车或点选立即载入）。
       </div>
     `;
 
@@ -134,6 +143,19 @@
       { name: 'dt-new-event-v2', op: 'op_new_event_v2', run: 'run_new_event_v2', dst: true, op_live: true, run_live: true },
     ]);
     picker.selectTunnel('dt-company_intro_v2');
+
+    document.getElementById('btn-mock-add-tab').addEventListener('click', () => {
+      picker.openNewTabPrompt();
+    });
+    document.getElementById('btn-mock-switch-1').addEventListener('click', () => {
+      picker.selectTunnel('dt-company_intro_v2');
+    });
+    document.getElementById('btn-mock-switch-2').addEventListener('click', () => {
+      picker.selectTunnel('dt-alex-serp');
+    });
+    document.getElementById('btn-mock-switch-3').addEventListener('click', () => {
+      picker.selectTunnel('dt-new-event-v2');
+    });
   }
 
   // === 4. Occupancy Sandbox ===
@@ -269,4 +291,3 @@
     ops.setModels({ triggerModel: 'xs-cp-gate/gpt-5.6-sol', bulletModel: 'xs-cli-pro/deepseek-v4-pro' });
   }
 })();
-
