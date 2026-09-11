@@ -1,0 +1,213 @@
+/* Dual Terminal View Component */
+.dt-term-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+}
+
+.dt-term-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--dt-bg-surface);
+  border: 1px solid var(--dt-border-subtle);
+  border-radius: var(--dt-radius-md);
+  padding: 8px 14px;
+}
+
+.dt-term-layouts {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dt-term-layout-btn {
+  background: transparent;
+  border: 1px solid var(--dt-border-subtle);
+  color: var(--dt-text-secondary);
+  padding: 5px 10px;
+  font-size: 12px;
+  border-radius: var(--dt-radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.dt-term-layout-btn:hover {
+  color: var(--dt-text-primary);
+  background: var(--dt-bg-surface-raised);
+}
+.dt-term-layout-btn.active {
+  background: var(--dt-primary-subtle);
+  color: #60a5fa;
+  border-color: rgba(59, 130, 246, 0.4);
+  font-weight: 600;
+}
+
+.dt-term-panes {
+  display: grid;
+  gap: 12px;
+  flex: 1;
+  min-height: 420px;
+  transition: all 0.2s ease;
+}
+
+/* Layout modes */
+.dt-term-panes.layout-split {
+  grid-template-columns: 1fr 1fr;
+}
+.dt-term-panes.layout-op {
+  grid-template-columns: 1fr;
+}
+.dt-term-panes.layout-op .dt-pane-card.pane-run {
+  display: none;
+}
+.dt-term-panes.layout-run {
+  grid-template-columns: 1fr;
+}
+.dt-term-panes.layout-run .dt-pane-card.pane-op {
+  display: none;
+}
+
+@media (max-width: 1024px) {
+  .dt-term-panes.layout-split {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr 1fr;
+  }
+}
+
+.dt-pane-card {
+  display: flex;
+  flex-direction: column;
+  background: #0b0f19;
+  border: 1px solid var(--dt-border-subtle);
+  border-radius: var(--dt-radius-lg);
+  overflow: hidden;
+  position: relative;
+}
+
+.dt-pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: #111827;
+  border-bottom: 1px solid var(--dt-border-subtle);
+}
+
+.dt-pane-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dt-pane-role-badge {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: var(--dt-radius-sm);
+  letter-spacing: 0.05em;
+}
+.pane-op .dt-pane-role-badge {
+  background: rgba(59, 130, 246, 0.2);
+  color: #93c5fd;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+.pane-run .dt-pane-role-badge {
+  background: rgba(139, 92, 246, 0.2);
+  color: #c4b5fd;
+  border: 1px solid rgba(139, 92, 246, 0.3);
+}
+
+.dt-pane-name {
+  font-family: var(--dt-font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dt-text-primary);
+}
+
+.dt-pane-cmd {
+  font-size: 11px;
+  color: var(--dt-text-muted);
+  font-family: var(--dt-font-mono);
+}
+
+.dt-pane-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dt-pane-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--dt-text-secondary);
+  padding: 3px 8px;
+  font-size: 11px;
+  border-radius: var(--dt-radius-sm);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.dt-pane-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--dt-text-primary);
+}
+
+.dt-pane-viewport {
+  position: relative;
+  flex: 1;
+  height: 520px;
+  min-height: 380px;
+  max-height: 65vh;
+  display: flex;
+}
+
+.dt-pane-screen {
+  flex: 1;
+  margin: 0;
+  padding: 14px;
+  background: #090d16;
+  color: #e2e8f0;
+  font-family: var(--dt-font-mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  overflow-y: auto;
+  overflow-x: hidden;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* Floating Resume Auto-Scroll Capsule */
+.dt-scroll-lock-banner {
+  position: absolute;
+  bottom: 16px;
+  right: 20px;
+  z-index: 10;
+  background: rgba(30, 41, 59, 0.95);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--dt-border-strong);
+  color: #93c5fd;
+  padding: 6px 12px;
+  border-radius: var(--dt-radius-full);
+  font-size: 11.5px;
+  cursor: pointer;
+  box-shadow: var(--dt-shadow-md);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+  animation: dt-fade-in 0.2s ease;
+}
+.dt-scroll-lock-banner:hover {
+  background: var(--dt-primary);
+  color: #ffffff;
+  border-color: var(--dt-primary);
+}
+
+@keyframes dt-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}

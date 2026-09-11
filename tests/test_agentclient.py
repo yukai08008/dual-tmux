@@ -188,6 +188,29 @@ def test_active_remote_orders_by_process_start_and_ignores_child_sessions(monkey
     assert "parent_id IS NULL" in script
 
 
+def test_active_remote_supports_non_proc_darwin_fallback(monkeypatch):
+    seen = []
+
+    def run(argv, **kwargs):
+        seen.append(argv[-1])
+        return subprocess.CompletedProcess(
+            argv,
+            0,
+            "ses_darwin\tdarwin-slug\tDarwin\t/Users/mac/work\tprovider/model\tbuild\n",
+            "",
+        )
+
+    monkeypatch.setattr(oc.subprocess, "run", run)
+    session = oc.active_remote(["ssh", "mac-mini"])
+    assert session and session.session_id == "ses_darwin"
+    assert session.directory == "/Users/mac/work"
+    script = seen[0]
+    assert "isdir" in script
+    assert "/proc" in script
+    assert "ps" in script
+    assert "lsof" in script
+
+
 def test_blank_local_tui_does_not_bind_session_older_than_process(monkeypatch):
     seen = []
     monkeypatch.setattr(oc, "_agent_process", lambda _pid: ("opencode --auto", 123_000))
