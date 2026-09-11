@@ -423,8 +423,15 @@ def plan_resume(data: dict) -> dict:
 
 def acquire_for_resume(data: dict, plan: dict, *, force: bool = False) -> dict:
     if not plan.get("safe"):
+        reason = plan.get("reason") or "unsafe"
+        if reason == "not_a_frozen_dst":
+            tname = str(data.get("name") or "tunnel")
+            raise SystemExit(
+                f"[err] {tname} 尚未固化为 DST 会话对（缺少 trigger 或 bullet 的 freeze 会话）。\n"
+                f"新隧道请先运行 dt enter / dt work 进行工作，随后运行 dt freeze 固化。"
+            )
         raise SystemExit(
-            f"[err] resume preflight rejected: {plan.get('reason') or 'unsafe'}"
+            f"[err] resume preflight rejected: {reason}"
         )
     from .occupancy import claim_occupancy
 

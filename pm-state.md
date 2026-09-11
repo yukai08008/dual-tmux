@@ -1,10 +1,17 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-11 02:00 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-11 02:15 +08:00 | 更新者: Codex PM
 
 ## 状态树
 
-### v0.4.64 (PENDING) — DataNode 全链路收敛与全层级接入 (100% 闭环)
+### v0.4.65 (PENDING) — 未冻结隧道 resume 提前熔断与友好拦截 (Fail-Fast)
+
+- 修复未固化 DST 隧道执行 dt resume 时粗暴跑全量 hub.pull 与 persist sync 的冗余网络开销与误导日志。
+- 增加 fail-fast 检查：若本地与 Hub 均未形成 DST，直接阻断并提示先通过 dt enter / dt work 工作后 dt freeze。
+- 映射 not_a_frozen_dst 内部状态机码为人性化中文操作指引。
+- 补齐单元测试，验证未冻结隧道立即安全熔断且不发起远程拉取。
+
+### v0.4.64 (RELEASED) — DataNode 全链路收敛与全层级接入 (100% 闭环)
 
 - models 补齐 auto_recover 字段与适配器双向映射。
 - TunnelRepository 扩充 save_raw 与 get_or_none，支持原始字典的安全校验入库与安全查询。
@@ -13,11 +20,6 @@
 - 补齐测试，全量 455 个测试用例全部通过。
 
 ### v0.4.63 (RELEASED) — DataNode 仓储层落地 (TunnelRepository)
-### v0.4.63 (PENDING) — DataNode 仓储层落地 (TunnelRepository)
-
-- 落地 datanode.TunnelRepository 统一管理磁盘 JSON 与不可变 TunnelNode 的序列化与加载校验。
-- ControlService 引入 repository 依赖注入，暴露 list_tunnel_nodes、get_tunnel_node、save_tunnel_node 原生类型接口。
-- 补齐 test_datanode_repository.py 单元测试，验证持久化、不变量守卫、字段保留与 ControlService 集成。
 
 ### v0.4.62 (RELEASED) — FSM 生命周期钩子标准化 (fsm-agenty 基线)
 
