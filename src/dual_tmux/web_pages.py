@@ -20,6 +20,11 @@ def _capture(name: str) -> str:
 
 
 def _shell(nav: str, body: str, title: str) -> str:
+    from .web_ui import get_components_css, get_components_js, get_theme_css
+
+    theme_css = get_theme_css()
+    comp_css = get_components_css()
+    comp_js = get_components_js()
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -27,6 +32,13 @@ def _shell(nav: str, body: str, title: str) -> str:
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{html.escape(title)}</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232563eb'/%3E%3Cpath d='M15 18h34v8H36v24h-8V26H15z' fill='white'/%3E%3C/svg%3E">
+<style>
+{theme_css}
+{comp_css}
+</style>
+<script>
+{comp_js}
+</script>
 <style>
 :root {{ --bg:#f4f6f9; --side:#1f2a37; --side2:#16202c; --acc:#2563eb; --line:#e5e7eb; --text:#111827; --muted:#6b7280; --ok:#059669; --card:#fff; }}
 * {{ box-sizing:border-box; }}
@@ -765,33 +777,7 @@ def tunnels_page(selected: str = "") -> str:
         </div>
         <div class="log idle" id="log"></div>
       </div>
-      <div class="pane-toolbar">
-        <div class="pane-view-tabs">
-          <span class="toolbar-label">视窗布局：</span>
-          <button type="button" class="btn-layout active" id="view-split">并排双屏 (Split)</button>
-          <button type="button" class="btn-layout" id="view-op">仅 Trigger (op_*)</button>
-          <button type="button" class="btn-layout" id="view-run">仅 Bullet (run_*)</button>
-        </div>
-        <div class="pane-meta-hints">
-          <span class="sub" id="pane-meta-sub">同屏实时监视双端会话</span>
-        </div>
-      </div>
-      <div class="panes-container view-split" id="panes-wrap">
-        <div class="card pane-card" id="card-op">
-          <div class="h2row">
-            <h2>trigger 会话 · <span id="oplabel">{html.escape(op or "op_*")}</span></h2>
-            <span class="lamp-wrap"><i class="lamp gray" id="lamp-op-pane"></i> trigger 在线</span>
-          </div>
-          <pre class="out" id="opout">{trigger_out}</pre>
-        </div>
-        <div class="card pane-card" id="card-run">
-          <div class="h2row">
-            <h2>bullet 会话 · <span id="runlabel">{html.escape(run or "run_*")}</span></h2>
-            <span class="lamp-wrap"><i class="lamp gray" id="lamp-run-pane"></i> bullet 在线</span>
-          </div>
-          <pre class="out" id="runout">{bullet_out}</pre>
-        </div>
-      </div>
+      <div id="dual-terminal-wrap" style="margin-top:12px;"></div>
     </div>
 <script>
 let rows = {names};
@@ -806,10 +792,24 @@ const ownershipBox = document.getElementById('ownershipbox');
 const ownershipHint = document.getElementById('ownershiphint');
 const logEl = document.getElementById('log');
 const box = document.getElementById('box');
-const opout = document.getElementById('opout');
-const runout = document.getElementById('runout');
-const oplabel = document.getElementById('oplabel');
-const runlabel = document.getElementById('runlabel');
+window.terminal = new DualTerminalComponent({{
+  container: document.getElementById('dual-terminal-wrap'),
+}});
+window.terminal.render();
+window.terminal.updatePane('op', {{
+  name: {json.dumps(op or "op_*")},
+  text: {json.dumps(trigger_out if selected else "选定隧道后显示 Trigger 会话...")},
+  live: false,
+}});
+window.terminal.updatePane('run', {{
+  name: {json.dumps(run or "run_*")},
+  text: {json.dumps(bullet_out if selected else "选定隧道后显示 Bullet 会话...")},
+  live: false,
+}});
+const opout = document.getElementById('dt-screen-op');
+const runout = document.getElementById('dt-screen-run');
+const oplabel = document.getElementById('dt-title-op');
+const runlabel = document.getElementById('dt-title-run');
 const sendf = document.getElementById('sendf');
 const lampOp = document.getElementById('lamp-op');
 const lampRun = document.getElementById('lamp-run');
@@ -979,6 +979,10 @@ function applyState(st) {{
   if (row) {{
     oplabel.textContent = row.op;
     runlabel.textContent = row.run;
+    if (window.terminal) {{
+      window.terminal.updatePane('op', {{ name: row.op, live: !!row.op_live }});
+      window.terminal.updatePane('run', {{ name: row.run, live: !!row.run_live }});
+    }}
     mop.value = row.trigger_model || '';
     mrun.value = row.bullet_model || '';
     meta.innerHTML = st.name+' · op=<code>'+row.op+'</code> · run=<code>'+row.run+'</code> · DST='+(row.dst?'yes':'no');
@@ -1007,6 +1011,10 @@ function applyState(st) {{
     if (dstBanner) dstBanner.style.display = 'none';
     oplabel.textContent = 'op_*';
     runlabel.textContent = 'run_*';
+    if (window.terminal) {{
+      window.terminal.updatePane('op', {{ name: 'op_*', live: false, text: '选定隧道后显示 Trigger 会话...' }});
+      window.terminal.updatePane('run', {{ name: 'run_*', live: false, text: '选定隧道后显示 Bullet 会话...' }});
+    }}
     meta.textContent = st.name ? st.name : '未选隧道';
     clientOp.textContent='trigger client —';
     clientRun.textContent='bullet client —';
@@ -1321,8 +1329,23 @@ async function tick() {{
   if (liveRow) {{
     liveRow.op_live=!!j.op_live; liveRow.run_live=!!j.run_live;
   }}
-  snap(opout, j.op_text || '');
-  snap(runout, j.run_text || '');
+  if (window.terminal) {{
+    window.terminal.updatePane('op', {{
+      name: oplabel ? oplabel.textContent : (st.op || 'op_*'),
+      cmd: j.op_cmd || '',
+      live: !!j.op_live,
+      text: j.op_text || '',
+    }});
+    window.terminal.updatePane('run', {{
+      name: runlabel ? runlabel.textContent : (st.run || 'run_*'),
+      cmd: j.run_cmd || '',
+      live: !!j.run_live,
+      text: j.run_text || '',
+    }});
+  }} else {{
+    snap(opout, j.op_text || '');
+    snap(runout, j.run_text || '');
+  }}
   const lampOpPane = document.getElementById('lamp-op-pane');
   const lampRunPane = document.getElementById('lamp-run-pane');
   if (lampOpPane) setLamp(lampOpPane, j.op_live ? 'green' : 'gray');
@@ -1725,28 +1748,6 @@ document.getElementById('modef').addEventListener('submit', async e => {{
     await loadConfig(); await refreshRows();
   }} catch(err) {{ alert(String(err.message||err)); }}
 }});
-const panesWrap = document.getElementById('panes-wrap');
-const btnViewSplit = document.getElementById('view-split');
-const btnViewOp = document.getElementById('view-op');
-const btnViewRun = document.getElementById('view-run');
-function setPaneLayout(mode) {{
-  try {{ localStorage.setItem('dt-pane-view', mode); }} catch (_) {{}}
-  if (btnViewSplit && btnViewOp && btnViewRun && panesWrap) {{
-    [btnViewSplit, btnViewOp, btnViewRun].forEach(b => b.classList.remove('active'));
-    panesWrap.className = 'panes-container view-' + mode;
-    if (mode === 'split') btnViewSplit.classList.add('active');
-    else if (mode === 'op') btnViewOp.classList.add('active');
-    else if (mode === 'run') btnViewRun.classList.add('active');
-  }}
-}}
-if (btnViewSplit && btnViewOp && btnViewRun) {{
-  btnViewSplit.addEventListener('click', () => setPaneLayout('split'));
-  btnViewOp.addEventListener('click', () => setPaneLayout('op'));
-  btnViewRun.addEventListener('click', () => setPaneLayout('run'));
-  let savedLayout = 'split';
-  try {{ savedLayout = localStorage.getItem('dt-pane-view') || 'split'; }} catch (_) {{}}
-  setPaneLayout(savedLayout);
-}}
 document.querySelectorAll('input[name="send-target"]').forEach(radio => {{
   radio.addEventListener('change', e => {{
     const isBullet = e.target.value === 'run';

@@ -608,13 +608,10 @@ def test_web_force_resume_requires_exact_name(monkeypatch):
 
 def test_tunnels_page_dual_pane_and_target_selector():
     page = tunnels_page()
-    # Dual-pane view layout controls
-    assert "view-split" in page
-    assert "view-op" in page
-    assert "view-run" in page
-    assert "panes-wrap" in page
-    assert "lamp-op-pane" in page
-    assert "lamp-run-pane" in page
+    # Dual-pane view layout controls (powered by DualTerminalComponent)
+    assert "dual-terminal-wrap" in page
+    assert "DualTerminalComponent" in page
+    assert "dt-term-panes" in page
     assert "并排双屏" in page
 
     # Dual-target selector
