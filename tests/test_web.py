@@ -319,10 +319,10 @@ def test_admin_tabs_and_search(tmp_path, monkeypatch):
     assert "dt-msg" in dash
     page = tunnels_page("")
     assert "选择隧道" in page
-    assert "发给 trigger" in page
+    assert "command-sender-wrap" in page
     assert "轮询状态" in page
-    assert page.index("trigger 问答") < page.index("发给 trigger")
-    assert 'rows="10"' in page
+    assert page.index("trigger 问答") < page.index("command-sender-wrap")
+    assert "CommandSenderComponent" in page
     assert "bullet 会话" in page
     assert "logLine" in page
     assert "lamp-op" in page
@@ -395,7 +395,7 @@ def test_admin_tabs_and_search(tmp_path, monkeypatch):
     assert "baselineCompletion" in page
     assert "persistTabsNow" in page
     assert "pending turn 无法持久化" in page
-    submit = page[page.index("sendf.addEventListener('submit'") :]
+    submit = page[page.index("async function handleSend") :]
     assert submit.index("await persistTabsNow()") < submit.index("fetch('/send'")
     assert "j.op_auto === false" in page
     assert "btn-auto-op" in page
@@ -678,3 +678,43 @@ def test_web_components_sandbox_route():
         server.shutdown()
         server.server_close()
         thread.join(timeout=3)
+
+
+def test_api_interrupt_endpoint(monkeypatch):
+    calls = []
+
+    class DummyService:
+        def interrupt(self, name, side="op", kind="ctrl_c"):
+            calls.append((name, side, kind))
+
+            class Res:
+                def __init__(self):
+                    self.data = {"pane": "op_test", "side": side, "kind": kind}
+                def as_dict(self):
+                    return {"ok": True, "operation": "pane.interrupt", "data": self.data}
+
+            return Res()
+
+    monkeypatch.setattr("dual_tmux.web.get_control_service", lambda: DummyService())
+    server = WebHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    body = urlencode({"t": "dt-test", "side": "op", "kind": "ctrl_c"}).encode()
+    request = Request(
+        f"http://127.0.0.1:{server.server_port}/api/interrupt",
+        data=body,
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with urlopen(request, timeout=3) as resp:
+            payload = json.loads(resp.read().decode())
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+    assert payload["ok"] is True
+    assert payload["data"]["pane"] == "op_test"
+    assert calls == [("dt-test", "op", "ctrl_c")]

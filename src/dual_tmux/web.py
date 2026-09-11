@@ -837,8 +837,12 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
         raw = raw_bytes.decode("utf-8")
+        try:
+            body_json = json.loads(raw) if raw.strip().startswith("{") else {}
+        except json.JSONDecodeError:
+            body_json = {}
         form = parse_qs(raw)
-        name = (form.get("t") or [""])[0]
+        name = (form.get("t") or form.get("name") or [body_json.get("t") or body_json.get("name") or ""])[0]
         if parsed.path == "/api/resume":
             try:
                 force = (form.get("force") or ["0"])[0] == "1"
@@ -1037,6 +1041,10 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.set_auto_recover(
                     name, (form.get("enabled") or ["0"])[0] == "1"
                 )
+            elif parsed.path == "/api/interrupt":
+                side = (form.get("side") or [body_json.get("side") or "op"])[0]
+                kind = (form.get("kind") or [body_json.get("kind") or "ctrl_c"])[0]
+                result = service.interrupt(name, side=side, kind=kind)
             else:
                 result = None
         except ControlError as exc:
@@ -1052,6 +1060,29 @@ class Handler(BaseHTTPRequestHandler):
                 json.dumps(result.as_dict()),
                 "application/json; charset=utf-8",
             )
+            return
+        if parsed.path == "/interrupt":
+            side = (form.get("side") or [body_json.get("side") or "op"])[0]
+            kind = (form.get("kind") or [body_json.get("kind") or "ctrl_c"])[0]
+            try:
+                result = get_control_service().interrupt(name, side=side, kind=kind)
+                pane = result.data["pane"]
+            except ControlError as exc:
+                self._send(
+                    exc.status, json.dumps(exc.as_dict()), "application/json; charset=utf-8"
+                )
+                return
+            accept = self.headers.get("Accept") or ""
+            if "application/json" in accept or self.headers.get("X-Requested-With"):
+                self._send(
+                    200,
+                    json.dumps({"ok": True, "pane": pane, "kind": kind}),
+                    "application/json; charset=utf-8",
+                )
+                return
+            self.send_response(303)
+            self.send_header("Location", f"/tunnels?t={normalize_dt(name)}")
+            self.end_headers()
             return
         if parsed.path != "/send":
             self._send(404, "not found")

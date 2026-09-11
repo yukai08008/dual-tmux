@@ -28,6 +28,7 @@ def test_operation_catalog_has_control_metadata():
         "tunnel.list",
         "tunnel.get",
         "pane.send",
+        "pane.interrupt",
         "session.freeze",
         "session.resume",
         "session.resume.plan",
@@ -588,3 +589,39 @@ def test_cached_foreign_evidence_expires_independently_of_cache(tmp_path, monkey
     assert plan["safe"] is True
     assert plan["action"] == "claim"
     assert plan["reason"] == "occupancy_steal"
+
+
+def test_control_interrupt_trigger_and_bullet(monkeypatch):
+    import dual_tmux.tmux as tmux_mod
+    from dual_tmux import hub
+    sent = []
+
+    def fake_send_interrupt(pane, key="C-c"):
+        sent.append((pane, key))
+
+    monkeypatch.setattr(tmux_mod, "send_interrupt", fake_send_interrupt)
+    monkeypatch.setattr(hub, "require_active", lambda data: None)
+
+    tunnel_data = {
+        "name": "dt-test",
+        "op": "op_test",
+        "run": "run_test",
+        "trigger": {"tool": "opencode"},
+        "bullet": {"tool": "opencode"},
+    }
+    monkeypatch.setattr(
+        ControlService, "get_tunnel", lambda self, name: type("R", (), {"data": tunnel_data})()
+    )
+    service = ControlService()
+
+    res_op = service.interrupt("dt-test", side="op", kind="ctrl_c")
+    assert res_op.ok is True
+    assert res_op.data["pane"] == "op_test"
+    assert res_op.data["kind"] == "C-c"
+
+    res_run = service.interrupt("dt-test", side="run", kind="escape")
+    assert res_run.ok is True
+    assert res_run.data["pane"] == "run_test"
+    assert res_run.data["kind"] == "Escape"
+
+    assert sent == [("op_test", "C-c"), ("run_test", "Escape")]

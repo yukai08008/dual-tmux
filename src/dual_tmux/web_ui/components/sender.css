@@ -104,3 +104,55 @@
   min-width: 90px;
 }
 
+
+.dt-sender-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dt-sender-btn-interrupt {
+  padding: 6px 12px;
+  font-size: 12px;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #f87171;
+  border-radius: var(--dt-radius-md);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.dt-sender-btn-interrupt:hover {
+  background: rgba(239, 68, 68, 0.25);
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.6);
+}
+.dt-sender-btn-interrupt:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dt-sender-btn-esc {
+  padding: 6px 12px;
+  font-size: 12px;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #fbbf24;
+  border-radius: var(--dt-radius-md);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.dt-sender-btn-esc:hover {
+  background: rgba(245, 158, 11, 0.25);
+  color: #fde68a;
+  border-color: rgba(245, 158, 11, 0.55);
+}
+.dt-sender-btn-esc:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

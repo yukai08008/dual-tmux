@@ -141,6 +141,8 @@ class DualTerminalComponent {
 
     if (name !== undefined && titleEl && titleEl.textContent !== name) {
       titleEl.textContent = name;
+      this.states[side].lastContent = '';
+      this.states[side].isAtBottom = true;
     }
     if (cmd !== undefined && cmdEl) {
       const cmdText = cmd ? '(' + cmd + ')' : '';
