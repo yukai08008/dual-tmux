@@ -10,7 +10,6 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from datanode.adapters import from_legacy_tunnel, to_legacy_tunnel
 from datanode.fsm_core import MemoryStateStore, TransitionError
 from datanode.models import (
     AgentRole,
@@ -18,7 +17,7 @@ from datanode.models import (
     BindingAttemptState,
     BindingIntent,
 )
-from datanode.runtime_fsm.binding import BindingEvent, BindingMachine
+from datanode.runtime_fsm import BindingEvent, BindingMachine, TunnelProjectionHook
 
 from . import log as ev
 
@@ -88,21 +87,14 @@ def apply_proven_binding(
     holder: str,
 ) -> None:
     """Commit a proven working copy through TunnelNode, then project back."""
-    working = copy.deepcopy(working)
-    side_info = working.setdefault(side, {})
-    if holder:
-        side_info["bound_by_client"] = holder
-    node = from_legacy_tunnel(working)
-    projected = to_legacy_tunnel(node, base=target)
-    for key in ("op_point", "run_point"):
-        if key in working:
-            projected[key] = copy.deepcopy(working[key])
-    if side == "bullet":
-        persist_run_entry(
-            str(projected.get("run") or ""),
-            str((projected.get("runtime") or {}).get("cmd") or ""),
-        )
-    target.update(projected)
+    hook = TunnelProjectionHook(
+        target=target,
+        working=working,
+        side=side,
+        holder=holder,
+        persist_entry_fn=persist_run_entry,
+    )
+    hook.execute()
 
 
 def run_freeze_attempt(
@@ -171,17 +163,18 @@ def run_freeze_attempt(
         return False
 
     payload = proven_payload(working, side, previous)
+    hook = TunnelProjectionHook(
+        target=data,
+        working=working,
+        side=side,
+        holder=holder,
+        persist_entry_fn=persist_run_entry,
+    )
+    machine.register_commit_hook(hook)
     try:
-        machine.send(BindingEvent.LIVE_SESSION_PROVEN, payload)
-        apply_proven_binding(data, working, side, holder)
-        machine.send(BindingEvent.COMMIT_SUCCEEDED, {})
+        machine.commit_proven(payload)
     except (TransitionError, ValidationError, ValueError, OSError) as exc:
-        if machine.state is BindingAttemptState.COMMITTING:
-            machine.send(
-                BindingEvent.COMMIT_FAILED,
-                {"error": {"code": "commit_rejected", "message": str(exc)}},
-            )
-        elif machine.state is BindingAttemptState.PROVING:
+        if machine.state is BindingAttemptState.PROVING:
             machine.send(
                 BindingEvent.LIVE_SESSION_MISSING,
                 {

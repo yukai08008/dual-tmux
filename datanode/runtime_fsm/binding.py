@@ -7,6 +7,7 @@ commit hook, then commit_succeeded.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from enum import Enum
 from typing import Annotated, Literal
 
@@ -179,6 +180,30 @@ class BindingMachine:
         self.store = store
         self.core = Machine(binding_graph(), context={"node": node})
         self.core.state = node.state
+        self._commit_hooks: list[Callable[[BindingAttemptNode, dict], None]] = []
+
+    def register_commit_hook(
+        self, hook: Callable[[BindingAttemptNode, dict], None]
+    ) -> None:
+        """Register a hook to be executed during the commit transition."""
+        self._commit_hooks.append(hook)
+
+    def commit_proven(
+        self, payload: dict | StrictModel
+    ) -> BindingAttemptState:
+        """Coordinate: PROVING -> LIVE_SESSION_PROVEN -> run commit hooks -> COMMIT_SUCCEEDED."""
+        self.send(BindingEvent.LIVE_SESSION_PROVEN, payload)
+        try:
+            for hook in self._commit_hooks:
+                hook(self.node, self.core.context)
+            return self.send(BindingEvent.COMMIT_SUCCEEDED, {})
+        except Exception as exc:
+            if self.state is BindingAttemptState.COMMITTING:
+                self.send(
+                    BindingEvent.COMMIT_FAILED,
+                    {"error": {"code": "commit_rejected", "message": str(exc)}},
+                )
+            raise
 
     @property
     def node(self) -> BindingAttemptNode:
