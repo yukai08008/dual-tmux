@@ -140,11 +140,18 @@ class ResumeAttempt:
 
     def preflight(self, tunnel: dict, plan: dict) -> None:
         if not plan.get("safe"):
+            reason = plan.get("reason") or "unsafe"
+            err_msg = (
+                f"{tunnel.get('name') or self.name} 尚未固化为 DST 会话对（缺少 trigger 或 bullet 的 freeze 会话）。"
+                f"新隧道请先运行 dt enter / dt work 进行工作，随后运行 dt freeze 固化。"
+                if reason == "not_a_frozen_dst"
+                else str(reason)
+            )
             self._send(
                 ResumeEvent.PREFLIGHT_REJECTED,
                 {
                     "error": self._error(
-                        "preflight_rejected", plan.get("reason"), "preflight"
+                        "preflight_rejected", err_msg, "preflight"
                     )
                 },
             )

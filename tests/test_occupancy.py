@@ -152,3 +152,40 @@ def test_occupancy_script_has_no_lease_sidecar():
     assert "lease_ttl" not in occupancy.SCRIPT
     assert "side_value" not in occupancy.SCRIPT
     assert "if action=='release':" in occupancy.SCRIPT
+
+
+def test_cmd_resume_unfrozen_dst_fast_fails_without_pull(monkeypatch):
+    import argparse
+
+    import pytest
+
+    from dual_tmux import cli, hub
+
+    unfrozen_tunnel = {
+        "name": "dt-unfrozen",
+        "op": "op_unfrozen",
+        "run": "run_unfrozen",
+        "trigger": {},
+        "bullet": {},
+    }
+    monkeypatch.setattr(cli, "_resolve", lambda _name: unfrozen_tunnel)
+    monkeypatch.setattr(
+        hub,
+        "pull",
+        lambda **_k: pytest.fail("must not run hub.pull for unfrozen tunnel"),
+    )
+    monkeypatch.setattr(
+        cli,
+        "refresh_resume_inputs",
+        lambda _d: pytest.fail("must not refresh inputs for unfrozen tunnel"),
+    )
+
+    err_messages = []
+    monkeypatch.setattr(cli.ui, "err", lambda msg: err_messages.append(msg))
+
+    with pytest.raises(SystemExit) as exc:
+        cli.cmd_resume(argparse.Namespace(name="dt-unfrozen", plan=False, force=False))
+
+    assert exc.value.code == 1
+    assert len(err_messages) == 1
+    assert "尚未固化为 DST 会话对" in err_messages[0]
