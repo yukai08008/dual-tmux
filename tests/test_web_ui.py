@@ -46,3 +46,13 @@ def test_web_ui_unified_assets():
     assert len(assets["components_css"]) > 1000
     assert len(assets["components_js"]) > 1000
 
+
+def test_tunnel_picker_component_assets():
+    js = get_components_js()
+    css = get_components_css()
+    assert "dt-focus-banner" in js
+    assert "openNewTabPrompt" in js
+    assert "isCreatingNewTab" in js
+    assert "dt-focus-card" in css
+    assert "dt-tab-item.active" in css
+    assert "border-top: 3px solid var(--dt-primary)" in css
