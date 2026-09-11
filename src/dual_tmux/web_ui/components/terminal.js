@@ -4,8 +4,8 @@ class DualTerminalComponent {
     this.container = options.container || null;
     this.layout = localStorage.getItem('dt:term:layout') || 'split'; // split | op | run
     this.states = {
-      op: { isAtBottom: true, lastContent: '' },
-      run: { isAtBottom: true, lastContent: '' }
+      op: { isAtBottom: true, isUpdating: false, lastContent: '' },
+      run: { isAtBottom: true, isUpdating: false, lastContent: '' }
     };
     this.onLayoutChange = options.onLayoutChange || null;
   }
@@ -93,10 +93,11 @@ class DualTerminalComponent {
 
       // Smart auto-scroll detection
       screen.addEventListener('scroll', () => {
-        const threshold = 25;
+        if (this.states[side].isUpdating) return;
+        const threshold = 35;
         const isAtBottom = screen.scrollHeight - screen.scrollTop - screen.clientHeight <= threshold;
         this.states[side].isAtBottom = isAtBottom;
-        lockBanner.style.display = isAtBottom ? 'none' : 'flex';
+        if (lockBanner) lockBanner.style.display = isAtBottom ? 'none' : 'flex';
       });
 
       lockBanner.addEventListener('click', () => {
@@ -130,29 +131,42 @@ class DualTerminalComponent {
     if (this.onLayoutChange) this.onLayoutChange(layout);
   }
 
-  updatePane(side, { text = '', name = '', cmd = '', live = false }) {
+  updatePane(side, { text = undefined, name = undefined, cmd = undefined, live = undefined } = {}) {
     if (!this.container) return;
     const titleEl = this.container.querySelector('#dt-title-' + side);
     const cmdEl = this.container.querySelector('#dt-cmd-' + side);
     const lampEl = this.container.querySelector('#dt-lamp-' + side);
     const screenEl = this.container.querySelector('#dt-screen-' + side);
+    const lockBanner = this.container.querySelector('#dt-lock-' + side);
 
-    if (titleEl && name) titleEl.textContent = name;
-    if (cmdEl) cmdEl.textContent = cmd ? '(' + cmd + ')' : '';
-    if (lampEl) {
-      lampEl.className = 'dt-lamp ' + (live ? 'dt-lamp-green' : 'dt-lamp-gray');
+    if (name !== undefined && titleEl && titleEl.textContent !== name) {
+      titleEl.textContent = name;
+    }
+    if (cmd !== undefined && cmdEl) {
+      const cmdText = cmd ? '(' + cmd + ')' : '';
+      if (cmdEl.textContent !== cmdText) cmdEl.textContent = cmdText;
+    }
+    if (live !== undefined && lampEl) {
+      const lampClass = 'dt-lamp ' + (live ? 'dt-lamp-green' : 'dt-lamp-gray');
+      if (lampEl.className !== lampClass) lampEl.className = lampClass;
     }
 
-    if (screenEl && text !== this.states[side].lastContent) {
+    if (text !== undefined && screenEl && text !== this.states[side].lastContent) {
+      this.states[side].isUpdating = true;
+      const wasAtBottom = this.states[side].isAtBottom;
       this.states[side].lastContent = text;
       screenEl.textContent = text;
-      // Only auto-scroll if user was already at the bottom
-      if (this.states[side].isAtBottom) {
+      if (wasAtBottom) {
         screenEl.scrollTop = screenEl.scrollHeight;
+        if (lockBanner) lockBanner.style.display = 'none';
+      } else {
+        if (lockBanner) lockBanner.style.display = 'flex';
       }
+      requestAnimationFrame(() => {
+        this.states[side].isUpdating = false;
+      });
     }
   }
 }
 
 window.DualTerminalComponent = DualTerminalComponent;
-
