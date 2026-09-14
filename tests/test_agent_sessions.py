@@ -261,3 +261,25 @@ def test_tmux_ensure_agent_recognizes_node_wrapped_codex(monkeypatch):
     )
 
     assert tmux.ensure_agent("op_test", f"codex resume {CODEX_ID}") is False
+
+
+def test_tmux_ensure_agent_primes_transport_before_opencode(monkeypatch):
+    from dual_tmux import tmux
+
+    calls = []
+    monkeypatch.setattr(tmux, "ensure_session", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        tmux,
+        "pane_info",
+        lambda _name: {"pid": "1", "cmd": "ssh", "cwd": "/workspace"},
+    )
+    monkeypatch.setattr(tmux, "bin", lambda: "tmux")
+    monkeypatch.setattr("dual_tmux.workpoint.walk_commands", lambda _pid: [])
+    monkeypatch.setattr(tmux.subprocess, "run", lambda argv, **kwargs: calls.append(argv))
+    monkeypatch.setattr(tmux.time, "sleep", lambda _seconds: None)
+
+    assert tmux.ensure_agent("run_test", "opencode --auto -s ses_test") is True
+    assert calls == [
+        ["tmux", "send-keys", "-t", "=run_test:", "Enter"],
+        ["tmux", "send-keys", "-t", "=run_test:", "--", "opencode --auto -s ses_test", "Enter"],
+    ]

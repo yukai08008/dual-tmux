@@ -64,6 +64,8 @@ def pane_hash(tmux_name: str, start: int = -20) -> str:
     clean = ANSI.sub("", text)
     return hashlib.sha1(clean.encode("utf-8", "replace")).hexdigest()[:16]
 
+EMPTY_FINGERPRINT = hashlib.sha1(b"").hexdigest()[:16]
+
 
 def semantic_text(text: str) -> str:
     """Return stable, user-facing pane text with animated chrome removed."""
@@ -249,6 +251,10 @@ def last_tick_epoch(path: Path, name: str) -> int:
     for raw in reversed(path.read_text(encoding="utf-8", errors="replace").splitlines()):
         parts = raw.split()
         if len(parts) >= 6 and parts[2] == name:
+            op_cmd = parts[3]
+            fp = parts[-1]
+            if op_cmd == "-" or fp == EMPTY_FINGERPRINT:
+                continue
             try:
                 return int(parts[0])
             except ValueError:
@@ -312,6 +318,9 @@ def _mirror_ticks(data: dict) -> None:
     src = ticks_path(data)
     tenant = _tick_tenant()
     if not op or not tenant or not src.is_file():
+        return
+    last_fp = _last_fingerprint(src, str(data.get("name") or ""))
+    if not last_fp or last_fp == EMPTY_FINGERPRINT:
         return
     dest = persist_ticks_path(tenant, op)
     dest.parent.mkdir(parents=True, exist_ok=True)

@@ -310,6 +310,15 @@ def ensure_agent(name: str, cmd: str, cwd: str = "") -> bool:
                 check=False,
             )
             time.sleep(0.15)
+    # A freshly established SSH/docker PTY may not have delivered its shell
+    # prompt yet.  Sending the first character immediately can be lost (for
+    # example ``opencode`` becoming ``pencode``).  Prime transport panes with
+    # an empty line and give the remote shell a moment to accept input.
+    if current in {"ssh", "docker", "tmux"} and requested:
+        subprocess.run(
+            [bin(), "send-keys", "-t", exact_pane(name), "Enter"], check=False
+        )
+        time.sleep(0.2)
     subprocess.run(
         [bin(), "send-keys", "-t", exact_pane(name), "--", cmd, "Enter"], check=False
     )
