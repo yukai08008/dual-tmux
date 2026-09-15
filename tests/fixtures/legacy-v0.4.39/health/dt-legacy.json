@@ -1,0 +1,7 @@
+{
+  "name": "dt-legacy",
+  "status": "degraded",
+  "healthy": false,
+  "consecutive_failures": 2,
+  "last_error": "legacy transport timeout"
+}

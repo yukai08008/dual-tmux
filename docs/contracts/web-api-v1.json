@@ -1,0 +1,438 @@
+{
+  "schema_version": 1,
+  "base_path": "/api",
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/api/capabilities",
+      "request": "query",
+      "response": "control-result-v1",
+      "errors": "legacy-mixed",
+      "risk": "read",
+      "operation": "agent.capabilities"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config",
+      "request": "query",
+      "response": "raw-json",
+      "errors": "legacy-mixed",
+      "risk": "read",
+      "operation": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/config/switch",
+      "request": "form",
+      "response": "control-result-v1",
+      "errors": "control-error-v1",
+      "risk": "high-risk",
+      "operation": "config.switch"
+    },
+    {
+      "method": "POST",
+      "path": "/api/doctor/run",
+      "request": "form",
+      "response": "control-result-v1",
+      "errors": "legacy-mixed",
+      "risk": "network-read",
+      "operation": "doctor.run"
+    },
+    {
+      "method": "GET",
+      "path": "/api/events",
+      "request": "query",
+      "response": "raw-json",
+      "errors": "legacy-mixed",
+      "risk": "read",
+      "operation": "events.list"
+    },
+    {
+      "method": "POST",
+      "path": "/api/feishu/pair",
+      "request": "json",
+      "response": "raw-json",
+      "errors": "legacy-mixed",
+      "risk": "write",
+      "operation": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/feishu/poll",
+      "request": "json",
+      "response": "raw-json",
+      "errors": "legacy-mixed",
+      "risk": "network-read",
+      "operation": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/feishu/status",
+      "request": "query",
+      "response": "raw-json",
+      "errors": "legacy-mixed",
+      "risk": "network-read",
+      "operation": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/feishu/unbind",
+      "request": "json",
+      "response": "raw-json",
+      "errors": "legacy-mixed",
+      "risk": "write",
+      "operation": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/freeze",
+      "request": "form",
+      "response": "legacy-envelope",
+      "errors": "control-error-v1",
+      "risk": "write",
+      "operation": "session.freeze"
+    },
+    {
+      "method": "GET",
+      "path": "/api/health",
+      "request": "query",
+      "response": "raw-json",
+      "errors": "legacy-mixed",
+      "risk": "read",
+      "operation": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/health/auto",
+      "request": "form",
+      "response": "control-result-v1",
+      "errors": "control-error-v1",
+      "risk": "write",
+      "operation": "health.auto"
+    },
+    {
+      "method": "POST",
+      "path": "/api/health/probe",
+      "request": "form",
+      "response": "control-result-v1",
+      "errors": "control-error-v1",
+      "risk": "network-read",
+      "operation": "health.probe"
+    },
+    {
+      "method": "POST",
+      "path": "/api/health/recover",
+      "request": "form",
+      "response": "control-result-v1",
+      "errors": "control-error-v1",
+      "risk": "execute",
+      "operation": "health.recover"
+    },
+    {
+      "method": "POST",
+      "path": "/api/hub/pull",
+      "request": "form",
+      "response": "control-result-v1",
+      "errors": "control-error-v1",
+      "risk": "network-write",
+      "operation": "hub.pull"
+    },
+    {
+      "method": "POST",
+      "path": "/api/hub/push",
+      "request": "form",
+      "response": "control-result-v1",
+      "errors": "control-error-v1",
+      "risk": "network-write",
+      "operation": "hub.push"
+    },
+    {
+      "method": "POST",
+      "path": "/api/interrupt",
+      "request": "form",
+      "response": "control-result-v1",
+      "errors": "control-error-v1",
+      "risk": "write",
+      "operation": "pane.interrupt"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory",
+      "request": "query",
+      "response": "raw-json",
+      "errors": "legacy-mixed",
+      "risk": "read",
+      "operation": "memory.get"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/fact",
+      "request": "form",
+      "response": "control-result-v1",
+      "errors": "control-error-v1",
+      "risk": "write",
+      "operation": "memory.fact"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/note",
+      "request": "form",
+      "response": "control-result-v1",
+      "errors": "control-error-v1",
+      "risk": "write",
+      "operation": "memory.note"
+    },
+    {
+      "method": "POST",
+      "path": "/api/model",
+      "request": "form",
+      "response": "legacy-envelope",
+      "errors": "control-error-v1",
+      "risk": "execute",
+      "operation": "agent.model"
+    },
+    {
+      "method": "GET",
+      "path": "/api/models",
+      "request": "query",
+      "response": "raw-json",
+      "errors": "legacy-mixed",
+      "risk": "network-read",
+      "operation": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/operations",
+      "request": "query",
+      "response": "control-result-v1",
+      "errors": "legacy-mixed",
+      "risk": "read",
+      "operation": "control.operations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/ownership",
+      "request": "query",
+      "response": "control-result-v1",
+      "errors": "legacy-mixed",
+      "risk": "read",
+      "operation": "ownership.get"
+    },
+    {
+      "method": "POST",
+      "path": "/api/ownership/handoff",
+      "request": "form",
+      "response": "control-result-v1",
+      "errors": "control-error-v1",
+      "risk": "write",
+      "operation": "ownership.handoff"
+    },
+    {
+      "method": "POST",
+      "path": "/api/resume",
+      "request": "form",
+      "response": "legacy-envelope",
+      "errors": "legacy-mixed",
+      "risk": "execute",
+      "operation": "session.resume"
+    },
+    {
+      "method": "GET",
+      "path": "/api/resume/plan",
+      "request": "query",
+      "response": "control-result-v1",
+      "errors": "legacy-mixed",
+      "risk": "read",
+      "operation": "session.resume.plan"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skill-body",
+      "request": "query",
+      "response": "raw-json",
+      "errors": "legacy-mixed",
+      "risk": "read",
+      "operation": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/skill-enable",
+      "request": "form",
+      "response": "legacy-envelope",
+      "errors": "legacy-mixed",
+      "risk": "write",
+      "operation": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/skill-file",
+      "request": "query",
+      "response": "raw-json",
+      "errors": "legacy-mixed",
+      "risk": "read",
+      "operation": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/skill-import",
+      "request": "form",
+      "response": "legacy-envelope",
+      "errors": "legacy-mixed",
+      "risk": "network-write",
+      "operation": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/skill-installed-file",
+      "request": "query",
+      "response": "raw-json",
+      "errors": "legacy-mixed",
+      "risk": "read",
+      "operation": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/skill-log",
+      "request": "query",
+      "response": "raw-json",
+      "errors": "legacy-mixed",
+      "risk": "read",
+      "operation": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/skill-preview",
+      "request": "query",
+      "response": "raw-json",
+      "errors": "legacy-mixed",
+      "risk": "network-read",
+      "operation": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/skill-teach",
+      "request": "form",
+      "response": "legacy-envelope",
+      "errors": "legacy-mixed",
+      "risk": "write",
+      "operation": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/skill-tree",
+      "request": "query",
+      "response": "raw-json",
+      "errors": "legacy-mixed",
+      "risk": "read",
+      "operation": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/skill-upload",
+      "request": "multipart",
+      "response": "legacy-envelope",
+      "errors": "legacy-mixed",
+      "risk": "write",
+      "operation": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/skill-used",
+      "request": "form",
+      "response": "legacy-envelope",
+      "errors": "legacy-mixed",
+      "risk": "write",
+      "operation": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills",
+      "request": "query",
+      "response": "raw-json",
+      "errors": "legacy-mixed",
+      "risk": "read",
+      "operation": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/trigger-auto",
+      "request": "form",
+      "response": "legacy-envelope",
+      "errors": "legacy-mixed",
+      "risk": "write",
+      "operation": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/tunnel",
+      "request": "query",
+      "response": "raw-json",
+      "errors": "legacy-mixed",
+      "risk": "read",
+      "operation": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/tunnel/create",
+      "request": "form",
+      "response": "control-result-v1",
+      "errors": "control-error-v1",
+      "risk": "write",
+      "operation": "tunnel.create"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tunnel/drop",
+      "request": "form",
+      "response": "control-result-v1",
+      "errors": "control-error-v1",
+      "risk": "execute",
+      "operation": "tunnel.drop"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tunnel/reconnect",
+      "request": "form",
+      "response": "control-result-v1",
+      "errors": "control-error-v1",
+      "risk": "execute",
+      "operation": "tunnel.reconnect"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tunnel/remove",
+      "request": "form",
+      "response": "control-result-v1",
+      "errors": "control-error-v1",
+      "risk": "destructive",
+      "operation": "tunnel.remove"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tunnels",
+      "request": "query",
+      "response": "raw-json",
+      "errors": "legacy-mixed",
+      "risk": "read",
+      "operation": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/web-state",
+      "request": "query",
+      "response": "raw-json",
+      "errors": "legacy-mixed",
+      "risk": "read",
+      "operation": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/web-state",
+      "request": "json",
+      "response": "raw-json",
+      "errors": "legacy-mixed",
+      "risk": "write",
+      "operation": ""
+    }
+  ]
+}

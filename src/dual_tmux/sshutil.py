@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import re
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -84,6 +87,51 @@ def parse_ssh_config(path: Path | None = None) -> list[HostBlock]:
             fields[key_l] = value
     flush()
     return blocks
+
+
+ALIAS_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+_ALIAS_OUT_RE = re.compile(r"(?:=\s*|aliased to\s+)'?(.*?)'?\s*$")
+
+_alias_cache: dict[str, str] = {}
+
+
+def resolve_shell_alias(token: str, *, runner=subprocess.run) -> str:
+    """Expand a shell alias like `tom1r` to its ssh command line, or ''.
+
+    Users hop with shell aliases (`alias tom1r="ssh -oPort=24500 root@ip"`);
+    ssh config alone cannot tell us the real target when the alias shadows or
+    bypasses it. Cached per process; only ssh-looking expansions are used.
+    """
+    token = (token or "").strip()
+    if not ALIAS_NAME_RE.fullmatch(token):
+        return ""
+    if token in _alias_cache:
+        return _alias_cache[token]
+    shells = []
+    for shell in (os.environ.get("SHELL") or "", "/bin/zsh", "/bin/bash"):
+        if shell and shell not in shells:
+            shells.append(shell)
+    expanded = ""
+    for shell in shells:
+        try:
+            result = runner(
+                [shell, "-ic", f"alias {token}"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if result.returncode != 0:
+            continue
+        match = _ALIAS_OUT_RE.search((result.stdout or "").strip())
+        candidate = match.group(1).strip() if match else ""
+        if candidate.startswith("ssh ") or candidate == "ssh":
+            expanded = candidate
+            break
+    _alias_cache[token] = expanded
+    return expanded
 
 
 @dataclass(frozen=True)

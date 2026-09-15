@@ -931,6 +931,8 @@ def _apply_freeze_legacy(
         sides = ["trigger", "bullet"]
     span = ev.timed("freeze", name=data["name"], sides=",".join(sides))
     results = freeze_sides(data, sides, tool or "auto")
+    if results is None:
+        results = {side: True for side in sides}
     wp.stamp(data, "freeze_at")
     save(path, data)
     dst = oc_ops.is_dst(data)
