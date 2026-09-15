@@ -9,6 +9,7 @@ import tempfile
 import time
 from pathlib import Path
 
+from . import log as ev
 from . import tmux as tmux_ops
 from .paths import home_dir
 from .workpoint import now_iso
@@ -106,6 +107,25 @@ def read_evidence(name: str) -> dict:
     return value if isinstance(value, dict) else {}
 
 
+def _emit_side_transition(
+    role: str, prev: str, state: str, name: str
+) -> None:
+    """Emit agent lifecycle events on observed state transitions only.
+
+    Edge-triggered against the persisted evidence so the minute tick and the
+    daemon never re-announce the same state.
+    """
+    if not prev or prev == state:
+        return
+    verb = "turn" if role == "trigger" else "run"
+    if state == "working" and prev != "working":
+        ev.emit(f"{role}.{verb}.start", name=name)
+    elif prev == "working" and state in {"idle", "unknown"}:
+        ev.emit(f"{role}.{verb}.end", name=name)
+    elif state == "stalled" and prev != "stalled":
+        ev.emit(f"{role}.stalled", name=name, sev="warn")
+
+
 def activity_evidence(
     data: dict, *, now: int | None = None, capture=None
 ) -> dict:
@@ -160,6 +180,9 @@ def activity_evidence(
                 "attached": None if attached_count is None else attached_count > 0,
                 "attached_clients": attached_count,
             }
+            _emit_side_transition(
+                role, str(prior.get("state") or ""), state, str(data.get("name") or "")
+            )
         except (OSError, RuntimeError, subprocess.SubprocessError):
             sides[role] = {
                 **prior,

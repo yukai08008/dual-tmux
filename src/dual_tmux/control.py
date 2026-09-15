@@ -321,6 +321,15 @@ class ControlService:
         self._require_capability(agent, "send")
         _translate(lambda: hub.require_active(data))
         _translate(lambda: tmux_ops.send_keys(pane, text))
+        from . import log as ev
+
+        ev.emit(
+            f"{normalized}.send",
+            name=str(data.get("name") or ""),
+            pane=pane,
+            chars=len(text),
+            preview=str(text)[:60],
+        )
         return ControlResult(
             "pane.send", {"pane": pane, "side": normalized}, _event("pane.send")
         )
@@ -342,6 +351,14 @@ class ControlService:
         _translate(lambda: hub.require_active(data))
         key = "Escape" if str(kind).strip().lower() in {"esc", "escape"} else "C-c"
         _translate(lambda: tmux_ops.send_interrupt(pane, key))
+        from . import log as ev
+
+        ev.emit(
+            f"{normalized}.interrupt",
+            name=str(data.get("name") or ""),
+            pane=pane,
+            interrupt=key,
+        )
         return ControlResult(
             "pane.interrupt",
             {"pane": pane, "side": normalized, "kind": key},
@@ -675,6 +692,14 @@ class ControlService:
                 "missing_runtime", "tunnel has no runtime.cmd", status=409
             )
         _translate(lambda: tmux_ops.reconnect(data.get("run") or "", command))
+        from . import log as ev
+
+        ev.emit(
+            "transport.reconnect",
+            name=str(data.get("name") or ""),
+            pane=str(data.get("run") or ""),
+            transport=tmux_ops.transport_of(command),
+        )
         return ControlResult("tunnel.reconnect", data, _event("tunnel.reconnect"))
 
     def drop(self, name: str, *, confirm: str = "") -> ControlResult:
@@ -801,12 +826,31 @@ class ControlService:
         return ControlResult("memory.note", data, _event("memory.note"))
 
     def events(
-        self, *, limit: int = 100, kind: str = "", name: str = ""
+        self,
+        *,
+        limit: int = 100,
+        kind: str = "",
+        name: str = "",
+        cat: str = "",
+        sev: str = "",
     ) -> ControlResult:
         from . import log
 
-        rows = log.read_events(limit=min(500, max(1, limit)), kind=kind, name=name)
-        return ControlResult("events.list", rows, _event("events.list"))
+        rows = log.read_events(
+            limit=min(500, max(1, limit)),
+            kind=kind,
+            name=name,
+            cat=cat if cat in log.CATEGORIES else "",
+            sev=sev if sev in log.SEVERITIES else "",
+        )
+        enriched = []
+        for row in rows:
+            item = dict(row)
+            info = log.meta(str(item.get("kind") or ""))
+            item.setdefault("cat", info["cat"])
+            item.setdefault("sev", info["sev"])
+            enriched.append(item)
+        return ControlResult("events.list", enriched, _event("events.list"))
 
     def doctor(self) -> ControlResult:
         from dataclasses import asdict
