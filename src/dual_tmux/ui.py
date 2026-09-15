@@ -170,18 +170,30 @@ def print_log(rows: list[dict]) -> None:
     if not rows:
         console.print("[dim](no events)[/]")
         return
+    from . import log as event_log
+
     table = Table(title="events", border_style="cyan", header_style="bold")
     table.add_column("ts", style="dim")
-    table.add_column("kind")
+    table.add_column("类别")
+    table.add_column("事件")
     table.add_column("name")
     table.add_column("detail")
+    sev_styles = {"error": "red", "warn": "yellow", "info": "green"}
     for item in rows:
         kind = str(item.get("kind") or "")
-        style = "green" if kind.endswith(".ok") else "red" if kind.endswith(".fail") else "cyan"
-        detail = {k: v for k, v in item.items() if k not in {"ts", "kind", "pid", "name", "dt"}}
+        info = event_log.meta(kind)
+        sev = str(item.get("sev") or info["sev"])
+        style = sev_styles.get(sev, "cyan")
+        detail = {
+            k: v
+            for k, v in item.items()
+            if k not in {"ts", "kind", "pid", "name", "dt", "sev", "cat"}
+        }
+        label = info["label"] if info["label"] != kind else kind
         table.add_row(
             str(item.get("ts") or "")[-19:],
-            Text(kind, style=style),
+            str(item.get("cat") or info["cat"]),
+            Text(f"{label} · {kind}", style=style),
             str(item.get("name") or item.get("dt") or "—"),
             json_detail(detail),
         )

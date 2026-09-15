@@ -476,6 +476,8 @@ class Handler(BaseHTTPRequestHandler):
                 limit=min(500, int((qs.get("limit") or ["100"])[0] or 100)),
                 kind=(qs.get("kind") or [""])[0],
                 name=(qs.get("t") or [""])[0],
+                cat=(qs.get("cat") or [""])[0],
+                sev=(qs.get("sev") or [""])[0],
             )
             self._send(200, json.dumps(result.data), "application/json; charset=utf-8")
             return

@@ -276,10 +276,74 @@ def memory_page() -> str:
 
 
 def events_page() -> str:
+    import json as _json
+
+    from . import log as event_log
+
+    labels = _json.dumps(
+        {kind: entry[2] for kind, entry in event_log.KIND_META.items()},
+        ensure_ascii=False,
+    )
     body = """
-    <div class="top"><h1>Events</h1><p>CLI/Web/恢复审计事件</p></div>
-    <div class="content"><div class="card models"><div class="field"><label>Kind 前缀</label><input id="event-kind"></div><div class="field"><label>Tunnel</label><input id="event-name"></div><button id="event-load">刷新</button></div><div class="card"><pre class="out" id="event-out" style="height:70vh"></pre></div></div>
-    <script>async function loadEvents(){const q=new URLSearchParams({kind:document.getElementById('event-kind').value,t:document.getElementById('event-name').value});const r=await fetch('/api/events?'+q);document.getElementById('event-out').textContent=JSON.stringify(await r.json(),null,2)}document.getElementById('event-load').onclick=loadEvents;loadEvents();</script>"""
+    <div class="top"><h1>Events</h1><p>隧道生命周期 · Trigger 交互 · Bullet 运行事件（本机）</p></div>
+    <div class="content">
+      <div class="card models">
+        <div class="field"><label>Tunnel</label><input id="event-name" placeholder="dt-name"></div>
+        <div class="field"><label>Kind 前缀</label><input id="event-kind" placeholder="freeze"></div>
+        <div class="field"><label>类别</label><select id="event-cat"><option value="">全部</option><option value="system">system 系统</option><option value="trigger">trigger 交互</option><option value="bullet">bullet 运行</option></select></div>
+        <div class="field"><label>严重度</label><select id="event-sev"><option value="">全部</option><option value="info">info</option><option value="warn">warn</option><option value="error">error</option></select></div>
+        <button id="event-load">刷新</button>
+      </div>
+      <div class="card"><div style="max-height:72vh;overflow:auto">
+      <table class="guide-table" id="event-table">
+        <thead><tr><th>时间</th><th>类别</th><th>严重度</th><th>事件</th><th>Tunnel</th><th>详情</th></tr></thead>
+        <tbody id="event-rows"><tr><td colspan="6" class="meta">加载中…</td></tr></tbody>
+      </table></div></div>
+    </div>
+    <style>
+    .sev-info { background:#d1fae5; color:#047857; }
+    .sev-warn { background:#fef3c7; color:#b45309; }
+    .sev-error { background:#fee2e2; color:#b91c1c; }
+    .cat-system { background:#e0e7ff; color:#4338ca; }
+    .cat-trigger { background:#f3e8ff; color:#7e22ce; }
+    .cat-bullet { background:#ccfbf1; color:#0f766e; }
+    #event-table td { vertical-align:top; }
+    </style>
+    <script>
+    const EVENT_LABELS = __EVENT_LABELS__;
+    function _esc(s){const d=document.createElement('div');d.textContent=s==null?'':String(s);return d.innerHTML}
+    async function loadEvents(){
+      const q=new URLSearchParams({
+        kind:document.getElementById('event-kind').value,
+        t:document.getElementById('event-name').value,
+        cat:document.getElementById('event-cat').value,
+        sev:document.getElementById('event-sev').value,
+        limit:'200'});
+      const rows=await(await fetch('/api/events?'+q)).json();
+      const tbody=document.getElementById('event-rows');
+      if(!rows.length){tbody.innerHTML='<tr><td colspan="6" class="meta">暂无事件</td></tr>';return}
+      tbody.innerHTML=rows.slice().reverse().map(r=>{
+        const kind=r.kind||'';
+        const label=EVENT_LABELS[kind]||kind;
+        const detail=Object.entries(r)
+          .filter(([k])=>!['ts','kind','pid','name','dt','sev','cat'].includes(k))
+          .map(([k,v])=>k+'='+(typeof v==='object'?JSON.stringify(v):v)).join(' ');
+        return '<tr>'
+          +'<td class="meta">'+_esc((r.ts||'').slice(-9))+'</td>'
+          +'<td><span class="badge cat-'+_esc(r.cat||'')+'">'+_esc(r.cat||'—')+'</span></td>'
+          +'<td><span class="badge sev-'+_esc(r.sev||'')+'">'+_esc(r.sev||'—')+'</span></td>'
+          +'<td>'+_esc(label)+' <span class="meta">'+_esc(kind)+'</span></td>'
+          +'<td>'+_esc(r.name||r.dt||'—')+'</td>'
+          +'<td class="meta" style="max-width:340px;overflow-wrap:anywhere">'+_esc(detail)+'</td>'
+          +'</tr>';
+      }).join('');
+    }
+    document.getElementById('event-load').onclick=loadEvents;
+    ['event-cat','event-sev'].forEach(id=>document.getElementById(id).onchange=loadEvents);
+    loadEvents();
+    </script>""".replace(
+        "__EVENT_LABELS__", labels
+    )
     return _shell(_nav("events"), body, "dt web · events")
 
 
@@ -649,6 +713,12 @@ loadLog();
 def tunnels_page(selected: str = "") -> str:
     rows = _tunnels()
     names = json.dumps(rows, ensure_ascii=False)
+    from . import log as event_log
+
+    event_labels = json.dumps(
+        {kind: entry[2] for kind, entry in event_log.KIND_META.items()},
+        ensure_ascii=False,
+    )
     data = {}
     if selected:
         try:
@@ -711,6 +781,7 @@ def tunnels_page(selected: str = "") -> str:
           <span id="client-op">trigger client —</span> · <span id="client-run">bullet client —</span>
         </div>
         <div class="sync" id="healthbox" style="margin-top:8px">health —</div>
+        <div class="sync" id="eventbox" style="margin-top:8px">Recent events —</div>
         <div class="card" style="margin-top:10px">
           <h2>占用与接管</h2>
           <div id="ownershipbox" class="ownership"><div class="own-block">等待 daemon/tick 采集状态…</div></div>
@@ -1192,6 +1263,18 @@ async function refreshRows(showHits=false) {{
     if (showHits || hits.style.display === 'block') renderHits();
   }} catch (_) {{}}
 }}
+const EVENT_LABELS = {event_labels};
+async function loadEventsBox(name) {{
+  try {{
+    const rows = await (await fetch('/api/events?t=' + encodeURIComponent(name) + '&limit=20')).json();
+    const box = document.getElementById('eventbox');
+    if (!rows.length) {{ box.textContent = 'Recent events · 暂无'; return; }}
+    box.innerHTML = 'Recent events · ' + rows.slice().reverse().map(r =>
+      '<span class="meta">' + (r.ts || '').slice(-9) + '</span> ' + (EVENT_LABELS[r.kind] || r.kind)
+    ).join(' · ');
+  }} catch (_e) {{ document.getElementById('eventbox').textContent = 'Recent events · 不可用'; }}
+}}
+
 function pick(name) {{
   const row = rows.find(r => r.name === name);
   if (!row) return;
@@ -1222,6 +1305,7 @@ function pick(name) {{
   st.thread=Array.isArray(prior.thread)?prior.thread.slice(-THREAD_MAX):[];
   st.log=Array.isArray(prior.log)?prior.log.slice(-LOG_MAX):[];
   activate(st);
+  loadEventsBox(name);
   logLine('pick', '已选定 ' + name + ' · ' + row.op + ' / ' + row.run);
 }}
 q.addEventListener('focus', async () => {{ await refreshRows(true); }});
