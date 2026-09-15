@@ -189,7 +189,11 @@ def test_handoff_timeout_is_fail_closed_and_never_force_claims(monkeypatch):
     monkeypatch.setattr(
         occ,
         "claim_occupancy",
-        lambda name, cfg=None: {"ok": True, "holder": "tm_here", "generation": 9},
+        lambda name, cfg=None, reason="": {
+            "ok": True,
+            "holder": "tm_here",
+            "generation": 9,
+        },
     )
     token = ownership.acquire_for_resume(
         _data(),
@@ -204,7 +208,11 @@ def test_stale_handoff_timeout_escalates_through_verified_stalled_takeover(monke
     monkeypatch.setattr(
         occ,
         "claim_occupancy",
-        lambda name, cfg=None: {"ok": True, "holder": "tm_here", "generation": 9},
+        lambda name, cfg=None, reason="": {
+            "ok": True,
+            "holder": "tm_here",
+            "generation": 9,
+        },
     )
     token = ownership.acquire_for_resume(
         _data(),
@@ -230,7 +238,11 @@ def test_handoff_timeout_reconciles_transfer_that_won_cancel_race(monkeypatch):
     monkeypatch.setattr(
         occ,
         "claim_occupancy",
-        lambda name, cfg=None: {"ok": True, "holder": "tm_here", "generation": 9},
+        lambda name, cfg=None, reason="": {
+            "ok": True,
+            "holder": "tm_here",
+            "generation": 9,
+        },
     )
     token = ownership.acquire_for_resume(
         _data(),

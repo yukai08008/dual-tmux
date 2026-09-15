@@ -223,7 +223,7 @@ def test_hub_drop_releases_and_resume_claims_with_force(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(
         "dual_tmux.occupancy.claim_occupancy",
-        lambda _name: {"generation": 1},
+        lambda _name, reason="": {"generation": 1},
     )
     monkeypatch.setattr(cli.opsdir, "prepare", lambda _data: tmp_path / "ops")
     monkeypatch.setattr(cli.tmux_ops, "ensure_session_cwd", lambda *args, **kwargs: True)

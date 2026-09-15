@@ -436,7 +436,7 @@ def acquire_for_resume(data: dict, plan: dict, *, force: bool = False) -> dict:
     from .occupancy import claim_occupancy
 
     name = str(data.get("name") or "")
-    claimed = claim_occupancy(name)
+    claimed = claim_occupancy(name, reason=str(plan.get("reason") or "resume"))
     return {
         "generation": int(claimed.get("generation") or 0),
         "newly_acquired": True,

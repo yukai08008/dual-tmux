@@ -237,6 +237,16 @@ def replay_hops(name: str, hops: list[dict]) -> None:
         time.sleep(1.2)
 
 
+def transport_of(cmd: str) -> str:
+    """Classify a jump command into its transport family for event records."""
+    stripped = str(cmd or "").strip()
+    if stripped.startswith("ssh"):
+        return "ssh"
+    if stripped.startswith("docker"):
+        return "docker"
+    return "other"
+
+
 def reconnect(name: str, cmd: str) -> None:
     ensure_session(name)
     current = pane_command(name)

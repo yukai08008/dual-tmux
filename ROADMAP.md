@@ -1,5 +1,6 @@
 # dual-tmux ROADMAP
 
+> v0.4.75：事件体系（S11）。events.jsonl 升级为带分类（system/trigger/bullet）与严重度（info/warn/error）的结构化事件：补齐建立管道、替换模型、命令 Bullet、Trigger 回合、Bullet 运行/卡死/探测失败等缺失采集点；周期观察事件边沿触发防刷屏，2 万行保留上限；`dt log` 与 Web /events 页升级为中文标签 + 类别/严重度筛选。设计见 [docs/events.md](docs/events.md)。
 > v0.4.73：Web 指令发送器（CommandSender）与打断控制落地。引入后端 send_interrupt 原语（C-c / Escape），接入 ControlService 与独热 require_active 活跃态校验；前端集成 CommandSenderComponent，新增打断按钮与状态机解锁；修复 DualTerminal 滚动条同步与 macOS 隐藏问题，增加页面底部 72px 呼吸留白。
 > v0.4.72：双端终端视窗深度扩容与抖动平滑。捕获深度提升至 3000 行，tmux history-limit 提升至 10000 行，增加滚动防抖守卫与滚动条占位。
 > v0.4.71：隧道选择与 Tabs 活跃焦点强化。增加高对比度高亮与活跃会话焦点卡片（Focus Card）。
@@ -33,6 +34,7 @@ flowchart LR
   S7 --> S8["S8 Binding FSM"]
   S8 --> S9["S9 ControlService 发事件"]
   S9 --> S10["S10 Web 控制台闭环"]
+  S10 --> S11["S11 事件体系"]
 ```
 
 ## S1 占用文件独热（已落地）
@@ -131,6 +133,20 @@ flowchart LR
 - 兼顾终端原生效率与现代 Web GUI 的多端漫游监视，无需频繁附着/脱离 tmux 即可全景协同。
 
 权威规范见 [docs/web-components-and-control.md](docs/web-components-and-control.md)。
+
+## S11 事件体系（已落地 v0.4.75）
+
+结构：全局 `events.jsonl` 升级为 `{ts, kind, pid, sev, cat, ...}`；`KIND_META` 注册表给出 kind → 分类/严重度/中文标签，旧格式行读取时按后缀/前缀规则派生。事件留本机，不进 hub 同步。
+
+功能：
+- system 层补齐：建立管道（transport.reconnect/reconcile）、替换模型（dt.model.ok/fail）、接管语义（hub.occupancy 附 reason）。
+- trigger 层新增：trigger.send / bullet.send（命令 Bullet，preview 截断≤60 字符）、interrupt、回合开始/结束、stalled、启动成败。
+- bullet 层新增：start.ok/fail、run.start/end、stalled、fence（孤儿清理）、probe.fail。
+- 噪音控制：周期观察事件只做边沿触发（对照持久化 evidence 上一状态）；探测失败每个降级周期只报一次；2 万行保留上限。
+
+体验：`dt log --cat --sev` 中文标签 + 严重度着色；Web /events 页类别/严重度徽章与四维筛选；隧道详情页 Recent events 最近 20 条。
+
+权威规范见 [docs/events.md](docs/events.md)。
 
 ## 不变量（全程）
 

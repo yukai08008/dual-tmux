@@ -113,7 +113,9 @@ def read_occupancy(name: str, cfg: AppConfig | None = None) -> dict:
     return value
 
 
-def claim_occupancy(name: str, cfg: AppConfig | None = None) -> dict:
+def claim_occupancy(
+    name: str, cfg: AppConfig | None = None, reason: str = ""
+) -> dict:
     """Declare this Client as the single active trigger. Last writer wins."""
     value = _remote(name, "claim", cfg=cfg)
     if not value.get("ok"):
@@ -125,6 +127,7 @@ def claim_occupancy(name: str, cfg: AppConfig | None = None) -> dict:
         name=name,
         holder=str(value.get("holder") or ""),
         generation=int(value.get("generation") or 0),
+        reason=reason or None,
     )
     return value
 
