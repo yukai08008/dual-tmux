@@ -1,0 +1,83 @@
+version: v0.4.75
+parent_final: main@2ab0eda (v0.4.74)
+title: 事件体系（Event Management）
+type: feature
+prd: dev_plans/v0.4.75-events/PRD.md
+test_cases: dev_plans/v0.4.75-events/TEST_CASES.md
+
+invariants:
+  - "旧 events.jsonl 行必须可读；dt log 旧参数不减少"
+  - "事件留本机，不进 hub push/pull"
+  - "不记录 prompt 全文（preview ≤60 字符）"
+  - "tick/daemon 周期路径不产生重复事件"
+  - "Web 资源故障不影响 CLI；CLI 命令集不减少"
+
+deliverables:
+  - module: src/dual_tmux/log.py
+    change: 事件模型 v2（sev/cat/KIND_META/fallback/rotation/label/meta）
+    public_api: [emit, read_events, meta, label, KIND_META, SEVERITIES, CATEGORIES]
+  - module: src/dual_tmux/cli.py
+    change: transport.reconnect/dt.model/start 事件 + dt log --cat/--sev
+  - module: src/dual_tmux/control.py
+    change: send/interrupt/reconnect 事件 + events() cat/sev 与旧行补全
+  - module: src/dual_tmux/activity.py
+    change: 状态转移边沿触发 turn/run/stalled 事件
+  - module: src/dual_tmux/recovery.py
+    change: transport.reconcile/bullet.fence/probe.fail 阈值一次性事件
+  - module: src/dual_tmux/occupancy.py / ownership.py / hub.py
+    change: hub.occupancy 附接管 reason
+  - module: src/dual_tmux/web_pages.py / web.py / ui.py / tmux.py
+    change: /events 页表格、隧道详情事件区、/api/events 参数、CLI 渲染、transport_of
+  - module: docs/events.md / ROADMAP.md
+    change: 事件体系权威规范 + S11
+  - module: tests/test_events.py
+    change: 事件模型与采集点回归
+
+feature_branches:
+  - name: feat/v0.4.75-events
+    title: 事件体系全量落地
+    deps: []
+    files: [src/dual_tmux, tests, docs, ROADMAP.md]
+    acceptance:
+      - "三类事件均有采集点与测试"
+      - "边沿触发与阈值一次性有测试证明"
+      - "dt log 与 /events 页新过滤可用"
+      - "全量 pytest 通过"
+    estimated_loc: ~700
+
+acceptance_count: 4
+total_estimated_loc: ~700
+
+risk_register:
+  - id: R1
+    risk: tick/daemon 并发下偶发重复事件
+    mitigation: 窗口极小且幂等可读；接受
+    severity: low
+  - id: R2
+    risk: KIND_META 与散落 emit 漂移
+    mitigation: 契约测试扫描 emit 字面量
+    severity: medium
+  - id: R3
+    risk: send preview 泄露敏感内容
+    mitigation: 截断 60 字符 + 长度
+    severity: medium
+
+git_workflow:
+  branch_creation: from main@9539012
+  feature_order: single-branch (event-core, agent-events, events-ui 同分支分步提交)
+  merge_policy: --no-ff
+  before_merge_checks:
+    - ".venv/bin/python -m pytest tests/ -q"
+    - "ruff check src tests"
+  final_tag: v0.4.75
+
+deployment_checklist:
+  - "wheel 安装后 dt --version = 0.4.75"
+  - "dt log --cat trigger 可过滤"
+  - "Web /events 页渲染徽章与筛选"
+  - "真实隧道 tick 一次不产生重复 turn 事件"
+
+notes:
+  - "跨机事件汇聚（hub 分片同步）留作后续版本。"
+
+签名: Agent-PM-0.4.75
