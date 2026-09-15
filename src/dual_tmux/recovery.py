@@ -485,7 +485,12 @@ def ensure_remote_session(data: dict, *, runner: Runner = subprocess.run) -> boo
     sid = bullet.get("session_id") or ""
     if not sid or (bullet.get("tool") or "opencode") != "opencode":
         return False
-    if (_remote_probe(data, runner=runner).get("session") or {}).get("ok"):
+    probe = _remote_probe(data, runner=runner)
+    transport = probe.get("transport") or {}
+    if not transport.get("ok"):
+        detail = str(transport.get("detail") or "remote transport unavailable")
+        raise SystemExit(f"[err] remote bullet probe unavailable: {detail}")
+    if (probe.get("session") or {}).get("ok"):
         return False
     snapshot = oc_ops.persist_snapshot(bullet)
     if snapshot is None:

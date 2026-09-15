@@ -4,6 +4,7 @@ import subprocess
 import pytest
 
 from dual_tmux import cli, recovery
+from dual_tmux.config import AppConfig
 from dual_tmux import workpoint as wp
 
 
@@ -33,6 +34,15 @@ def _location_runner(locations):
         return subprocess.CompletedProcess(argv, 0, output, "")
 
     return run
+
+
+def test_remote_ssh_commands_accept_first_use_host_keys(monkeypatch):
+    monkeypatch.setattr(cli, "require_config", lambda: AppConfig(client="tm_x"))
+    data = _dst()
+
+    argv = cli._ssh_argv(data)
+
+    assert "StrictHostKeyChecking=accept-new" in argv
 
 
 def test_reconcile_remote_runtime_repairs_unique_container_location():
