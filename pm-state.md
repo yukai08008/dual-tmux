@@ -1,8 +1,15 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-15 23:29 +08:00 | 更新者: ZCode
+> 最近更新: 2026-09-16 00:33 +08:00 | 更新者: ZCode
 
 ## 状态树
+
+### v0.4.77 (RELEASED) — 自动恢复收敛（S12 补全）
+
+- `auto_recover` 默认开启：TunnelNode 模型与 legacy 读取统一默认 True（显式 false 仍优先），observe/tick 门/Web 展示一致；隧道 JSON 往返物化默认值。
+- stalled 边沿自动重建：`recovery.auto_rebuild_if_stalled`（tick 接线）——语义指纹卡死才动手，复用 v0.4.76 围栏重建（working fail-closed 不变）；退避 5/15/30 分钟、每周期最多 3 次、观察到 working 才清零、用尽转 attention（`recovery.rebuild.hold`）；事件 recovery.rebuild.auto/.auto.fail/.hold。分工定型：**隧道死了自动 resume，bullet 卡了自动 rebuild**。
+- `dt bullet` 新增 `recovery` 字段直接给恢复动词：trigger 侧 down → `dt resume`；trigger 活 + bullet 病 → `dt rebuild`。技能同步说明。
+- 本版无新 CLI 动词/参数，契约零变更。PR #81 已合并至 `main`（merge `9637080`）；全量 pytest 550 passed + 1 skipped（新增 14 用例）；真实冒烟 `dt bullet dt-company-change --json` 输出 `"recovery": "dt resume"`；Release `v0.4.77` 已发布（Latest，31 个累积 wheel，SHA 校验一致），`dt upgrade` 真实发现验证通过。
 
 ### v0.4.76 (RELEASED) — Trigger 受控运维 Bullet（ROADMAP S12）
 
@@ -311,7 +318,7 @@
 
 ## 当前焦点
 
-- v0.4.76（Trigger 受控运维 S12）已合并 `main`（PR #79）并发布 Release；ROADMAP S1–S12 全部落地。
+- v0.4.77（自动恢复收敛）已合并 `main`（PR #81）并发布 Release；ROADMAP S1–S12 全部落地。用户心智模型收敛为：恢复一律 resume，中途故障 dt 自动处理（死了自动 resume、卡了自动 rebuild）。
 - 事件后续可选方向：跨机事件汇聚（hub 分片同步）、飞书告警外发（warn/error 级别）、Web/飞书 UI 上的 rebuild 按钮（API 已具备）。
 - 继续把剩余 CLI 写路径收成事件。CLI 不阉割。
 
