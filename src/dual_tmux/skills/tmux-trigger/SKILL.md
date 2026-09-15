@@ -60,6 +60,11 @@ without touching the bullet pane. Gate your action on `hint`:
 - `transport_down_dt_rebuild` — the jump is gone; rebuild reconnects it.
 - `probe_failing_check_dt_health` — run `dt health <dt>` before acting.
 
+The `recovery` field names the right verb when something is wrong: trigger side
+down → `dt resume` (full restore, both sides); trigger alive with a sick bullet
+→ `dt rebuild` (bullet side only). Auto-recovery may already be handling it —
+check `recovery.rebuild.*` events before acting manually.
+
 For history (what you or the user did to this bullet recently):
 
 ```sh
