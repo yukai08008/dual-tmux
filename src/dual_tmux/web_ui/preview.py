@@ -42,6 +42,16 @@ COMPONENTS_META = [
         "name": "运维工具折叠卡片 (LifecycleToolbar)",
         "desc": "低频操作收纳，Freeze 固化、重连、Drop、模型切换",
     },
+    {
+        "id": "ticker",
+        "name": "进展跑马灯 (ProgressTicker)",
+        "desc": "Trigger 轮询 Bullet 进度动态流、静默轮次熔断标尺、平滑滚动摘要与下次检查倒计时",
+    },
+    {
+        "id": "feed",
+        "name": "轮询进展消息流 (ProgressFeed)",
+        "desc": "纵向追加的消息卡片流、带分类过滤（有效增长/静默/告警）、自动吸底跟随与核心摘要",
+    },
 ]
 
 

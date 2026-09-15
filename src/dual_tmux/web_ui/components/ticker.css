@@ -1,0 +1,264 @@
+/* === progress-ticker.css === */
+.dt-ticker-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #0d121f;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 8px 14px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color: #e2e8f0;
+  overflow: hidden;
+  user-select: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.dt-ticker-container:hover {
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+}
+
+/* 状态药丸胶囊 */
+.dt-ticker-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.25s ease;
+}
+
+.dt-ticker-badge .dt-ticker-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* 状态色系定义 */
+.dt-ticker-container.status-idle .dt-ticker-badge {
+  background: rgba(34, 197, 94, 0.12);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.25);
+}
+.dt-ticker-container.status-idle .dt-ticker-dot {
+  background: #22c55e;
+}
+
+.dt-ticker-container.status-polling .dt-ticker-badge {
+  background: rgba(245, 158, 11, 0.12);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+.dt-ticker-container.status-polling .dt-ticker-dot {
+  background: #f59e0b;
+  box-shadow: 0 0 8px #f59e0b;
+  animation: dt-pulse-dot 1.2s infinite ease-in-out;
+}
+
+.dt-ticker-container.status-working .dt-ticker-badge {
+  background: rgba(59, 130, 246, 0.14);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+.dt-ticker-container.status-working .dt-ticker-dot {
+  background: #3b82f6;
+  box-shadow: 0 0 8px #3b82f6;
+  animation: dt-pulse-dot 1.5s infinite ease-in-out;
+}
+
+.dt-ticker-container.status-quiet .dt-ticker-badge {
+  background: rgba(239, 68, 68, 0.14);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+.dt-ticker-container.status-quiet .dt-ticker-dot {
+  background: #ef4444;
+  box-shadow: 0 0 10px #ef4444;
+  animation: dt-blink-fast 0.6s infinite alternate;
+}
+
+.dt-ticker-container.status-done .dt-ticker-badge {
+  background: rgba(16, 185, 129, 0.14);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+.dt-ticker-container.status-done .dt-ticker-dot {
+  background: #10b981;
+}
+
+.dt-ticker-container.status-interrupted .dt-ticker-badge {
+  background: rgba(148, 163, 184, 0.14);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+.dt-ticker-container.status-interrupted .dt-ticker-dot {
+  background: #64748b;
+}
+
+@keyframes dt-pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+@keyframes dt-blink-fast {
+  0% { opacity: 1; transform: scale(1.1); }
+  100% { opacity: 0.3; transform: scale(0.9); }
+}
+
+/* 跑马灯主轨道 */
+.dt-ticker-track {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  mask-image: linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent);
+  -webkit-mask-image: linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent);
+}
+
+.dt-ticker-content {
+  display: inline-block;
+  white-space: nowrap;
+  font-size: 13px;
+  color: #cbd5e1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  padding-left: 100%;
+  animation: dt-ticker-scroll 24s linear infinite;
+}
+
+.dt-ticker-track:hover .dt-ticker-content {
+  animation-play-state: paused;
+}
+
+@keyframes dt-ticker-scroll {
+  0% { transform: translate3d(0, 0, 0); }
+  100% { transform: translate3d(-100%, 0, 0); }
+}
+
+.dt-ticker-segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 32px;
+}
+
+.dt-ticker-segment .dt-ticker-target {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+.dt-ticker-target.tag-trigger {
+  background: rgba(99, 102, 241, 0.2);
+  color: #a5b4fc;
+  border: 1px solid rgba(99, 102, 241, 0.4);
+}
+.dt-ticker-target.tag-bullet {
+  background: rgba(16, 185, 129, 0.2);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.dt-ticker-segment .dt-ticker-metric {
+  color: #64748b;
+  font-size: 11px;
+}
+
+/* 静默轮次熔断标尺 (Quiet Round Cap: 8格) */
+.dt-ticker-quiet-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  flex-shrink: 0;
+}
+
+.dt-ticker-quiet-label {
+  font-size: 10px;
+  color: #94a3b8;
+  margin-right: 2px;
+  font-weight: 600;
+}
+
+.dt-ticker-quiet-pip {
+  width: 5px;
+  height: 10px;
+  border-radius: 2px;
+  background: #1e293b;
+  transition: all 0.2s ease;
+}
+
+.dt-ticker-quiet-pip.active-green { background: #22c55e; box-shadow: 0 0 4px #22c55e; }
+.dt-ticker-quiet-pip.active-yellow { background: #f59e0b; box-shadow: 0 0 4px #f59e0b; }
+.dt-ticker-quiet-pip.active-red { background: #ef4444; box-shadow: 0 0 6px #ef4444; }
+
+/* 倒计时小组件 */
+.dt-ticker-countdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: #94a3b8;
+  padding: 3px 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 5px;
+  flex-shrink: 0;
+  font-family: ui-monospace, Menlo, monospace;
+}
+
+.dt-ticker-countdown strong {
+  color: #38bdf8;
+  font-weight: 700;
+}
+
+/* 控制按钮/动作组 */
+.dt-ticker-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.dt-ticker-btn {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #94a3b8;
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-size: 11.5px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+}
+
+.dt-ticker-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #f1f5f9;
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.dt-ticker-btn.btn-interrupt {
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+}
+.dt-ticker-btn.btn-interrupt:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: #ef4444;
+  color: #fee2e2;
+}
+

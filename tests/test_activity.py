@@ -86,3 +86,20 @@ def test_preferred_source_uses_newest_tick(tmp_path):
         "200 2026-09-10T00:01:00 dt-a opencode ssh bbb\n", encoding="utf-8"
     )
     assert activity.preferred_source(data, local="tm_home", root=root) == "tm_home"
+
+
+def test_last_tick_epoch_ignores_empty_and_missing_trigger(tmp_path):
+    root = tmp_path / "opencode"
+    home = root / "tm_home" / "ticks"
+    other = root / "tm_other" / "ticks"
+    home.mkdir(parents=True)
+    other.mkdir(parents=True)
+    (home / "op_a.log").write_text(
+        f"300 2026-09-10T00:02:00 dt-a - ssh {activity.EMPTY_FINGERPRINT}\n", encoding="utf-8"
+    )
+    (other / "op_a.log").write_text(
+        "200 2026-09-10T00:01:00 dt-a opencode ssh bbb\n", encoding="utf-8"
+    )
+    data = {"name": "dt-a", "op": "op_a"}
+    assert activity.last_tick_epoch(home / "op_a.log", "dt-a") == 0
+    assert activity.preferred_source(data, local="tm_home", root=root) == "tm_other"

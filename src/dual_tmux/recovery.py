@@ -485,7 +485,12 @@ def ensure_remote_session(data: dict, *, runner: Runner = subprocess.run) -> boo
     sid = bullet.get("session_id") or ""
     if not sid or (bullet.get("tool") or "opencode") != "opencode":
         return False
-    if (_remote_probe(data, runner=runner).get("session") or {}).get("ok"):
+    probe = _remote_probe(data, runner=runner)
+    transport = probe.get("transport") or {}
+    if not transport.get("ok"):
+        detail = str(transport.get("detail") or "remote transport unavailable")
+        raise SystemExit(f"[err] remote bullet probe unavailable: {detail}")
+    if (probe.get("session") or {}).get("ok"):
         return False
     snapshot = oc_ops.persist_snapshot(bullet)
     if snapshot is None:
@@ -493,6 +498,19 @@ def ensure_remote_session(data: dict, *, runner: Runner = subprocess.run) -> boo
             f"[err] bullet session {sid} missing remotely and no local persist JSON"
         )
     directory = (data.get("runtime") or {}).get("directory") or "/workspace"
+    # Persist exports carry the absolute directory of the Client that owned
+    # the session.  A remote import must be rebound to the remote workspace;
+    # otherwise OpenCode later calls FileSystem.access() on a foreign local
+    # path (for example /Users/<old-client>/...) and reports NotFound.
+    try:
+        payload = json.loads(snapshot.read_text(encoding="utf-8"))
+        info = payload.setdefault("info", {})
+        info["directory"] = directory
+        if "path" in info:
+            info["path"] = str(directory).lstrip("/")
+        snapshot_text = json.dumps(payload, ensure_ascii=False)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"[err] invalid bullet persist JSON: {exc}") from exc
     script = (
         f"cd {shlex.quote(directory)} || exit 41; "
         "tmp=$(mktemp /tmp/dt-opencode.XXXXXX.json) || exit 42; "
@@ -504,7 +522,7 @@ def ensure_remote_session(data: dict, *, runner: Runner = subprocess.run) -> boo
             data,
             script,
             runner=runner,
-            input_text=snapshot.read_text(encoding="utf-8"),
+            input_text=snapshot_text,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise SystemExit(f"[err] remote bullet import: {exc}") from exc

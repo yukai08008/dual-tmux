@@ -170,6 +170,7 @@ def test_local_new_freeze_drop_resume_keeps_binding_and_sessions(
 
 def test_hub_drop_releases_and_resume_claims_with_force(monkeypatch, tmp_path):
     monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path / "dt-home"))
+    monkeypatch.setenv("OPENCODE_SESSIONS", str(tmp_path / "sessions/opencode"))
     write_config(
         AppConfig(
             client="tm_test",

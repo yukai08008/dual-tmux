@@ -56,3 +56,33 @@ def test_tunnel_picker_component_assets():
     assert "dt-focus-card" in css
     assert "dt-tab-item.active" in css
     assert "border-top: 3px solid var(--dt-primary)" in css
+
+def test_progress_ticker_component_assets():
+    from dual_tmux.web_ui.preview import render_component_preview
+
+    js = get_components_js()
+    css = get_components_css()
+    assert "/* === ticker.css === */" in css
+    assert "class ProgressTickerComponent" in js
+    assert "dt-ticker-container" in css
+    assert "dt-ticker-quiet-pip" in css
+    assert "dt-ticker-badge" in css
+
+    html = render_component_preview("ticker")
+    assert "ProgressTickerComponent" in html
+    assert "进展跑马灯 (ProgressTicker)" in html
+
+def test_progress_feed_component_assets():
+    from dual_tmux.web_ui.preview import render_component_preview
+
+    js = get_components_js()
+    css = get_components_css()
+    assert "/* === feed.css === */" in css
+    assert "class ProgressFeedComponent" in js
+    assert "dt-feed-container" in css
+    assert "dt-feed-item" in css
+    assert "dt-feed-filter" in css
+
+    html = render_component_preview("feed")
+    assert "ProgressFeedComponent" in html
+    assert "轮询进展消息流 (ProgressFeed)" in html

@@ -1,0 +1,349 @@
+/* === progress-feed.css === */
+.dt-feed-container {
+  display: flex;
+  flex-direction: column;
+  height: 480px;
+  background: #0b0f19;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color: #e2e8f0;
+  position: relative;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* 处于聚焦/查看状态下的容器高亮提示 */
+.dt-feed-container.dt-feed-focused,
+.dt-feed-container:focus-within {
+  border-color: rgba(56, 189, 248, 0.45);
+  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.25), 0 4px 24px rgba(0, 0, 0, 0.45);
+}
+
+/* 顶部导航与操作栏 */
+.dt-feed-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: #0f172a;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+}
+
+.dt-feed-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dt-feed-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f1f5f9;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dt-feed-count-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: rgba(59, 130, 246, 0.18);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.dt-feed-focus-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  animation: dt-feed-pulse 2s infinite ease-in-out;
+}
+
+@keyframes dt-feed-pulse {
+  0%, 100% { opacity: 0.9; }
+  50% { opacity: 0.55; }
+}
+
+.dt-feed-filters {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dt-feed-filter-btn {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dt-feed-filter-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #e2e8f0;
+}
+
+.dt-feed-filter-btn.active {
+  background: rgba(59, 130, 246, 0.2);
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.4);
+  font-weight: 600;
+}
+
+.dt-feed-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dt-feed-btn {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #38bdf8;
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dt-feed-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #f8fafc;
+}
+
+/* 视口与定位容器 */
+.dt-feed-viewport {
+  flex: 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 纵向消息列表主体滚动区 */
+.dt-feed-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: relative;
+}
+
+.dt-feed-list::-webkit-scrollbar {
+  width: 7px;
+}
+.dt-feed-list::-webkit-scrollbar-track {
+  background: #090d16;
+}
+.dt-feed-list::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
+  border-radius: 4px;
+}
+.dt-feed-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.45);
+}
+
+/* 浮动未读消息条 */
+.dt-feed-unread-bar {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1e293b;
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  color: #38bdf8;
+  font-size: 11.5px;
+  padding: 5px 14px;
+  border-radius: 20px;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 10;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.dt-feed-unread-bar:hover {
+  background: #0284c7;
+  color: #ffffff;
+  border-color: #38bdf8;
+  transform: translateX(-50%) translateY(-2px);
+  box-shadow: 0 6px 18px rgba(2, 132, 199, 0.4);
+}
+
+/* 空状态 */
+.dt-feed-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #64748b;
+  font-size: 12.5px;
+  gap: 6px;
+}
+
+/* 单条纵向消息卡片 */
+.dt-feed-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-left: 3px solid #64748b;
+  border-radius: 6px;
+  padding: 8px 12px;
+  transition: all 0.2s ease;
+  animation: dt-feed-item-in 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dt-feed-card:hover {
+  background: rgba(30, 41, 59, 0.7);
+  border-color: rgba(255, 255, 255, 0.12);
+  transform: translateY(-1px);
+}
+
+@keyframes dt-feed-item-in {
+  0% { opacity: 0; transform: translateY(8px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* 消息类型左侧色条与样式 */
+.dt-feed-card.kind-dispatch {
+  border-left-color: #818cf8;
+  background: rgba(99, 102, 241, 0.05);
+}
+.dt-feed-card.kind-evidence {
+  border-left-color: #22c55e;
+  background: rgba(34, 197, 94, 0.04);
+}
+.dt-feed-card.kind-quiet {
+  border-left-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.05);
+}
+.dt-feed-card.kind-alert {
+  border-left-color: #ef4444;
+  background: rgba(239, 68, 68, 0.08);
+}
+.dt-feed-card.kind-done {
+  border-left-color: #10b981;
+  background: rgba(16, 185, 129, 0.06);
+}
+.dt-feed-card.kind-interrupt {
+  border-left-color: #dc2626;
+  background: rgba(220, 38, 38, 0.08);
+}
+
+/* 消息卡片头部 */
+.dt-feed-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11.5px;
+}
+
+.dt-feed-card-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dt-feed-round-pill {
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #cbd5e1;
+  font-size: 11px;
+}
+
+.dt-feed-target-tag {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+}
+.dt-feed-target-tag.tag-trigger {
+  background: rgba(99, 102, 241, 0.2);
+  color: #a5b4fc;
+  border: 1px solid rgba(99, 102, 241, 0.4);
+}
+.dt-feed-target-tag.tag-bullet {
+  background: rgba(16, 185, 129, 0.2);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.dt-feed-kind-label {
+  font-weight: 600;
+  font-size: 11px;
+}
+.kind-dispatch .dt-feed-kind-label { color: #a5b4fc; }
+.kind-evidence .dt-feed-kind-label { color: #4ade80; }
+.kind-quiet .dt-feed-kind-label { color: #fbbf24; }
+.kind-alert .dt-feed-kind-label { color: #f87171; }
+.kind-done .dt-feed-kind-label { color: #34d399; }
+.kind-interrupt .dt-feed-kind-label { color: #fca5a5; }
+
+.dt-feed-card-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #64748b;
+  font-size: 11px;
+}
+
+/* 消息内容正文 */
+.dt-feed-card-body {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #cbd5e1;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* 消息指标底栏 */
+.dt-feed-card-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 11px;
+  color: #64748b;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.dt-feed-card-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.dt-feed-card-meta strong {
+  color: #94a3b8;
+  font-weight: 600;
+}
