@@ -1,0 +1,249 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "dual-tmux 会话编排架构",
+    "locale": "zh-CN",
+    "output": "docs/dual-tmux-architecture.html",
+    "quality_profile": "showcase",
+    "viewBox": [1380, 820],
+    "views": [
+      {
+        "id": "control_path",
+        "label": "控制与派活",
+        "focus": ["surfaces", "control", "trigger", "bullet", "workpoint"],
+        "note": "从 CLI、Web 或飞书进入统一控制面，再由 Trigger 通过 tmux 把任务交给 Bullet。"
+      },
+      {
+        "id": "session_continuity",
+        "label": "会话连续性",
+        "focus": ["trigger", "bullet", "local_sessions", "workpoint", "remote_sessions", "persist"],
+        "note": "Trigger 会话跟随操作者迁移；远程 Bullet 会话固定在工作落点。"
+      },
+      {
+        "id": "coordination",
+        "label": "Hub 协调",
+        "focus": ["tick", "hub", "binding", "persist", "control"],
+        "note": "Hub 合并绑定记录、提供单 Client 锁；tick 负责心跳、健康与补偿同步。"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "surfaces",
+      "type": "frontend",
+      "label": "操作入口",
+      "sublabel": "CLI · Web · 飞书",
+      "pos": [35, 340],
+      "size": [145, 68]
+    },
+    {
+      "id": "control",
+      "type": "backend",
+      "label": "ControlService",
+      "sublabel": "能力校验 · 审计",
+      "pos": [245, 340],
+      "size": [155, 68]
+    },
+    {
+      "id": "trigger",
+      "type": "backend",
+      "label": "op_* / Trigger",
+      "sublabel": "本机 tmux · 调度监督",
+      "tag": "Client",
+      "pos": [465, 338],
+      "size": [165, 72]
+    },
+    {
+      "id": "bullet",
+      "type": "backend",
+      "label": "run_* / Bullet",
+      "sublabel": "本机 tmux · 工作进程",
+      "tag": "Client",
+      "pos": [695, 338],
+      "size": [165, 72]
+    },
+    {
+      "id": "binding",
+      "type": "database",
+      "label": "Tunnel Binding",
+      "sublabel": "dt-*.json · runtime.cmd",
+      "pos": [245, 590],
+      "size": [165, 70]
+    },
+    {
+      "id": "local_sessions",
+      "type": "database",
+      "label": "Client Agent Store",
+      "sublabel": "Trigger / 本地 Bullet",
+      "pos": [465, 90],
+      "size": [165, 70]
+    },
+    {
+      "id": "workpoint",
+      "type": "cloud",
+      "label": "工作落点",
+      "sublabel": "Local · SSH · Docker",
+      "pos": [925, 338],
+      "size": [165, 72]
+    },
+    {
+      "id": "remote_sessions",
+      "type": "database",
+      "label": "远程 Agent Store",
+      "sublabel": "Bullet session 唯一真源",
+      "pos": [1165, 338],
+      "size": [175, 72]
+    },
+    {
+      "id": "hub",
+      "type": "security",
+      "label": "Hub",
+      "sublabel": "merge-sync · lock · mailbox",
+      "pos": [925, 590],
+      "size": [175, 72]
+    },
+    {
+      "id": "persist",
+      "type": "database",
+      "label": "Persist Tree",
+      "sublabel": "Trigger 会话 JSON 迁移",
+      "pos": [1165, 90],
+      "size": [170, 72]
+    },
+    {
+      "id": "tick",
+      "type": "messagebus",
+      "label": "dt tick / daemon",
+      "sublabel": "心跳 · 健康 · 恢复",
+      "pos": [695, 590],
+      "size": [175, 72]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "当前 Client",
+      "wraps": ["surfaces", "control", "trigger", "bullet", "binding", "local_sessions", "tick"],
+      "pad": 20
+    },
+    {
+      "kind": "security-group",
+      "label": "Bullet 工作环境",
+      "wraps": ["workpoint", "remote_sessions"],
+      "pad": 16
+    },
+    {
+      "kind": "region",
+      "label": "可选共享层",
+      "wraps": ["hub", "persist"],
+      "pad": 18
+    }
+  ],
+  "connections": [
+    {
+      "id": "entry_control",
+      "from": "surfaces",
+      "to": "control",
+      "label": "操作契约",
+      "labelDy": -24,
+      "variant": "emphasis"
+    },
+    {
+      "id": "control_trigger",
+      "from": "control",
+      "to": "trigger",
+      "variant": "emphasis"
+    },
+    {
+      "id": "dispatch",
+      "from": "trigger",
+      "to": "bullet",
+      "label": "send-keys",
+      "labelDy": -24,
+      "variant": "emphasis"
+    },
+    {
+      "id": "bullet_runtime",
+      "from": "bullet",
+      "to": "workpoint",
+      "variant": "security"
+    },
+    {
+      "id": "workpoint_store",
+      "from": "workpoint",
+      "to": "remote_sessions",
+      "label": "同地 resume",
+      "labelDy": -24,
+      "variant": "emphasis"
+    },
+    {
+      "id": "control_binding",
+      "from": "control",
+      "to": "binding",
+      "label": "freeze",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "trigger_store",
+      "from": "trigger",
+      "to": "local_sessions",
+      "label": "本地 session",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "local_persist",
+      "from": "local_sessions",
+      "to": "persist",
+      "label": "export / import",
+      "variant": "dashed",
+      "labelDy": 26
+    },
+    {
+      "id": "bullet_tick",
+      "from": "bullet",
+      "to": "tick",
+      "label": "监测",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "tick_hub",
+      "from": "tick",
+      "to": "hub",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "两层会话",
+      "items": [
+        "DT = op_* + run_* 的 1:1 绑定",
+        "DST = DT + 两侧可证明的 Agent session",
+        "tmux 保存进程壳，Agent session 保存对话上下文"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "一致性原则",
+      "items": [
+        "Trigger 跟随操作者，通过 persist JSON 迁移",
+        "远程 Bullet 固定在工作落点，不同步 sqlite",
+        "Hub 锁保证同一 tunnel 同时只有一个 Client 操作"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "恢复安全边界",
+      "items": [
+        "freeze 使用 PID、cwd、启动时间和进程树证明 session 归属",
+        "resume 先恢复工作落点，再导入快照和执行原生 resume",
+        "健康恢复只响应结构性失败，不把静止 pane 当故障"
+      ]
+    }
+  ]
+}

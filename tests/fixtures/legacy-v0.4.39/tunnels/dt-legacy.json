@@ -1,0 +1,24 @@
+{
+  "name": "dt-legacy",
+  "op": "op_legacy",
+  "run": "run_legacy",
+  "client": "tm_legacy",
+  "runtime": {
+    "server": "tom7r",
+    "container": "legacy-box",
+    "directory": "/workspace/legacy",
+    "cmd": "ssh tom7r && docker exec -it legacy-box sh"
+  },
+  "trigger": {
+    "tool": "opencode",
+    "model": "provider/trigger",
+    "session_id": "ses_trigger",
+    "slug": "legacy-trigger"
+  },
+  "bullet": {
+    "tool": "opencode",
+    "model": "provider/bullet",
+    "session_id": "ses_bullet",
+    "slug": "legacy-bullet"
+  }
+}

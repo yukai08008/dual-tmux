@@ -62,6 +62,18 @@ binding 与 conversation snapshot 是两条独立数据链。`dt pull` 必须先
 - 提交：只有远端 client/session 探测成功后，才原子更新 runtime、run_point 和 side binding。
 - 失败：请求的任一 side 未完成即返回失败；已验证 side 可以持久化，但不得记录整体 `freeze.ok`。
 
+### v0.4.49 Hotfix 记录
+
+| # | 分支 | 问题 | 状态 |
+|---|------|------|------|
+| 1 | hotfix/v0.4.49-tmux-sync-status | 终端 tmux 状态栏无同步状态提示（同步链路本身健康，属可视化缺口） | MERGED (PR #18) |
+| 2 | hotfix/v0.4.49-tick-cron-path | cron 裸 PATH 无 homebrew，`dt tick` 每分钟 FileNotFoundError: tmux 崩溃（14292 次 start 仅 10 次完成），错误被 `>/dev/null` 吞掉 | MERGED (PR #20, post4) |
+| 3 | hotfix/v0.4.49-bullet-fencing | bullet 同一 session 被多个 opencode 进程并发持有（m7 实测 4 实例），导致 turn 互相阻塞、消息积压 queue；pane 已附着 TUI 时 resume 命令被打进输入框 | MERGED (PR #22, post5) |
+| 4 | hotfix/v0.4.49-trigger-snapshot-export | 本机 trigger 会话无 persist 快照导出（依赖外部工具，未运行），跨机 resume 会回退到 8/30 旧快照；租户名不一致 | FIXED |
+| 5 | hotfix/v0.4.49-workpoint-alias-hops | shell alias 跳板与 `cd/logout` 混入 resume chain，导致 freeze 把 `cd` 当 SSH 主机；pane 只观测宿主机时还会丢失持久化容器位置 | FIXED |
+| 6 | hotfix/v0.4.49-workpoint-alias-hops | remote bullet 同容器多 OpenCode 进程时 freeze 可能误绑其他 pane；session 表 model 可能滞后于当前会话实际选择 | FIXED |
+
+
 ## 4. 真实环境证据
 
 - 2026-09-05：Home 从 OUC snapshot 恢复 `dt-company_intro_v2` trigger 的 1052 条消息，尾消息校验一致。
