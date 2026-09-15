@@ -1,8 +1,17 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-15 21:22 +08:00 | 更新者: ZCode
+> 最近更新: 2026-09-15 22:18 +08:00 | 更新者: ZCode
 
 ## 状态树
+
+### v0.4.75 (RELEASED) — 事件体系（ROADMAP S11）
+
+- 事件模型 v2：`events.jsonl` 每行增加 `sev`（info/warn/error）与 `cat`（system/trigger/bullet）；`KIND_META` 注册表提供中文标签；旧格式行读取时按后缀/前缀规则派生补全；超过 8MB 原子重写保留最近 20000 行。
+- system 层补齐：建立管道（transport.reconnect/.ok/.fail）、管道路由修复（transport.reconcile）、替换模型（dt.model.ok/.fail 含新旧模型）、接管语义（hub.occupancy 附 reason）。
+- trigger/bullet 层新增：trigger.send / bullet.send（命令 Bullet，preview ≤60 字符）、interrupt、turn/run 开始结束（activity_evidence 边沿触发，tick/daemon 不重复）、stalled、start.ok/fail、bullet.fence、probe.fail（降级周期只报一次）。
+- 展示：`dt log --cat/--sev` 中文标签与严重度着色；Web /events 页徽章与四维筛选；隧道详情 Recent events；/api/events 增 cat/sev。CLI 契约快照经评审增量更新（仅 log 命令两个新选项）。
+- 设计决策：事件留本机不进 hub 同步；成败保守口径只记录可观察事实。设计文档 docs/events.md；dev_plans/v0.4.75-events/ 三件套。
+- PR #77 已合并至 `main`（merge `5464fe3`）；全量 pytest 519 passed + 1 skipped（新增 21 个事件测试）；Release `v0.4.75` 已发布（Latest，29 个累积 wheel，SHA 校验一致）；本机已装 0.4.75，`dt upgrade` 真实发现验证通过。
 
 ### v0.4.74 (RELEASED) — SSH 首连自动接受 host key 与远端探测 fail-fast
 
@@ -294,8 +303,9 @@
 
 ## 当前焦点
 
-- v0.4.74 已合并 `main`（PR #75）并发布 GitHub Release，ROADMAP S1–S10 全部落地；v0.4.70–74 Release 与累积 wheel 资产已补发，`dt upgrade` 真实发现路径验证通过。
-- 后续把剩余 CLI 写路径（model/reconnect）也收成事件。CLI 不阉割。
+- v0.4.75（事件体系 S11）已合并 `main`（PR #77）并发布 Release；ROADMAP S1–S11 全部落地。
+- 事件后续可选方向：跨机事件汇聚（hub 分片同步）、飞书告警外发（warn/error 级别）。
+- 继续把剩余 CLI 写路径收成事件。CLI 不阉割。
 
 ## Backlog
 
