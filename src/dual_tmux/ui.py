@@ -19,6 +19,62 @@ def dst_text(yes: bool) -> Text:
     return Text("no", style="dim")
 
 
+_HINT_STYLES = {
+    "ok_to_dispatch": "bold green",
+    "working_wait_for_turn_end": "cyan",
+}
+
+
+def print_bullet(snap: dict) -> None:
+    table = Table(
+        title=f"bullet · {snap['name']}", border_style="cyan", header_style="bold"
+    )
+    table.add_column("项", style="dim")
+    table.add_column("值")
+    hint = str(snap.get("hint") or "")
+    style = _HINT_STYLES.get(hint, "yellow")
+    table.add_row("hint", Text(hint, style=style))
+    for role in ("trigger", "bullet"):
+        side = snap.get("sides", {}).get(role, {})
+        table.add_row(
+            role,
+            f"state={side.get('state')} no_progress={side.get('no_progress_seconds')}s"
+            f" runtime={side.get('runtime')} probe={side.get('probe_status')}",
+        )
+    health = snap.get("health") or {}
+    table.add_row(
+        "health",
+        f"status={health.get('status')} failures={health.get('consecutive_failures')}"
+        + (f" error={health.get('last_error')}" if health.get("last_error") else ""),
+    )
+    transport = snap.get("transport") or {}
+    table.add_row(
+        "transport", f"pane_cmd={transport.get('pane_cmd') or '—'} remote={transport.get('remote')}"
+    )
+    writers = snap.get("writers") or {}
+    table.add_row(
+        "writers", f"status={writers.get('status')} count={writers.get('count')}"
+    )
+    console.print(table)
+    events = snap.get("events") or []
+    if events:
+        rows = Table(title="recent bullet events", border_style="dim", header_style="bold")
+        rows.add_column("ts", style="dim")
+        rows.add_column("kind")
+        rows.add_column("sev")
+        rows.add_column("detail", overflow="fold")
+        for row in reversed(events):
+            rows.add_row(
+                str(row.get("ts") or "")[-9:],
+                str(row.get("kind") or ""),
+                str(row.get("sev") or ""),
+                str(row.get("detail") or ""),
+            )
+        console.print(rows)
+    else:
+        console.print("[dim](no bullet events)[/]")
+
+
 def ok(msg: str) -> None:
     console.print(f"[bold green]ok[/]  {msg}")
 
