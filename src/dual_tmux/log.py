@@ -85,6 +85,9 @@ KIND_META: dict[str, tuple[str, str, str]] = {
     "bullet.run.end": ("bullet", "info", "Bullet 运行结束"),
     "bullet.stalled": ("bullet", "warn", "Bullet 疑似卡死"),
     "bullet.fence": ("bullet", "warn", "Bullet 孤儿实例清理"),
+    "bullet.rebuild.start": ("bullet", "info", "Bullet 围栏重建开始"),
+    "bullet.rebuild.ok": ("bullet", "info", "Bullet 围栏重建完成"),
+    "bullet.rebuild.fail": ("bullet", "error", "Bullet 围栏重建失败"),
     "bullet.probe.fail": ("bullet", "warn", "Bullet 探测失败"),
 }
 

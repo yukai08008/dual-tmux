@@ -111,6 +111,13 @@ _OPERATIONS = (
         "control.tunnel.reconnect",
     ),
     OperationSpec(
+        "bullet.rebuild",
+        "detect",
+        "execute",
+        ("cli", "web", "feishu"),
+        "control.bullet.rebuild",
+    ),
+    OperationSpec(
         "tunnel.drop",
         "detect",
         "execute",
@@ -608,6 +615,29 @@ class ControlService:
                 status=409,
             ) from exc
         return ControlResult("agent.model", updated, _event("agent.model"))
+
+    def rebuild(self, name: str, *, force: bool = False) -> ControlResult:
+        from pydantic import ValidationError
+
+        from datanode.adapters import from_legacy_tunnel
+
+        from .cli import _apply_rebuild_legacy
+
+        data = self.get_tunnel(name).data
+        if not (data.get("run") or ""):
+            raise ControlError(
+                "missing_pane", "tunnel has no bullet pane", status=409
+            )
+        updated = _translate(lambda: _apply_rebuild_legacy(name, force))
+        try:
+            from_legacy_tunnel(updated)
+        except (ValidationError, ValueError) as exc:
+            raise ControlError(
+                "invalid_tunnel_node",
+                f"rebuild committed an invalid TunnelNode: {exc}",
+                status=409,
+            ) from exc
+        return ControlResult("bullet.rebuild", updated, _event("bullet.rebuild"))
 
     def create_tunnel(
         self,
