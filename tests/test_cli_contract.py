@@ -57,6 +57,8 @@ def test_cli_contract_covers_all_current_command_families():
         "resume",
         "rm",
         "send",
+        "bullet",
+        "rebuild",
         "show",
         "skill",
         "tick",

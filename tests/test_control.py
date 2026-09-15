@@ -38,6 +38,7 @@ def test_operation_catalog_has_control_metadata():
         "tunnel.create",
         "tunnel.remove",
         "tunnel.reconnect",
+        "bullet.rebuild",
         "tunnel.drop",
         "hub.push",
         "hub.pull",
