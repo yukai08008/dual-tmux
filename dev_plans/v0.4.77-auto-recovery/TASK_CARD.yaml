@@ -1,0 +1,33 @@
+version: v0.4.77
+parent_final: main@aa4d3de (v0.4.76)
+title: 自动恢复收敛（S12 补全）
+type: behavior
+prd: dev_plans/v0.4.77-auto-recovery/PRD.md
+test_cases: tests/test_auto_recovery.py
+
+invariants:
+  - "显式 auto_recover: false 永远优先于默认值"
+  - "自动重建不得杀 working 回合；成功不清退避，观察到 working 才清零"
+  - "本版无新 CLI 动词/参数，契约零变更"
+
+deliverables:
+  - module: datanode/models.py + datanode/adapters.py
+    change: auto_recover 默认 True 并在往返中物化
+  - module: src/dual_tmux/recovery.py
+    change: auto_rebuild_if_stalled（退避/上限/attention/working 清零）+ 事件三件套
+  - module: src/dual_tmux/cli.py / web.py / ui.py / log.py / skills/tmux-trigger
+    change: 默认值统一、tick 接线、dt bullet recovery 字段与渲染、KIND_META、技能说明
+  - module: tests/test_auto_recovery.py
+    change: 14 个新用例
+
+acceptance_count: 3
+total_estimated_loc: ~260
+
+git_workflow:
+  branch_creation: from main@aa4d3de
+  merge_policy: --no-ff
+  before_merge_checks:
+    - ".venv/bin/python -m pytest tests/ -q"
+  final_tag: v0.4.77
+
+签名: Agent-PM-0.4.77

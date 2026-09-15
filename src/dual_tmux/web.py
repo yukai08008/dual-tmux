@@ -530,7 +530,7 @@ class Handler(BaseHTTPRequestHandler):
                 "bullet_tool": (data.get("bullet") or {}).get("tool") or "opencode",
                 "trigger_client": (data.get("trigger") or {}).get("agent_client") or {},
                 "bullet_client": (data.get("bullet") or {}).get("agent_client") or {},
-                "auto_recover": bool(data.get("auto_recover")),
+                "auto_recover": bool(data.get("auto_recover", True)),
                 "health": read_health_state(data.get("name") or name),
                 "sync": _sync_info(data),
             }

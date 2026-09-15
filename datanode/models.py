@@ -188,7 +188,7 @@ class TunnelNode(NodeModel):
     user: str = ""
     branched_from: str | None = None
     updated_at: datetime | None = None
-    auto_recover: bool = False
+    auto_recover: bool = True
 
     @computed_field
     @property

@@ -34,6 +34,11 @@ def print_bullet(snap: dict) -> None:
     hint = str(snap.get("hint") or "")
     style = _HINT_STYLES.get(hint, "yellow")
     table.add_row("hint", Text(hint, style=style))
+    recovery_verb = str(snap.get("recovery") or "")
+    table.add_row(
+        "recovery",
+        Text(recovery_verb, style="bold") if recovery_verb else "—",
+    )
     for role in ("trigger", "bullet"):
         side = snap.get("sides", {}).get(role, {})
         table.add_row(
