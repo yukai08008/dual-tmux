@@ -1,33 +1,34 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-15 21:03 +08:00 | 更新者: ZCode
+> 最近更新: 2026-09-15 21:22 +08:00 | 更新者: ZCode
 
 ## 状态树
 
-### v0.4.74 (PENDING) — SSH 首连自动接受 host key 与远端探测 fail-fast
+### v0.4.74 (RELEASED) — SSH 首连自动接受 host key 与远端探测 fail-fast
 
 - `_ssh_argv` 增加 `StrictHostKeyChecking=accept-new`：首次连接新远端主机自动接受 host key，不再卡在交互确认。
 - `ensure_remote_session` 在远端探测 transport 层失败时 fail-closed 报错（如 host key verification failed），不再把 SSH 故障误判为「会话丢失」而继续走 persist_snapshot 路径。
 - 分支同时携带：resume 路径重绑与 transport 命令启动修复（`1250348`）、workpoint 别名与 runtime hops 保留（`9166eed`）、lifecycle 基线测试与真实 session ticks 隔离（`3411a95`）。
 - 全量 pytest 498 passed + 1 skipped；`uv tool install --reinstall .` 后 `dt --version` = 0.4.74；真实 `dt resume dt-company-change --plan` 返回 `safe: true / already_owned`（generation 2，holder `tm_andy_home`）。
-- 代码在 `feat/web-progress-ticker` 分支（commit `4587bbe`）已推送，待 PR 合入 `main` 后发布。
+- PR #75 已合并至 `main`（merge `2ab0eda`）；GitHub Release `v0.4.74` 已发布（Latest），0.4.74 wheel SHA-256 与本地构建一致，真实 `dt upgrade` 验证发现路径通过。
+- 补发 v0.4.70–73 的 GitHub Release 与累积 wheel 资产（2026-09-15，draft 校验 SHA 后按版本顺序发布）；标签全部指向各自 PR merge commit，其他客户端 `dt upgrade` 可从 v0.4.69 直接发现并升级到 v0.4.74。
 
-### v0.4.73 (MERGED, PR #73) — Web 指令发送器与打断控制（未发 GitHub Release）
+### v0.4.73 (RELEASED) — Web 指令发送器与打断控制
 
 - 后端新增 `tmux.send_interrupt` 原语（C-c / Escape），打通 `ControlService.interrupt` + `POST /api/interrupt`，由 `hub.require_active` 独热守卫。
 - 前端集成 CommandSenderComponent：打断按钮与状态机解锁，打断成功即刻解锁前端轮询阻塞。
 - 修复 DualTerminal 滚动条同步与 macOS 隐藏问题，页面底部增加 72px 呼吸留白。
 
-### v0.4.72 (MERGED, PR #72) — 双端终端视窗扩容与抖动平滑（未发 GitHub Release）
+### v0.4.72 (RELEASED) — 双端终端视窗扩容与抖动平滑
 
 - 捕获深度提升至 3000 行，tmux history-limit 提升至 10000 行。
 - 消除 DualTerminal 闪烁，增加程序化滚动守卫与滚动条占位。
 
-### v0.4.71 (MERGED, PR #71) — 隧道选择与 Tabs 活跃焦点强化（未发 GitHub Release）
+### v0.4.71 (RELEASED) — 隧道选择与 Tabs 活跃焦点强化
 
 - TunnelPicker 增加高对比度高亮与活跃会话焦点卡片（Focus Card），澄清活跃会话焦点与 tab 切换语义。
 
-### v0.4.70 (MERGED, PR #70) — DualTerminalComponent 上生产（未发 GitHub Release）
+### v0.4.70 (RELEASED) — DualTerminalComponent 上生产
 
 - 双端终端视窗组件集成进 tunnels 正式控制台，支持并排双屏与单端专注模式。
 
@@ -293,8 +294,7 @@
 
 ## 当前焦点
 
-- v0.4.73 已合并 `main`，ROADMAP S1–S10 全部落地；GitHub Release 仅发布到 v0.4.69，v0.4.70–73 待补发。
-- v0.4.74（SSH 首连自动接受 host key + 远端探测 fail-fast）在 `feat/web-progress-ticker` 分支完成并推送（`4587bbe`），测试全绿、本机已装 0.4.74、真实 resume plan 通过，待 PR 合入。
+- v0.4.74 已合并 `main`（PR #75）并发布 GitHub Release，ROADMAP S1–S10 全部落地；v0.4.70–74 Release 与累积 wheel 资产已补发，`dt upgrade` 真实发现路径验证通过。
 - 后续把剩余 CLI 写路径（model/reconnect）也收成事件。CLI 不阉割。
 
 ## Backlog
