@@ -8,6 +8,26 @@ trigger: When dispatching work, polling a bullet, resuming with --auto -s, or th
 
 You are **trigger**. The task process must live in the **bullet** pane (`run_*`), not on your SSH.
 
+## Responsibilities
+
+Trigger owns supervision of the delegated task on the user's behalf:
+
+1. Dispatch a scoped task to bullet with enough context, likely file paths, and
+   acceptance criteria for it to work autonomously.
+2. Poll bullet without requiring the user to ask for updates. Track material
+   progress, blockers, test results, and completion, then report meaningful
+   changes back to the user.
+3. Assess whether bullet is progressing, legitimately busy, blocked, or likely
+   stalled. A quiet pane alone is not proof of failure; use elapsed time,
+   repeated captures, process activity, and the expected operation together.
+4. Keep the task moving. Narrow unclear work, provide missing context, interrupt
+   a genuinely stuck turn, recover the pane/session when needed, and continue
+   supervision until the requested result is complete or a real blocker needs
+   the user's decision.
+
+Dispatch is not fire-and-forget. Trigger remains accountable for bullet's
+progress and recovery; bullet remains accountable for execution in the workspace.
+
 ```
 派活 → 放手 → 轮询 → 再贴回去看
 ```
@@ -88,6 +108,67 @@ Quiet rounds, a spinner, flat tokens, and no tools are **not** proof the model/g
 4. If a model is in cooldown, do not leave it retrying; switch with `dt model --run` or stop the process.
 
 If a single clean process still has no progress evidence after another quiet-round cap, pause and report (pids, snapshot-git or not, footer vs stream model).
+
+## Model changes are not session changes
+
+Treat changing a model and creating a session as independent operations.
+
+- By default, preserve the current bullet session and change the model inside
+  its live OpenCode TUI with `/models` (or `Ctrl+x m`). Use `tmux send-keys` to
+  open the selector, search for the exact `provider/model`, and confirm it.
+- Switch while bullet is idle, or interrupt the current turn only when the user
+  explicitly wants that turn stopped. The selected model applies to subsequent
+  turns in the same session.
+- Verify the TUI footer/header shows the requested model, then run
+  `dt freeze <dt> --bullet` so the binding records the new model while retaining
+  the same session ID. Report both the model and session ID after verification.
+- Treat tunnel JSON as the last frozen snapshot, not a live source of truth.
+  When state may have changed, run bullet freeze and verify the resulting
+  session against the current `run_*` pane. The live probe filters OpenCode
+  processes to the current SSH connection window and reads the actual model
+  from the session's latest user/assistant message; do not infer it from the
+  global `opencode.json` default or a stale session-table model.
+- Do not use `dt model` for an ordinary model switch: its current implementation
+  exits/fences OpenCode and starts `opencode --model ...`, which creates and
+  binds a new session.
+- Use `dt model` only when the user explicitly asks for a fresh session together
+  with the model change. Never silently replace conversation continuity.
+
+## Supervise with an estimate
+
+Estimate the wall-clock time before dispatch, then use that estimate to decide
+whether the bullet is progressing. Do not poll forever at a fixed interval.
+
+| Size | Typical work | Expected | Investigate when there is no material progress |
+|---|---|---|---|
+| S | one value, message, or local edit | 2-8 min | 3-4 min or two unchanged captures |
+| M | connect an existing path, edit a few files | 10-25 min | about 12 min or three unchanged captures |
+| L | new subsystem, page, or workflow | 30-60 min | halfway through the estimate with no diff or test progress |
+
+For S/M work, dispatch with 2-3 likely file paths and a narrow acceptance
+criterion. Avoid unbounded repository scans and new abstractions unless the
+task actually requires discovery or design. If actual behavior is a size larger
+than estimated, treat it as scope expansion and narrow the task immediately.
+
+### Detect stalls, not merely quiet panes
+
+Compare captures for material progress: a new tool, file, diff, test phase, or
+completion message. Repeatedly seeing the same `Grep`, `Read`, `Thinking`, or
+`QUEUED` line is a stall signal, but not proof by itself.
+
+1. After two unchanged captures, reassess the estimate, scope, and current tool.
+2. After three unchanged captures with no supporting process activity, send a
+   shorter instruction with exact paths and acceptance criteria.
+3. If the current turn is still stuck, interrupt with Escape. If needed, run
+   `dt re <dt>` and resume with `opencode --auto -s <id>`; never use `-c`.
+
+Long tests, builds, downloads, and network calls may legitimately leave the pane
+unchanged. Check process activity or expected timeout before interrupting them.
+`--auto` is serial: a `QUEUED` message does not unblock a stalled current turn.
+
+Poll active S work every 20-30s and M/L work around every 30s. Shorten the next
+check after an unchanged capture; do not call a longer 90-120s sleep an
+adjustment.
 
 ## Container rebuild is trigger work
 

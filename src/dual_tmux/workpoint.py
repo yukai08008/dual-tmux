@@ -6,7 +6,9 @@ import subprocess
 from datetime import datetime, timezone
 
 from . import tmux as tmux_ops
-from .sshutil import list_ssh_hosts, parse_ssh_target
+from .sshutil import list_ssh_hosts, parse_ssh_target, resolve_shell_alias
+
+DISCONNECT_CMDS = {"logout", "exit"}
 
 DOCKER_RE = re.compile(r"docker\s+exec\s+(?:-[^\s]+\s+)*(\S+)")
 STARSHIP_SEP = re.compile(r"\s*[❯]\s*")
@@ -26,6 +28,7 @@ def empty_point() -> dict:
         "cwd": "",
         "cmd": "",
         "ssh": "",
+        "ssh_cmd": "",
         "container": "",
         "directory": "",
         "resume_cmd": "",
@@ -163,24 +166,56 @@ def parse_hops(text: str) -> list[dict]:
 def _from_hops(hops: list[dict]) -> dict:
     point = empty_point()
     aliases = set(list_ssh_hosts())
-    for hop in hops:
+    # Disconnect commands never replay and never move the endpoint; same-host
+    # hops (plain `cd`) are local and must not enter the connection chain.
+    effective = [
+        h
+        for h in hops
+        if ((h.get("command") or "").strip().split() or [""])[0] not in DISCONNECT_CMDS
+    ]
+    chain: list[str] = []
+    for hop in effective:
         cmd = hop.get("command") or ""
         docker = DOCKER_RE.search(cmd)
+        crossed = bool(hop.get("to_host")) and hop.get("to_host") != hop.get("from_host")
         if docker:
             point["container"] = docker.group(1)
             point["kind"] = "docker"
+            chain.append(cmd)
+            continue
         token = cmd.split()[0] if cmd else ""
         if token in aliases or cmd.startswith("ssh ") or token == "ssh":
-            target = parse_ssh_target(cmd if cmd.startswith("ssh") else token)
+            raw = cmd if cmd.startswith("ssh") else token
+            expanded = ""
+            if " " not in raw.strip():
+                # A bare shell alias hides the real ssh flags (port, user@host).
+                expanded = resolve_shell_alias(raw)
+            target = parse_ssh_target(expanded or raw)
             point["ssh"] = target.stored or token
+            point["ssh_cmd"] = expanded or raw
             if point["kind"] == "local":
                 point["kind"] = "ssh"
-    if hops:
-        last = hops[-1]
+            chain.append(cmd)
+            continue
+        if crossed:
+            if point["kind"] == "local":
+                point["kind"] = "ssh"
+            if not point["ssh"]:
+                point["ssh"] = token
+                expanded = resolve_shell_alias(token)
+                if expanded:
+                    point["ssh_cmd"] = expanded
+                    target = parse_ssh_target(expanded)
+                    point["ssh"] = target.stored or target.dest or token
+            chain.append(cmd)
+    if effective:
+        last = effective[-1]
         point["cwd"] = last.get("to_path") or ""
         point["directory"] = point["cwd"]
         point["hops"] = hops
-        point["resume_cmd"] = " && ".join(h["command"] for h in hops if h.get("command"))
+        point["resume_cmd"] = " && ".join(chain)
+    elif hops:
+        point["hops"] = hops
     return point
 
 
@@ -192,6 +227,8 @@ def _from_processes(pid: str, point: dict) -> None:
             # scrollback. In particular, never keep a heuristic "docker" token
             # as the SSH target while a real ssh process says otherwise.
             point["ssh"] = target.stored or target.dest
+            if not point["ssh_cmd"]:
+                point["ssh_cmd"] = cmd
             if point["kind"] == "local":
                 point["kind"] = "ssh"
             point["resume_cmd"] = cmd
@@ -279,7 +316,14 @@ def discover(tmux_name: str) -> dict:
 def apply_runtime(data: dict, point: dict) -> None:
     runtime = data.setdefault("runtime", {})
     if point.get("ssh"):
-        target = parse_ssh_target(point.get("resume_cmd") or point["ssh"])
+        # Never parse the resume chain: it may mix cd/logout and aliases.
+        ssh_cmd = point.get("ssh_cmd") or ""
+        resume_cmd = (point.get("resume_cmd") or "").strip()
+        if not ssh_cmd and resume_cmd.startswith(("ssh ", "ssh.exe ")) and not any(
+            separator in resume_cmd for separator in ("&&", ";", "||", "|")
+        ):
+            ssh_cmd = resume_cmd
+        target = parse_ssh_target(ssh_cmd or point["ssh"])
         runtime["server"] = target.stored or point["ssh"]
         runtime["ssh_port"] = target.port or 22
     if point.get("container"):
@@ -290,6 +334,7 @@ def apply_runtime(data: dict, point: dict) -> None:
         point.get("directory")
         and point["kind"] in {"ssh", "docker"}
         and point.get("hops")
+        and (not runtime.get("container") or point.get("container"))
     ):
         runtime["directory"] = point["directory"]
     if point.get("container") or (point.get("ssh") and runtime.get("server")):

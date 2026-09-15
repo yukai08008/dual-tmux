@@ -25,6 +25,34 @@
 | E-01 | OUC→Home 恢复 1052 条消息并验证尾问答 | 2026-09-05 已通过 |
 
 ## 2. Trigger workdir
+## 1.1 Earlier Hotfix Regression Cases
+
+| ID | 用例 | → 对应 hotfix | 自动化 |
+|----|------|--------------|--------|
+| B-10 | hub-sync 状态读写/损坏回退 | tmux-sync-status | tests/test_statusbar.py |
+| B-11 | chip 渲染 已同步/同步失败/local | tmux-sync-status | tests/test_statusbar.py |
+| B-12 | 缺失会话跳过、用户自定义 status-right 保护 | tmux-sync-status | tests/test_statusbar.py |
+| B-13 | 重复刷新不叠加、local 模式计数 | tmux-sync-status | tests/test_statusbar.py |
+| E-10 | 源码 `dt tick` 后真实 tmux status-right 显示 ● 已同步 | tmux-sync-status | 手测（已通过 10:10） |
+| B-20 | cron 行带 PATH；install 替换旧行不丢其他条目 | tick-cron-path | tests/test_cron.py |
+| B-21 | tmux bin fallback（which 失败 → homebrew 绝对路径） | tick-cron-path | tests/test_cron.py |
+| B-22 | 未捕获异常写 cmd.fail 事件 | tick-cron-path | tests/test_cron.py |
+| B-23 | hotfix install_tick 对陈旧行纠偏 | tick-cron-path | tests/test_cron.py |
+| E-20 | 裸 cron 环境（PATH=/usr/bin:/bin）源码 `dt tick` 成功 | tick-cron-path | 手测（已通过） |
+| B-30 | remote_session_pids 解析/pattern bracket/失败与超时返回 None | bullet-fencing | tests/test_bullet_fencing.py |
+| B-31 | fence kill 命令构造与空跑/失败策略 | bullet-fencing | tests/test_bullet_fencing.py |
+| B-32 | pane TUI 检测；已附着跳过/检查失败拒启/清理后放行/本地跳过 | bullet-fencing | tests/test_bullet_fencing.py |
+| E-30 | 真实隧道 remote_session_pids=[现役 pid]、TUI 检测 True | bullet-fencing | 手测（已通过） |
+| B-40 | export_snapshot 写入/新鲜跳过/非本地跳过/失败清理/id 校验 | trigger-snapshot-export | tests/test_oc_export.py |
+| B-41 | persist_tenant 读 name 文件、回退 dt client；oc_bin 兜底 | trigger-snapshot-export | tests/test_oc_export.py |
+| E-40 | 真实 tick 自动导出各隧道 trigger 快照并经 persist cron 上 Hub | trigger-snapshot-export | 手测（已通过） |
+| B-50 | shell alias 仅展开 SSH 命令，拒绝非法 token/非 SSH alias | workpoint-alias-hops | tests/test_store.py |
+| B-51 | replay chain 排除同机 `cd` 与 `logout/exit`，保留 SSH 与 docker exec | workpoint-alias-hops | tests/test_store.py |
+| B-52 | runtime 从独立 `ssh_cmd` 解析目标；兼容单条直接 SSH resume 命令 | workpoint-alias-hops | tests/test_store.py |
+| B-53 | pane 只观测宿主机时保留已知 container 与远端 directory | workpoint-alias-hops | tests/test_store.py |
+| E-50 | dt-alex-serp freeze 绑定 container 内最新活动会话 calm-garden | workpoint-alias-hops | 实测（已通过） |
+| B-54 | remote freeze 按当前 SSH 连接年龄过滤其他 pane，优先已绑定 session，并从最新消息读取实际 model | workpoint-alias-hops | tests/test_agentclient.py |
+| E-51 | dt-company_intro_v2 freeze 从陈旧 quiet-orchid 修正为当前 pane nimble-cactus，保留 GPT 5.6 live model | workpoint-alias-hops | 实测（已通过） |
 
 | ID | 用例 | 自动化 |
 |---|---|---|

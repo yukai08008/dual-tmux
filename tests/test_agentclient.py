@@ -184,7 +184,7 @@ def test_active_remote_orders_by_process_start_and_ignores_child_sessions(monkey
     assert oc.active_remote(["ssh", "box"], "work") is None
     script = seen[0]
     assert "/proc/%s/stat" in script
-    assert "key=lambda x:x[3]" in script
+    assert "key=lambda x:(x[0]==preferred,x[3])" in script
     assert "parent_id IS NULL" in script
 
 

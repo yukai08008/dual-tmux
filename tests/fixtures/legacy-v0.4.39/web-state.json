@@ -1,0 +1,13 @@
+{
+  "open_tabs": ["dt-legacy"],
+  "active": "dt-legacy",
+  "history": {
+    "dt-legacy": {
+      "visits": 2,
+      "thread": [
+        {"kind": "ask", "text": "继续旧任务", "extra": {"model": "legacy"}}
+      ],
+      "log": [{"kind": "done", "text": "旧任务完成"}]
+    }
+  }
+}

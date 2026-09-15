@@ -1,0 +1,95 @@
+version: v0.4.51
+parent_final: v0.4.50-final
+title: CLI 基线与版本化契约
+type: api
+prd: dev_plans/v0.4.50-v0.4.51/PRD.md
+test_cases: dev_plans/v0.4.50-v0.4.51/TEST_CASES.md
+
+invariants:
+  - "现有 CLI 一级/嵌套命令、关键参数和默认值不得减少"
+  - "现有 config/tunnel/entry/health/memory/persist 数据可原地读取"
+  - "local-only 与 Hub 模式保持完整可用"
+  - "Web 资源故障不影响 CLI"
+  - "运行时数据不在 git 追踪中"
+
+deliverables:
+  - module: src/dual_tmux/cli_contract.py
+    change: 从 argparse 生成稳定的 JSON-safe CLI manifest
+    public_api: [cli_manifest]
+  - module: docs/contracts/cli-v1.json
+    change: 冻结现有 CLI 语法和默认值
+  - module: tests/test_cli_contract.py
+    change: parser 与契约快照一致性和命令族保护
+  - module: tests/test_cli_lifecycle_baseline.py
+    change: CLI dispatch 与 local/Hub 生命周期 characterization
+  - module: tests/fixtures/legacy-v0.4.39
+    change: config/tunnel/entry/health/memory/web-state 旧格式只读兼容样本
+  - module: tests/test_legacy_data_contract.py
+    change: 旧数据原地读取与 Web 状态无副作用归一化回归
+  - module: tests/test_fault_baseline.py
+    change: SSH timeout、Hub lock、session missing、部分写入故障注入基线
+  - module: docs/contracts/agent-capabilities-v1.json
+    change: 冻结三种 Agent 当前真实能力矩阵
+  - module: tests
+    change: dispatch、核心生命周期、数据/API 契约与故障分类回归
+
+feature_branches:
+  - name: feature/v0.4.51-cli-contract
+    title: CLI manifest 与兼容性护栏
+    deps: []
+    files: [src/dual_tmux/cli_contract.py, docs/contracts, tests/test_cli_contract.py]
+    acceptance:
+      - "实时 parser 与 cli-v1.json 完全一致"
+      - "全部一级、skill、feishu 子命令纳入保护"
+      - "不修改现有 CLI 执行路径"
+    estimated_loc: ~220
+  - name: feature/v0.4.51-lifecycle-baseline
+    title: CLI dispatch 与生命周期 characterization
+    deps: [feature/v0.4.51-cli-contract]
+    files: [tests]
+    acceptance:
+      - "local/Hub 核心生命周期有隔离环境回归"
+      - "无命令默认入口与前置检查有覆盖"
+    estimated_loc: ~320
+  - name: feature/v0.4.51-data-api-contracts
+    title: API、result、error 与持久化 fixture
+    deps: [feature/v0.4.51-cli-contract]
+    files: [docs/contracts, tests]
+    acceptance:
+      - "Web API 方法/路径/风险可机器检查"
+      - "旧数据 fixture 可被当前代码读取"
+    estimated_loc: ~300
+
+acceptance_count: 7
+total_estimated_loc: ~840
+
+risk_register:
+  - id: R1
+    risk: 契约快照被机械更新导致 CLI 退化
+    mitigation: 差异必须带兼容说明和独立评审
+    severity: high
+  - id: R2
+    risk: 与当前 v0.4.49 hotfix 工作树混杂
+    mitigation: 预备护栏不改现有实现；正式分支从 v0.4.50-final 创建
+    severity: high
+
+git_workflow:
+  branch_creation: from v0.4.50-final
+  feature_order: cli-contract, lifecycle-baseline, data-api-contracts
+  merge_policy: --no-ff
+  before_merge_checks:
+    - ".venv/bin/python -m pytest tests/ -q"
+    - "CLI contract diff 已评审"
+    - "git ls-files data/ | wc -l == 0"
+  final_tag: none-api-development-version
+
+deployment_checklist:
+  - "wheel 安装后 dt --version 成功"
+  - "CLI manifest 与源码 parser 一致"
+  - "dt doctor 不要求 Web 资源健康"
+  - "核心 CLI 生命周期冒烟通过"
+
+notes:
+  - "本版本为 v0.4.52 Web 双轨外壳提供契约质量门，不单独发布。"
+
+签名: Agent-PM-0.4.51

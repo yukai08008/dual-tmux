@@ -55,6 +55,34 @@ feature_branches:
 
 acceptance_count: 9
 total_estimated_loc: ~700
+  - name: hotfix/v0.4.49-workpoint-alias-hops
+    title: shell alias 跳板与 workpoint runtime 修复
+    deps: []
+    files: [src/dual_tmux/sshutil.py, src/dual_tmux/workpoint.py, src/dual_tmux/oc.py, src/dual_tmux/cli.py, tests/test_store.py, tests/test_agentclient.py]
+    acceptance:
+      - "freeze 不会把 cd/logout 解析成 SSH 主机或写入 replay chain"
+      - "shell alias 展开后保留真实 SSH host/port"
+      - "pane 只观测宿主机时不丢失已知 container/directory"
+      - "remote freeze 在同容器多 OpenCode 进程时只绑定当前 SSH pane 时间窗内的 session"
+      - "模型以 session 最新消息为准，不被 session 表陈旧 model 误导"
+    estimated_loc: ~280
+
+legacy_hotfix_acceptance:
+      - "tick 每分钟刷新 op_*/run_* status-right 显示 已同步/同步失败/local"
+      - "用户自定义 status-right 的会话不被覆盖"
+      - "非 dt 会话不受影响"
+    estimated_loc: ~260
+  - name: hotfix/v0.4.49-workpoint-alias-hops
+    title: shell alias 跳板与 workpoint runtime 修复
+    deps: []
+    files: [src/dual_tmux/sshutil.py, src/dual_tmux/workpoint.py, src/dual_tmux/oc.py, src/dual_tmux/cli.py, tests/test_store.py, tests/test_agentclient.py]
+    acceptance:
+      - "freeze 不会把 cd/logout 解析成 SSH 主机或写入 replay chain"
+      - "shell alias 展开后保留真实 SSH host/port"
+      - "pane 只观测宿主机时不丢失已知 container/directory"
+      - "remote freeze 在同容器多 OpenCode 进程时只绑定当前 SSH pane 时间窗内的 session"
+      - "模型以 session 最新消息为准，不被 session 表陈旧 model 误导"
+    estimated_loc: ~280
 
 risk_register:
   - id: R1
