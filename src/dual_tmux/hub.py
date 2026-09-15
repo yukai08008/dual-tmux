@@ -757,7 +757,7 @@ def require_active(data: dict, force: bool = False) -> dict:
             "generation": int(data.get("ownership_generation") or 0),
             "holder": load_config().client,
         }
-    claimed = claim_occupancy(name)
+    claimed = claim_occupancy(name, reason="require_active")
     generation = int(claimed.get("generation") or 0)
     if generation and generation != int(data.get("ownership_generation") or 0):
         from .store import find_dt, now_iso, save
