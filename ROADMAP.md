@@ -1,5 +1,6 @@
 # dual-tmux ROADMAP
 
+> v0.4.77：自动恢复收敛（S12 补全）。`auto_recover` 默认开启（显式关闭仍生效）；stalled 边沿接入自动重建（`recovery.rebuild.auto`，退避 5/15/30 分钟、每周期最多 3 次、观察到 working 清零、用尽转 attention）；`dt bullet` 输出 `recovery` 字段直接给出恢复动词（trigger 侧 down → `dt resume`，trigger 活 + bullet 病 → `dt rebuild`）。用户心智模型收敛为：**恢复一律 resume，中途故障 dt 自动处理**。
 > v0.4.76：Trigger 受控运维 Bullet（S12）。新增 `dt bullet`（一站式只读诊断：活动状态/健康/管道/远端写者/最近事件 + 事实 hint）与 `dt rebuild`（围栏化重建：路由修复→跳板重连→孤儿 fence→绑定会话重启，span 事件可审计）；技能与 AGENTS.md 改写为事件驱动守则——派发走 `dt send`（占用守卫 + bullet.send 事件）、行动前查 `dt bullet --json`、卡死恢复一条 `dt rebuild` 替代手工 pgrep/kill/--auto 配方。
 > v0.4.75：事件体系（S11）。events.jsonl 升级为带分类（system/trigger/bullet）与严重度（info/warn/error）的结构化事件：补齐建立管道、替换模型、命令 Bullet、Trigger 回合、Bullet 运行/卡死/探测失败等缺失采集点；周期观察事件边沿触发防刷屏，2 万行保留上限；`dt log` 与 Web /events 页升级为中文标签 + 类别/严重度筛选。设计见 [docs/events.md](docs/events.md)。
 > v0.4.73：Web 指令发送器（CommandSender）与打断控制落地。引入后端 send_interrupt 原语（C-c / Escape），接入 ControlService 与独热 require_active 活跃态校验；前端集成 CommandSenderComponent，新增打断按钮与状态机解锁；修复 DualTerminal 滚动条同步与 macOS 隐藏问题，增加页面底部 72px 呼吸留白。
