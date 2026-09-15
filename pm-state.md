@@ -1,8 +1,16 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-15 22:18 +08:00 | 更新者: ZCode
+> 最近更新: 2026-09-15 23:29 +08:00 | 更新者: ZCode
 
 ## 状态树
+
+### v0.4.76 (RELEASED) — Trigger 受控运维 Bullet（ROADMAP S12）
+
+- `dt bullet <dt> [--json]`：一站式只读诊断——聚合 evidence 活动状态（含无进展秒数）、health FSM、run_* 管道命令、远端写者计数与最近 bullet/transport 事件，输出事实 hint（ok_to_dispatch / working_wait / stalled_do_not_queue / multiple_writers / transport_down / probe_failing）；闭环 BL-TRIGGER-001。
+- `dt rebuild <dt> [--force]`：围栏化重建——占用守卫 → working fail-closed 拒绝（拒绝也记事件，--force 覆盖）→ 路由修复 → 跳板重连验证 → 孤儿 fence（记录 pids）→ persist 导入 → 绑定会话围栏重启；span 事件 bullet.rebuild.start/.ok/.fail；经 ControlService.rebuild 接入操作目录（CLI/Web/飞书同源）。
+- 技能与 AGENTS.md 事件驱动改写：派发走 `dt send`（占用守卫 + bullet.send 事件）、行动前 `dt bullet --json` 门控、卡死恢复一条 `dt rebuild` 替代手工 pgrep/kill/--auto 配方（多实例与上下文污染事故的根因路径）、`dt log --cat bullet` 查历史；技能经 opsdir.prepare 全量重装自动传播。
+- CLI 契约增量：新增 bullet、rebuild 命令（现有命令零变更）；操作目录增量 bullet.rebuild。
+- PR #79 已合并至 `main`（merge `3c498e4`）；全量 pytest 536 passed + 1 skipped（新增 17 用例）；真实冒烟 `dt bullet dt-company-change --json` 正确诊断死亡隧道并给出 stalled_do_not_queue；Release `v0.4.76` 已发布（Latest，30 个累积 wheel，SHA 校验一致），`dt upgrade` 真实发现验证通过。
 
 ### v0.4.75 (RELEASED) — 事件体系（ROADMAP S11）
 
@@ -303,8 +311,8 @@
 
 ## 当前焦点
 
-- v0.4.75（事件体系 S11）已合并 `main`（PR #77）并发布 Release；ROADMAP S1–S11 全部落地。
-- 事件后续可选方向：跨机事件汇聚（hub 分片同步）、飞书告警外发（warn/error 级别）。
+- v0.4.76（Trigger 受控运维 S12）已合并 `main`（PR #79）并发布 Release；ROADMAP S1–S12 全部落地。
+- 事件后续可选方向：跨机事件汇聚（hub 分片同步）、飞书告警外发（warn/error 级别）、Web/飞书 UI 上的 rebuild 按钮（API 已具备）。
 - 继续把剩余 CLI 写路径收成事件。CLI 不阉割。
 
 ## Backlog
