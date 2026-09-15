@@ -588,6 +588,182 @@ def cmd_send(args: argparse.Namespace) -> None:
         raise SystemExit(str(exc)) from exc
 
 
+def _bullet_snapshot(data: dict) -> dict:
+    """Aggregate factual bullet state for trigger-side decisions (read-only)."""
+    import time as _time
+
+    from . import activity as activity_ops
+    from .recovery import read_state, remote_session_pids
+
+    name = str(data.get("name") or "")
+    run = str(data.get("run") or "")
+    evidence = activity_ops.read_evidence(name)
+    now = int(_time.time())
+    sides = {}
+    for role in ("trigger", "bullet"):
+        side = dict((evidence.get("sides") or {}).get(role) or {})
+        last_change = side.get("last_semantic_change_at")
+        sides[role] = {
+            "state": str(side.get("state") or "unknown"),
+            "no_progress_seconds": (
+                max(0, now - int(last_change))
+                if isinstance(last_change, int)
+                else None
+            ),
+            "runtime": str(side.get("runtime") or "unknown"),
+            "probe_status": str(side.get("probe_status") or "unknown"),
+            "sampled_at": side.get("sampled_at"),
+        }
+    health = read_state(name)
+    pane_cmd = tmux_ops.pane_command(run) if run else ""
+    remote = bool((data.get("runtime") or {}).get("server"))
+    writers: list[int] | None = []
+    writers_status = "not_remote"
+    if remote:
+        writers = remote_session_pids(data)
+        writers_status = (
+            "unknown" if writers is None else ("multiple" if len(writers) > 1 else "single")
+        )
+    bullet_state = sides["bullet"]["state"]
+    no_progress = sides["bullet"]["no_progress_seconds"]
+    health_status = str(health.get("status") or "idle")
+    failures = int(health.get("consecutive_failures") or 0)
+
+    hint = "ok_to_dispatch"
+    if bullet_state == "stalled":
+        hint = f"stalled_no_progress_{no_progress or 0}s_do_not_queue"
+    elif writers_status == "multiple":
+        hint = "multiple_writers_fence_first_dt_rebuild"
+    elif remote and pane_cmd not in {"", "ssh", "docker"} and bullet_state != "working":
+        hint = "transport_down_dt_rebuild"
+    elif failures >= 3 or health_status in {"degraded", "attention"}:
+        hint = "probe_failing_check_dt_health"
+    elif bullet_state == "working":
+        hint = "working_wait_for_turn_end"
+
+    bullet_rows = [
+        row
+        for row in ev.read_events(limit=50, name=name)
+        if str(row.get("kind") or "").startswith(("bullet.", "transport."))
+    ][-10:]
+    return {
+        "schema": 1,
+        "name": name,
+        "run": run,
+        "remote_bullet": remote,
+        "sides": sides,
+        "health": {
+            "status": health_status,
+            "consecutive_failures": failures,
+            "last_error": str(health.get("last_error") or ""),
+        },
+        "transport": {"pane_cmd": str(pane_cmd or ""), "remote": remote},
+        "writers": {
+            "status": writers_status,
+            "count": None if writers is None else len(writers),
+            "pids": writers or [],
+        },
+        "events": [
+            {key: row.get(key) for key in ("ts", "kind", "sev", "name")}
+            | {"detail": " ".join(
+                f"{k}={v}"
+                for k, v in row.items()
+                if k not in {"ts", "kind", "sev", "cat", "pid", "name", "dt"}
+            )}
+            for row in bullet_rows
+        ],
+        "hint": hint,
+    }
+
+
+def cmd_bullet(args: argparse.Namespace) -> None:
+    import json as _json
+
+    data = _resolve(args.name)
+    snap = _bullet_snapshot(data)
+    if getattr(args, "json", False):
+        print(_json.dumps(snap, ensure_ascii=False, indent=2))
+        return
+    ui.print_bullet(snap)
+
+
+def _apply_rebuild_legacy(name: str, force: bool = False) -> dict:
+    """Fenced bullet rebuild: repair route, reconnect jump, fence orphans, restart."""
+    from . import activity as activity_ops
+    from . import recovery
+
+    data = _resolve(name)
+    hub.require_active(data)
+    tname = str(data.get("name") or "")
+    span = ev.timed("bullet.rebuild", name=tname)
+    try:
+        evidence = activity_ops.read_evidence(tname)
+        bullet_ev = (evidence.get("sides") or {}).get("bullet") or {}
+        if str(bullet_ev.get("state") or "") == "working" and not force:
+            raise SystemExit(
+                f"[err] {tname} bullet state is working; pass --force to rebuild a live turn"
+            )
+        runtime = data.get("runtime") or {}
+        remote = bool(runtime.get("server"))
+        transports = {"ssh", "docker"}
+        if remote:
+            recovery.reconcile_remote_runtime(data)
+            if tmux_ops.pane_command(data["run"]) not in transports:
+                jump = runtime.get("cmd") or ""
+                if not jump:
+                    raise SystemExit(
+                        "[err] bullet runtime has a server but no reconnect command"
+                    )
+                tmux_ops.reconnect(data["run"], jump)
+                landed = tmux_ops.wait_stable_command(data["run"], transports, timeout=25)
+                if landed not in transports:
+                    ev.emit(
+                        "transport.reconnect.fail",
+                        name=tname,
+                        pane=str(data.get("run") or ""),
+                        transport=tmux_ops.transport_of(jump),
+                        landed=landed,
+                    )
+                    raise SystemExit(
+                        f"[err] bullet jump did not stay connected (cmd={landed or '—'})"
+                    )
+                ev.emit(
+                    "transport.reconnect.ok",
+                    name=tname,
+                    pane=str(data.get("run") or ""),
+                    transport=tmux_ops.transport_of(jump),
+                )
+            fenced = recovery.fence_remote_bullet(data)
+            if fenced is None:
+                raise SystemExit(
+                    "[err] remote bullet process check failed; refusing to rebuild blind"
+                )
+            if not _pane_shows_agent(data["run"]):
+                recovery.ensure_remote_session(data)
+        _start_side(data, data["run"], "bullet", resume=True)
+        save(find_dt(data["name"]), data)
+        hub.push_best_effort()
+        span.ok()
+        return load(find_dt(data["name"]))
+    except SystemExit as exc:
+        span.fail(str(exc))
+        raise
+
+
+def apply_rebuild(name: str, force: bool = False) -> dict:
+    from .control import ControlError, get_control_service
+
+    try:
+        return get_control_service().rebuild(name, force=force).data
+    except ControlError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
+def cmd_rebuild(args: argparse.Namespace) -> None:
+    data = apply_rebuild(args.name, force=bool(getattr(args, "force", False)))
+    ui.ok(f"rebuilt bullet for {data.get('name')}")
+
+
 def _ssh_argv(data: dict) -> list[str]:
     from .sshutil import SshTarget
 
@@ -2183,6 +2359,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_send.add_argument("name")
     p_send.add_argument("text")
 
+    p_bullet = sub.add_parser(
+        "bullet", help="one-shot bullet diagnostics: state, health, transport, writers, events"
+    )
+    p_bullet.add_argument("name", nargs="?", default="", help="defaults to latest tunnel")
+    p_bullet.add_argument(
+        "--json", action="store_true", help="machine-readable snapshot for trigger"
+    )
+
+    p_rebuild = sub.add_parser(
+        "rebuild", help="fenced bullet rebuild: route repair + jump + fence + restart"
+    )
+    p_rebuild.add_argument("name", nargs="?", default="", help="defaults to latest tunnel")
+    p_rebuild.add_argument(
+        "--force", action="store_true", help="allow rebuilding a working bullet turn"
+    )
+
     p_config = sub.add_parser("config", help="show or init Client/Server config")
     p_config.add_argument("--init", action="store_true")
     p_config.add_argument(
@@ -2410,6 +2602,8 @@ def main() -> None:
         "work": cmd_work,
         "re": cmd_re,
         "send": cmd_send,
+        "bullet": cmd_bullet,
+        "rebuild": cmd_rebuild,
         "config": cmd_config,
         "push": cmd_push,
         "pull": cmd_pull,
