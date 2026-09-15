@@ -1,15 +1,61 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-11 02:15 +08:00 | 更新者: Codex PM
+> 最近更新: 2026-09-15 21:03 +08:00 | 更新者: ZCode
 
 ## 状态树
 
-### v0.4.65 (PENDING) — 未冻结隧道 resume 提前熔断与友好拦截 (Fail-Fast)
+### v0.4.74 (PENDING) — SSH 首连自动接受 host key 与远端探测 fail-fast
+
+- `_ssh_argv` 增加 `StrictHostKeyChecking=accept-new`：首次连接新远端主机自动接受 host key，不再卡在交互确认。
+- `ensure_remote_session` 在远端探测 transport 层失败时 fail-closed 报错（如 host key verification failed），不再把 SSH 故障误判为「会话丢失」而继续走 persist_snapshot 路径。
+- 分支同时携带：resume 路径重绑与 transport 命令启动修复（`1250348`）、workpoint 别名与 runtime hops 保留（`9166eed`）、lifecycle 基线测试与真实 session ticks 隔离（`3411a95`）。
+- 全量 pytest 498 passed + 1 skipped；`uv tool install --reinstall .` 后 `dt --version` = 0.4.74；真实 `dt resume dt-company-change --plan` 返回 `safe: true / already_owned`（generation 2，holder `tm_andy_home`）。
+- 代码在 `feat/web-progress-ticker` 分支（commit `4587bbe`）已推送，待 PR 合入 `main` 后发布。
+
+### v0.4.73 (MERGED, PR #73) — Web 指令发送器与打断控制（未发 GitHub Release）
+
+- 后端新增 `tmux.send_interrupt` 原语（C-c / Escape），打通 `ControlService.interrupt` + `POST /api/interrupt`，由 `hub.require_active` 独热守卫。
+- 前端集成 CommandSenderComponent：打断按钮与状态机解锁，打断成功即刻解锁前端轮询阻塞。
+- 修复 DualTerminal 滚动条同步与 macOS 隐藏问题，页面底部增加 72px 呼吸留白。
+
+### v0.4.72 (MERGED, PR #72) — 双端终端视窗扩容与抖动平滑（未发 GitHub Release）
+
+- 捕获深度提升至 3000 行，tmux history-limit 提升至 10000 行。
+- 消除 DualTerminal 闪烁，增加程序化滚动守卫与滚动条占位。
+
+### v0.4.71 (MERGED, PR #71) — 隧道选择与 Tabs 活跃焦点强化（未发 GitHub Release）
+
+- TunnelPicker 增加高对比度高亮与活跃会话焦点卡片（Focus Card），澄清活跃会话焦点与 tab 切换语义。
+
+### v0.4.70 (MERGED, PR #70) — DualTerminalComponent 上生产（未发 GitHub Release）
+
+- 双端终端视窗组件集成进 tunnels 正式控制台，支持并排双屏与单端专注模式。
+
+### v0.4.69 (RELEASED) — 按需 resume 同步
+
+- resume 改为轻量 ticks 检查 + winner-only pull，仅在快照确有更新时发起 Hub 拉取，消除冗余网络开销。
+
+### v0.4.68 (RELEASED) — resume hub pull 收敛与 ready check 修复
+
+- resume hub pull 限定为目标隧道，不再全量拉取；opencode ready check 不再依赖显式 session 标志。
+
+### v0.4.67 (RELEASED) — macOS/BSD 非 /proc 主机远端探测
+
+- 远端 opencode / agent probe 在无 `/proc` 的 macOS/BSD 主机（remote 命令路径）可用。
+
+### v0.4.66 (RELEASED) — Web 控制台模块化与双窗格协同
+
+- 将 `web.py` 单文件解耦，抽离独立视图模板模块 `web_pages.py`。
+- 双窗格（Dual-Pane）并排监视（Split View）与单端专注模式；指令投递双目标选择器（直接向 Bullet 工作点注入 send-keys）。
+- 列表与详情页渲染 [DST] / [草稿] 徽章与未冻结操作友好引导横幅。
+
+### v0.4.65 (RELEASED) — 未冻结隧道 resume 提前熔断与友好拦截 (Fail-Fast)
 
 - 修复未固化 DST 隧道执行 dt resume 时粗暴跑全量 hub.pull 与 persist sync 的冗余网络开销与误导日志。
 - 增加 fail-fast 检查：若本地与 Hub 均未形成 DST，直接阻断并提示先通过 dt enter / dt work 工作后 dt freeze。
 - 映射 not_a_frozen_dst 内部状态机码为人性化中文操作指引。
 - 补齐单元测试，验证未冻结隧道立即安全熔断且不发起远程拉取。
+- PR #65 已合并至 `main`；GitHub Release `v0.4.65` 已发布（2026-09-11）。
 
 ### v0.4.64 (RELEASED) — DataNode 全链路收敛与全层级接入 (100% 闭环)
 
@@ -247,7 +293,9 @@
 
 ## 当前焦点
 
-- v0.4.60 已发布。S7–S9 主路径已按 DataNode/FSM 门禁落地。后续把剩余 CLI 写路径（model/reconnect）也收成事件。CLI 不阉割。
+- v0.4.73 已合并 `main`，ROADMAP S1–S10 全部落地；GitHub Release 仅发布到 v0.4.69，v0.4.70–73 待补发。
+- v0.4.74（SSH 首连自动接受 host key + 远端探测 fail-fast）在 `feat/web-progress-ticker` 分支完成并推送（`4587bbe`），测试全绿、本机已装 0.4.74、真实 resume plan 通过，待 PR 合入。
+- 后续把剩余 CLI 写路径（model/reconnect）也收成事件。CLI 不阉割。
 
 ## Backlog
 
