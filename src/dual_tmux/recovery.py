@@ -22,6 +22,8 @@ FAIL_THRESHOLD = 3
 MAX_ATTEMPTS = 5
 BACKOFF_SECONDS = (60, 120, 300, 600, 1800)
 CIRCUIT_SECONDS = 300
+MAX_AUTO_REBUILDS = 3
+AUTO_REBUILD_BACKOFF = (300, 900, 1800)
 Runner = Callable[..., subprocess.CompletedProcess]
 
 
@@ -608,7 +610,7 @@ def observe(
         last_checked_at=result.get("checked_at") or now_iso(),
         layers=result.get("layers") or {},
     )
-    enabled = bool(data.get("auto_recover"))
+    enabled = bool(data.get("auto_recover", True))
     if result.get("healthy"):
         state.update(
             status="healthy",
@@ -699,6 +701,78 @@ def observe(
         )
     save_state(state)
     return state
+
+
+def auto_rebuild_if_stalled(data: dict, *, service=None) -> bool | None:
+    """Fenced auto-rebuild when evidence shows the bullet stalled.
+
+    Returns True when a rebuild was attempted, None when no action was taken.
+    Honors auto_recover, the per-episode attempt cap, and backoff stored in the
+    health state; the rebuild itself stays fail-closed (a working turn is
+    refused). A probe-dead tunnel is NOT handled here — that stays with
+    observe/recover_now, whose recovery is a full resume.
+    """
+    if not data.get("auto_recover", True):
+        return None
+    name = str(data.get("name") or "")
+    from .activity import read_evidence
+
+    sides = read_evidence(name).get("sides") or {}
+    bullet_state = str((sides.get("bullet") or {}).get("state") or "")
+    if bullet_state == "working":
+        state = read_state(name)
+        if int(state.get("rebuild_attempts") or 0):
+            state["rebuild_attempts"] = 0
+            state["rebuild_next_retry_at"] = 0
+            save_state(state)
+        return None
+    if bullet_state != "stalled":
+        return None
+    epoch = int(time.time())
+    state = read_state(name)
+    if epoch < int(state.get("rebuild_next_retry_at") or 0):
+        return None
+    attempts = int(state.get("rebuild_attempts") or 0)
+    if attempts >= MAX_AUTO_REBUILDS:
+        if str(state.get("status") or "") != "attention":
+            state["status"] = "attention"
+            state["last_error"] = "auto rebuild exhausted; manual dt rebuild / dt resume needed"
+            save_state(state)
+            ev.emit("recovery.rebuild.hold", name=name, attempts=attempts)
+        return None
+    state["rebuild_attempts"] = attempts + 1
+    state["rebuild_next_retry_at"] = epoch + AUTO_REBUILD_BACKOFF[
+        min(attempts, len(AUTO_REBUILD_BACKOFF) - 1)
+    ]
+    save_state(state)
+    ev.emit(
+        "recovery.rebuild.auto",
+        name=name,
+        attempt=attempts + 1,
+        next_retry_at=state["rebuild_next_retry_at"],
+    )
+    if service is None:
+        from .control import get_control_service
+
+        service = get_control_service()
+    from .control import ControlError
+
+    try:
+        service.rebuild(name)
+    except (ControlError, SystemExit) as exc:
+        # The rebuild span already recorded the failure cause; the wrapper
+        # adds the automation context.
+        ev.emit(
+            "recovery.rebuild.auto.fail",
+            name=name,
+            attempt=attempts + 1,
+            error=str(exc),
+        )
+        return True
+    # Counters clear only when the bullet is observed working again; a
+    # "successful" restart that stays stalled keeps backing off instead of
+    # rebuilding every tick.
+    return True
 
 
 def set_enabled(name: str, enabled: bool) -> dict:

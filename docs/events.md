@@ -46,6 +46,9 @@
 | `dt.model.ok / .fail` | **替换模型** | cli.py | model, sides, old, error |
 | `freeze.*` | **持久化隧道**（固化） | cli.py / binding.py | session, rebuild, sides |
 | `persist.export(.fail)` / `persist.native.sync(.fail)` | 快照导出/原生同步 | cli.py | — |
+| `recovery.ok / .fail` | 健康自动恢复（本质是自动 resume，`auto_recover` 默认开） | recovery.py | failures |
+| `recovery.rebuild.auto` | **stalled 边沿触发的自动重建**（v0.4.77；退避 5/15/30 分钟、每周期最多 3 次、working 清零、用尽转 attention） | recovery.py | attempt, next_retry_at |
+| `recovery.rebuild.auto.fail` / `recovery.rebuild.hold` | 自动重建失败 / 次数用尽停止 | recovery.py | attempt, error / attempts |
 
 ### trigger — 交互层
 
@@ -73,8 +76,9 @@
 
 1. **周期性观察事件只做边沿触发**。`activity_evidence` 对照持久化的 ownership-evidence 上一状态，只有状态变化才发射；tick 与 daemon 共用该去重。
 2. **探测失败每个降级周期只报一次**：`recovery.observe` 仅在 `consecutive_failures` 首次达到 `FAIL_THRESHOLD` 时发射 probe.fail，恢复后计数清零。
-3. 单次命令类事件（send/freeze/model/resume）天然低频，直接发射。
-4. 文件级兜底：2 万行上限防止长期运行淹没磁盘。
+3. **自动重建有退避与上限**：stalled 触发的 `recovery.rebuild.auto` 间隔 5/15/30 分钟，每周期最多 3 次，观察到 working 才清零，用尽后转 attention 等人工（`recovery.rebuild.hold`）。
+4. 单次命令类事件（send/freeze/model/resume）天然低频，直接发射。
+5. 文件级兜底：2 万行上限防止长期运行淹没磁盘。
 
 ## 成败语义（保守口径）
 

@@ -963,7 +963,9 @@ def test_lease_worker_fences_live_stale_generation(monkeypatch, tmp_path):
 
     DualTmuxDaemon()._lease_step()
 
-    assert parked == [data]
+    # save() projects through TunnelNode, which now materializes the
+    # default-on auto_recover flag into the record.
+    assert parked == [data | {"auto_recover": True}]
 
 
 @pytest.mark.parametrize("holder", ["", "tm_a"])

@@ -641,6 +641,15 @@ def _bullet_snapshot(data: dict) -> dict:
     elif bullet_state == "working":
         hint = "working_wait_for_turn_end"
 
+    recovery_verb = ""
+    if sides["trigger"]["runtime"] == "down":
+        recovery_verb = "dt resume"
+    elif hint.startswith("stalled_no_progress_") or hint in {
+        "multiple_writers_fence_first_dt_rebuild",
+        "transport_down_dt_rebuild",
+    }:
+        recovery_verb = "dt rebuild"
+
     bullet_rows = [
         row
         for row in ev.read_events(limit=50, name=name)
@@ -673,6 +682,7 @@ def _bullet_snapshot(data: dict) -> dict:
             for row in bullet_rows
         ],
         "hint": hint,
+        "recovery": recovery_verb,
     }
 
 
@@ -1764,7 +1774,7 @@ def cmd_tick(_: argparse.Namespace) -> None:
         live = tmux_ops.has_session(data.get("op") or "") or tmux_ops.has_session(
             data.get("run") or ""
         )
-        if not live and not data.get("auto_recover"):
+        if not live and not data.get("auto_recover", True):
             continue
         if not cfg.hub_enabled and (data.get("runtime") or {}).get("server"):
             continue
@@ -1775,6 +1785,10 @@ def cmd_tick(_: argparse.Namespace) -> None:
         except (OSError, SystemExit, ValueError):
             pass
         recovery.observe(data)
+        try:
+            recovery.auto_rebuild_if_stalled(data)
+        except (OSError, RuntimeError, ValueError):
+            pass
         try:
             written = _export_local_snapshots(data, cfg.client)
             remote_bullet = bool((data.get("runtime") or {}).get("server"))
