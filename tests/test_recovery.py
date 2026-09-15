@@ -1,6 +1,8 @@
 import json
 import subprocess
 
+import pytest
+
 from dual_tmux import recovery
 from dual_tmux.cli import build_parser
 from dual_tmux.config import AppConfig, write_config
@@ -103,6 +105,18 @@ def test_container_probe_ssh_failure_is_transport_failure(monkeypatch):
     layers = recovery._remote_probe(tunnel(remote=True), runner=runner)
     assert layers["transport"]["status"] == "unreachable"
     assert layers["container"]["status"] == "unknown"
+
+
+def test_remote_import_does_not_mask_ssh_failure_as_missing_session(monkeypatch):
+    monkeypatch.setattr("dual_tmux.cli.require_config", lambda: AppConfig(client="tm_x", server="box", user="u"))
+    data = tunnel(remote=True)
+
+    def runner(argv, **_kwargs):
+        return subprocess.CompletedProcess(argv, 255, "", "Host key verification failed.")
+
+    monkeypatch.setattr(recovery.oc_ops, "persist_snapshot", lambda _info: pytest.fail("must not look for persist before transport succeeds"))
+    with pytest.raises(SystemExit, match="remote bullet probe unavailable: Host key verification failed"):
+        recovery.ensure_remote_session(data, runner=runner)
 
 
 def test_enable_is_persisted_without_touching_sessions(tmp_path, monkeypatch):

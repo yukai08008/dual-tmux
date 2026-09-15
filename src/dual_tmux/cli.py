@@ -580,6 +580,8 @@ def _ssh_argv(data: dict) -> list[str]:
         "-o",
         "BatchMode=yes",
         "-o",
+        "StrictHostKeyChecking=accept-new",
+        "-o",
         "ConnectTimeout=8",
         "-o",
         "ServerAliveInterval=15",
