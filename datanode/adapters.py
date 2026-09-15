@@ -121,7 +121,7 @@ def from_legacy_tunnel(record: dict[str, Any]) -> TunnelNode:
             str(record["branched_from"]) if record.get("branched_from") else None
         ),
         updated_at=_datetime(record.get("updated_at")),
-        auto_recover=bool(record.get("auto_recover")),
+        auto_recover=bool(record.get("auto_recover", True)),
     )
 
 
