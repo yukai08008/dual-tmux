@@ -10,7 +10,7 @@ def test_foreign_holder():
 def test_resume_claims_occupancy_without_waiting(monkeypatch):
     calls = []
 
-    def claim(name, cfg=None):
+    def claim(name, cfg=None, reason=""):
         calls.append(name)
         return {"ok": True, "holder": "tm_here", "generation": 13}
 

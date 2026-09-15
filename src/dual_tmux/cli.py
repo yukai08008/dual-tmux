@@ -488,6 +488,12 @@ def _start_side(
     sent = tmux_ops.ensure_agent(tmux_name, cmd, cwd=cwd)
     if sent:
         ui.ok(f"{side} {cmd} -> {tmux_name}" + (f"  cwd={cwd}" if cwd else ""))
+        ev.emit(
+            f"{side}.start.ok",
+            name=str(data.get("name") or ""),
+            pane=tmux_name,
+            tool=str(info.get("tool") or "opencode"),
+        )
     else:
         ui.skip(f"{tmux_name} already running {info.get('tool') or 'agent'}")
     if (
@@ -496,7 +502,16 @@ def _start_side(
         and info.get("tool", "opencode") == "opencode"
         and tmux_ops.pane_command(tmux_name) == "opencode"
     ):
-        _wait_opencode_ready(tmux_name, str(info.get("session_id") or ""))
+        try:
+            _wait_opencode_ready(tmux_name, str(info.get("session_id") or ""))
+        except SystemExit as exc:
+            ev.emit(
+                f"{side}.start.fail",
+                name=str(data.get("name") or ""),
+                pane=tmux_name,
+                error=str(exc),
+            )
+            raise
 
 
 def _touch_point(data: dict, which: str) -> None:
@@ -556,6 +571,12 @@ def cmd_re(args: argparse.Namespace) -> None:
     if not cmd:
         raise SystemExit("[err] tunnel has no runtime.cmd")
     tmux_ops.reconnect(data["run"], cmd)
+    ev.emit(
+        "transport.reconnect",
+        name=str(data.get("name") or ""),
+        pane=str(data.get("run") or ""),
+        transport=tmux_ops.transport_of(cmd),
+    )
 
 
 def cmd_send(args: argparse.Namespace) -> None:
@@ -879,38 +900,64 @@ def _apply_model_legacy(name: str, model: str, sides: list[str]) -> dict:
         raise SystemExit("usage: dt model <name> [--run|--op] <provider/id>")
     ok, detail = oc_ops.probe_model(model)
     if not ok:
+        ev.emit(
+            "dt.model.fail",
+            name=str(data.get("name") or ""),
+            model=model,
+            error=f"model probe failed: {detail}",
+        )
         raise SystemExit(f"[err] model probe failed {model}: {detail}")
     ui.ok(f"probe {model}")
     if not sides:
         sides = ["bullet"]
+    old_models = {
+        side: str(_side(data, side).get("model") or "") for side in sides
+    }
     path = find_dt(data["name"])
-    for side in sides:
-        tmux_name = data["op"] if side == "trigger" else data["run"]
-        info = _side(data, side)
-        info["model"] = model
-        info["tool"] = info.get("tool") or "opencode"
-        if tmux_ops.pane_command(tmux_name) == "opencode":
-            ui.info(f"quit {tmux_name} opencode")
-            tmux_ops.quit_opencode(tmux_name)
-        if side == "bullet":
-            from . import recovery
+    try:
+        for side in sides:
+            tmux_name = data["op"] if side == "trigger" else data["run"]
+            info = _side(data, side)
+            info["model"] = model
+            info["tool"] = info.get("tool") or "opencode"
+            if tmux_ops.pane_command(tmux_name) == "opencode":
+                ui.info(f"quit {tmux_name} opencode")
+                tmux_ops.quit_opencode(tmux_name)
+            if side == "bullet":
+                from . import recovery
 
-            fenced = recovery.fence_remote_bullet(data)
-            if fenced:
-                ui.warn(f"fenced stale bullet pid(s): {', '.join(map(str, fenced))}")
-        cmd = oc_ops.start_cmd(info, model)
-        cwd = str(opsdir.prepare(data)) if side == "trigger" else ""
-        tmux_ops.ensure_agent(tmux_name, cmd, cwd=cwd)
-        ui.ok(f"{side} {cmd} -> {tmux_name}")
-    ui.info("waiting for opencode")
-    results = freeze_sides(data, sides, "opencode", wait=True)
-    failed_sides = [side for side, ok in results.items() if not ok]
-    if failed_sides:
-        raise SystemExit(
-            f"[err] freeze failed for {', '.join(failed_sides)}; unproven model not saved"
+                fenced = recovery.fence_remote_bullet(data)
+                if fenced:
+                    ui.warn(f"fenced stale bullet pid(s): {', '.join(map(str, fenced))}")
+            cmd = oc_ops.start_cmd(info, model)
+            cwd = str(opsdir.prepare(data)) if side == "trigger" else ""
+            tmux_ops.ensure_agent(tmux_name, cmd, cwd=cwd)
+            ui.ok(f"{side} {cmd} -> {tmux_name}")
+        ui.info("waiting for opencode")
+        results = freeze_sides(data, sides, "opencode", wait=True)
+        failed_sides = [side for side, ok in results.items() if not ok]
+        if failed_sides:
+            raise SystemExit(
+                f"[err] freeze failed for {', '.join(failed_sides)}; unproven model not saved"
+            )
+        wp.stamp(data, "freeze_at")
+        save(path, data)
+    except SystemExit as exc:
+        ev.emit(
+            "dt.model.fail",
+            name=str(data.get("name") or ""),
+            model=model,
+            sides=",".join(sides),
+            error=str(exc),
         )
-    wp.stamp(data, "freeze_at")
-    save(path, data)
+        raise
+    ev.emit(
+        "dt.model.ok",
+        name=str(data.get("name") or ""),
+        model=model,
+        sides=",".join(sides),
+        old=old_models,
+    )
     hub.push_best_effort(wait=True)
     return load(path)
 
@@ -1176,10 +1223,23 @@ def _apply_resume_legacy(
         tmux_ops.reconnect(data["run"], jump)
         landed = tmux_ops.wait_stable_command(data["run"], transports, timeout=25)
         if landed not in transports:
+            ev.emit(
+                "transport.reconnect.fail",
+                name=str(data.get("name") or ""),
+                pane=str(data.get("run") or ""),
+                transport=tmux_ops.transport_of(jump),
+                landed=landed,
+            )
             raise SystemExit(
                 f"[err] bullet jump did not stay connected (cmd={landed or '—'}); "
                 "resume stopped before sending the session command"
             )
+        ev.emit(
+            "transport.reconnect.ok",
+            name=str(data.get("name") or ""),
+            pane=str(data.get("run") or ""),
+            transport=tmux_ops.transport_of(jump),
+        )
     if remote_bullet:
         from .recovery import ensure_remote_session
 
@@ -1736,7 +1796,13 @@ def cmd_pull(_: argparse.Namespace) -> None:
 
 
 def cmd_log(args: argparse.Namespace) -> None:
-    rows = ev.read_events(limit=args.limit, kind=args.kind, name=args.name or "")
+    rows = ev.read_events(
+        limit=args.limit,
+        kind=args.kind,
+        name=args.name or "",
+        cat=getattr(args, "cat", "") or "",
+        sev=getattr(args, "sev", "") or "",
+    )
     ui.print_log(rows)
 
 
@@ -2161,6 +2227,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_log.add_argument("-n", "--limit", type=int, default=40)
     p_log.add_argument("--kind", default="", help="prefix filter, e.g. freeze")
     p_log.add_argument("--name", default="", help="filter by DT name")
+    p_log.add_argument(
+        "--cat", default="", choices=("", *ev.CATEGORIES), help="filter by category"
+    )
+    p_log.add_argument(
+        "--sev", default="", choices=("", *ev.SEVERITIES), help="filter by severity"
+    )
 
     p_mem = sub.add_parser("mem", help="shared or per-agent MEMORY.json facts")
     p_mem.add_argument(
