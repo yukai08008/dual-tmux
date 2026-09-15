@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -7,6 +8,13 @@ from dual_tmux.agents import (
     get_adapter,
     list_adapters,
     require_adapter,
+)
+
+CAPABILITY_CONTRACT = (
+    Path(__file__).resolve().parents[1]
+    / "docs"
+    / "contracts"
+    / "agent-capabilities-v1.json"
 )
 
 
@@ -43,3 +51,9 @@ def test_capability_matrix_is_json_safe():
     assert '"name": "opencode"' in encoded
     assert '"name": "codex"' in encoded
     assert '"name": "claude"' in encoded
+
+
+def test_capability_matrix_matches_versioned_contract():
+    contract = json.loads(CAPABILITY_CONTRACT.read_text(encoding="utf-8"))
+    assert contract["schema_version"] == 1
+    assert contract["agents"] == capability_matrix()

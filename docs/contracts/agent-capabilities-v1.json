@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "agents": [
+    {
+      "name": "opencode",
+      "display_name": "OpenCode",
+      "aliases": ["opencode"],
+      "capabilities": {
+        "detect": true,
+        "version": true,
+        "start": true,
+        "send": true,
+        "metadata_freeze": true,
+        "session_freeze": true,
+        "resume": true,
+        "model": true,
+        "local": true,
+        "ssh": true,
+        "docker": true
+      }
+    },
+    {
+      "name": "codex",
+      "display_name": "Codex",
+      "aliases": ["codex", "codex-cli"],
+      "capabilities": {
+        "detect": true,
+        "version": true,
+        "start": true,
+        "send": true,
+        "metadata_freeze": true,
+        "session_freeze": true,
+        "resume": true,
+        "model": false,
+        "local": true,
+        "ssh": true,
+        "docker": true
+      }
+    },
+    {
+      "name": "claude",
+      "display_name": "Claude Code",
+      "aliases": ["claude", "claude-code"],
+      "capabilities": {
+        "detect": true,
+        "version": true,
+        "start": true,
+        "send": true,
+        "metadata_freeze": true,
+        "session_freeze": true,
+        "resume": true,
+        "model": false,
+        "local": true,
+        "ssh": true,
+        "docker": true
+      }
+    }
+  ]
+}
