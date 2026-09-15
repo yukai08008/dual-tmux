@@ -66,6 +66,7 @@
 | `bullet.run.start / .end` | Bullet 开始/结束运行（边沿） | activity.py | — |
 | `bullet.stalled` | Bullet 疑似卡死 | activity.py | — |
 | `bullet.fence` | 清理远端孤儿实例 | recovery.py | pids, session |
+| `bullet.rebuild.start / .ok / .fail` | `dt rebuild` 围栏化重建（span） | cli.py | ms, error |
 | `bullet.probe.fail` | 探测失败（健康→降级转移时） | recovery.py | bullet_agent/session/bullet_pane 状态 |
 
 ## 噪音控制（不变量）
@@ -84,6 +85,7 @@
 | 面 | 入口 | 说明 |
 |---|---|---|
 | CLI | `dt log [-n N] [--kind 前缀] [--name DT] [--cat c] [--sev s]` | 中文标签 + 严重度着色 |
+| CLI | `dt bullet <dt> [--json]` | Bullet 一站式诊断：活动状态/健康/管道/写者/最近事件 + hint |
 | Web | `/events` 页 | 类别/严重度徽章、四维筛选、中文标签表格 |
 | Web | 隧道详情 `Recent events` | 选定隧道后拉取最近 20 条 |
 | API | `GET /api/events?limit&kind&t&cat&sev` | 旧格式行返回前补全 cat/sev（增量字段，非破坏） |

@@ -1,5 +1,6 @@
 # dual-tmux ROADMAP
 
+> v0.4.76：Trigger 受控运维 Bullet（S12）。新增 `dt bullet`（一站式只读诊断：活动状态/健康/管道/远端写者/最近事件 + 事实 hint）与 `dt rebuild`（围栏化重建：路由修复→跳板重连→孤儿 fence→绑定会话重启，span 事件可审计）；技能与 AGENTS.md 改写为事件驱动守则——派发走 `dt send`（占用守卫 + bullet.send 事件）、行动前查 `dt bullet --json`、卡死恢复一条 `dt rebuild` 替代手工 pgrep/kill/--auto 配方。
 > v0.4.75：事件体系（S11）。events.jsonl 升级为带分类（system/trigger/bullet）与严重度（info/warn/error）的结构化事件：补齐建立管道、替换模型、命令 Bullet、Trigger 回合、Bullet 运行/卡死/探测失败等缺失采集点；周期观察事件边沿触发防刷屏，2 万行保留上限；`dt log` 与 Web /events 页升级为中文标签 + 类别/严重度筛选。设计见 [docs/events.md](docs/events.md)。
 > v0.4.73：Web 指令发送器（CommandSender）与打断控制落地。引入后端 send_interrupt 原语（C-c / Escape），接入 ControlService 与独热 require_active 活跃态校验；前端集成 CommandSenderComponent，新增打断按钮与状态机解锁；修复 DualTerminal 滚动条同步与 macOS 隐藏问题，增加页面底部 72px 呼吸留白。
 > v0.4.72：双端终端视窗深度扩容与抖动平滑。捕获深度提升至 3000 行，tmux history-limit 提升至 10000 行，增加滚动防抖守卫与滚动条占位。
@@ -35,6 +36,7 @@ flowchart LR
   S8 --> S9["S9 ControlService 发事件"]
   S9 --> S10["S10 Web 控制台闭环"]
   S10 --> S11["S11 事件体系"]
+  S11 --> S12["S12 Trigger 受控运维"]
 ```
 
 ## S1 占用文件独热（已落地）
@@ -147,6 +149,19 @@ flowchart LR
 体验：`dt log --cat --sev` 中文标签 + 严重度着色；Web /events 页类别/严重度徽章与四维筛选；隧道详情页 Recent events 最近 20 条。
 
 权威规范见 [docs/events.md](docs/events.md)。
+
+## S12 Trigger 受控运维（已落地 v0.4.76）
+
+结构：`dt bullet <dt> [--json]` 聚合 ownership-evidence 活动状态、health FSM、run_* 管道命令、远端写者计数与最近 bullet 事件，输出事实 hint（ok_to_dispatch / stalled_do_not_queue / multiple_writers / transport_down / probe_failing / working_wait）。`dt rebuild <dt> [--force]` 由现有原语编排：占用守卫 → working 拒绝（fail-closed）→ 路由修复 → 跳板重连 → 孤儿 fence → persist 导入 → 绑定会话围栏重启，全程 span 事件 `bullet.rebuild.*`。
+
+功能：
+- Trigger 派发从原始 `tmux send-keys` 迁移到 `dt send`（占用守卫 + `bullet.send` 事件可见）。
+- 行动前检查 `dt bullet --json`；卡死/死客户端恢复收敛为一条 `dt rebuild`，替代手工 pgrep/kill/dt re/--auto 配方（多实例与上下文污染事故的根因路径）。
+- 模型切换维持两级：普通 = TUI `/models` + `dt freeze --bullet`；换模型+新会话 = `dt model --run`。
+
+体验：trigger 的每个运维动作可被事件追溯（`dt log --cat bullet`），决策有事实依据（`dt bullet` hint）而非 pane 文本猜测。
+
+权威规范见 [docs/events.md](docs/events.md) 与 `src/dual_tmux/skills/tmux-trigger/SKILL.md`。
 
 ## 不变量（全程）
 

@@ -47,10 +47,12 @@ def agents_text(data: dict) -> str:
         f"# Trigger for {name}\n"
         "\n"
         f"You are the **trigger** OpenCode in tmux `{op}` on this Client.\n"
-        f"Bullet is tmux `{run}`. Dispatch with `tmux send-keys -t {run}`, then poll.\n"
+        f"Bullet is tmux `{run}`. Dispatch with `dt send {name} 'task...'`, then poll.\n"
+        "Before dispatching or recovering, check `dt bullet "
+        f"{name} --json` (state/health/transport/writers + hint) and gate on its hint.\n"
         "Do not ssh / docker exec the coding task yourself.\n"
         "If bullet asks to rebuild/replace the workspace container, you do that on the "
-        "host (outside the container), then `dt re`. Bullet must not recreate the box it runs in.\n"
+        "host (outside the container), then `dt rebuild`. Bullet must not recreate the box it runs in.\n"
         "Architecture and flow: dispatch to bullet; require mermaid filed in the workspace, not chat-only.\n"
         "\n"
         "## Read first\n"
@@ -82,8 +84,9 @@ def agents_text(data: dict) -> str:
         f"- this agent facts: `{ops_dir(op) / 'MEMORY.json'}`  (`dt mem {name}`)\n"
         f"- this agent log: `{ops_dir(op) / 'memory.sqlite'}`  (`dt note {name} …` / `dt notes {name}`)\n"
         "\n"
-        "Resume either side with `opencode --auto -s <id>`, never `-c`.\n"
-        f"Re-jump: `dt re {name}`\n"
+        "Recover bullet through `dt rebuild "
+        f"{name}` (fenced: route repair + jump + orphan fence + bound-session restart), never hand-typed `opencode --auto -s`, and never `-c`.\n"
+        f"Bullet events: `dt log --name {name} --cat bullet -n 10`\n"
     )
 
 

@@ -1,7 +1,7 @@
 ---
 name: tmux-trigger
-description: Trigger agent dispatches work into the bullet OpenCode in run_* via tmux send-keys, then polls on real progress evidence with a quiet-round cap. Never wrap the task in ssh/docker exec -it.
-trigger: When dispatching work, polling a bullet, resuming with --auto -s, or the user says 派活 / 放手 / trigger-bullet.
+description: Trigger agent dispatches work into the bullet OpenCode in run_* via dt send, checks dt bullet state before acting, polls on real progress evidence with a quiet-round cap, and recovers with dt rebuild. Never wrap the task in ssh/docker exec -it.
+trigger: When dispatching work, polling a bullet, checking bullet state, recovering a stuck bullet, or the user says 派活 / 放手 / trigger-bullet.
 ---
 
 # tmux trigger
@@ -41,14 +41,39 @@ ssh -t <server> 'docker exec -it ... opencode --auto -s ses_xxx'
 
 `docker exec -it` dies with SIGHUP when SSH drops.
 
+## State and events before acting
+
+Before dispatching, interrupting, or recovering, check the factual snapshot once:
+
+```sh
+dt bullet <dt> --json
+```
+
+It reports per-side activity state (working/idle/stalled with no-progress seconds),
+health, transport pane command, remote writer count, and the last bullet events —
+without touching the bullet pane. Gate your action on `hint`:
+
+- `ok_to_dispatch` — send the task.
+- `working_wait_for_turn_end` — do not queue another message; poll instead.
+- `stalled_no_progress_<N>s_do_not_queue` — stop stacking messages; run the recovery below.
+- `multiple_writers_fence_first_dt_rebuild` — orphan instances hold the session; rebuild.
+- `transport_down_dt_rebuild` — the jump is gone; rebuild reconnects it.
+- `probe_failing_check_dt_health` — run `dt health <dt>` before acting.
+
+For history (what you or the user did to this bullet recently):
+
+```sh
+dt log --name <dt> --cat bullet -n 10
+```
+
 ## Dispatch
 
-1. `tmux list-panes -t <run_*> -F 'cmd=#{pane_current_command}'`
-2. If pane is shell: `dt re <dt>` then `opencode --auto -s <bullet-session-id>` inside that pane (via send-keys), wait for `Build auto`.
-3. If pane is already `--auto` OpenCode: `tmux send-keys -t <run_*> -- 'task...' Enter`
+1. `dt bullet <dt> --json` — gate on `hint` as above.
+2. If the pane is shell/transport is down: `dt rebuild <dt>` (repairs the jump and starts bullet with the bound session).
+3. If bullet is already a live `--auto` OpenCode: `dt send <dt> 'task...'` — it is occupancy-guarded and recorded as a `bullet.send` event. Use raw `tmux send-keys -t <run_*>` only if the `dt` CLI is unavailable.
 4. Poll as below. Do not hold an SSH session as the task lifecycle.
 
-Resume bullet with `opencode --auto -s <id>`, never `-c`. Before any new `--auto -s`, confirm the bound session has **zero** leftover opencode processes (or exactly one live TUI you will reuse). Escape / Ctrl+C does not count as dead.
+Resume bullet through `dt rebuild <dt>` (bound session, fenced start), never hand-typed `opencode --auto -s`, and never `-c`. `dt rebuild` verifies zero leftover opencode processes before starting; Escape / Ctrl+C does not count as dead.
 
 ## Poll
 
@@ -102,9 +127,9 @@ Quiet rounds, a spinner, flat tokens, and no tools are **not** proof the model/g
 
 **Recover (do this before pausing the task):**
 
-1. Count remote processes whose cmdline contains the bullet `session_id`. Must be 0 (then start one) or 1 (reuse that TUI). `dt resume` fences orphans only when the pane is **not** already a live TUI; if the TUI is attached and pids > 1, fence will skip — kill extras yourself.
-2. If `opencode` has `git gc` / `pack-objects` / `repack` children, or logs loop `cleanup failed: gc is already running` / `failed to list snapshot files` under `~/.local/share/opencode/snapshot/`, the TUI will spin with unchanged tokens. Kill that opencode (TERM, then KILL) and leftover git. Do not `docker exec -it`.
-3. Wait until that session has **zero** opencode pids. Then one `opencode --auto -s <id>` (after `dt re` if the pane is a shell). Reset the poll baseline.
+1. Run `dt bullet <dt> --json`. Multiple writers, stalled state, or a dead transport all map to one action.
+2. Run `dt rebuild <dt>`. It repairs the route, reconnects the jump, kills every remote process bound to the bullet session (including snapshot-git spinners), imports the remote persist snapshot when needed, and restarts exactly one bullet with the bound session id. Every step is recorded in `dt log --name <dt> --cat bullet`. Refuses to kill a `working` bullet unless you pass `--force`.
+3. Reset the poll baseline and continue supervision.
 4. If a model is in cooldown, do not leave it retrying; switch with `dt model --run` or stop the process.
 
 If a single clean process still has no progress evidence after another quiet-round cap, pause and report (pids, snapshot-git or not, footer vs stream model).
@@ -159,8 +184,8 @@ completion message. Repeatedly seeing the same `Grep`, `Read`, `Thinking`, or
 1. After two unchanged captures, reassess the estimate, scope, and current tool.
 2. After three unchanged captures with no supporting process activity, send a
    shorter instruction with exact paths and acceptance criteria.
-3. If the current turn is still stuck, interrupt with Escape. If needed, run
-   `dt re <dt>` and resume with `opencode --auto -s <id>`; never use `-c`.
+3. If the current turn is still stuck, interrupt with Escape. If that does not
+   settle it, run `dt rebuild <dt>`; never use `-c`.
 
 Long tests, builds, downloads, and network calls may legitimately leave the pane
 unchanged. Check process activity or expected timeout before interrupting them.
@@ -179,7 +204,7 @@ If bullet says the container is gone, stale, needs a new image, or asks to rebui
 
 1. Do **not** `tmux send-keys` docker rebuild into `run_*`.
 2. Trigger does it on the **Client / Server host**, outside that container.
-3. After the new container exists, `dt re <dt>` (or rewrite `runtime.cmd`) and resume bullet with `--auto -s <id>` in the new pane.
+3. After the new container exists, `dt rebuild <dt>` (or rewrite `runtime.cmd` first); it reconnects the new pane and resumes bullet with the bound session id.
 
 Host-level docker/ssh is trigger. In-container coding is bullet.
 
