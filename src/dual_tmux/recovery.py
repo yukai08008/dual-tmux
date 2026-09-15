@@ -95,6 +95,22 @@ def remote_session_locations(
 def reconcile_remote_runtime(
     data: dict, *, runner: Runner = subprocess.run
 ) -> dict[str, Any]:
+    result = _reconcile_remote_runtime(data, runner=runner)
+    status = str(result.get("status") or "")
+    ev.emit(
+        "transport.reconcile",
+        name=str(data.get("name") or ""),
+        status=status,
+        changed=bool(result.get("changed")),
+        container=str((data.get("runtime") or {}).get("container") or ""),
+        sev="info" if status in {"healthy", "repaired"} else "warn",
+    )
+    return result
+
+
+def _reconcile_remote_runtime(
+    data: dict, *, runner: Runner = subprocess.run
+) -> dict[str, Any]:
     """Repair a stale host/container route only when exact evidence is unique."""
     runtime = data.get("runtime") or {}
     configured = str(runtime.get("container") or "")
@@ -477,7 +493,15 @@ def fence_remote_bullet(
     )
     if not marker:
         return None
-    return [int(value) for value in marker.partition("=")[2].split() if value.isdigit()]
+    killed = [int(value) for value in marker.partition("=")[2].split() if value.isdigit()]
+    if killed:
+        ev.emit(
+            "bullet.fence",
+            name=str(data.get("name") or ""),
+            pids=killed,
+            session=sid,
+        )
+    return killed
 
 
 def ensure_remote_session(data: dict, *, runner: Runner = subprocess.run) -> bool:
@@ -604,6 +628,21 @@ def observe(
     state["status"] = (
         "suspect" if state["consecutive_failures"] < FAIL_THRESHOLD else "degraded"
     )
+    if int(state["consecutive_failures"]) == FAIL_THRESHOLD:
+        # Announce the healthy→degraded transition once per episode; the
+        # per-minute tick keeps probing without re-emitting.
+        layers = result.get("layers") or {}
+        name = str(data.get("name") or "")
+        trigger_status = str((layers.get("trigger_agent") or {}).get("status") or "")
+        if trigger_status and trigger_status != "ok":
+            ev.emit("trigger.probe.fail", name=name, status=trigger_status)
+        failing = {
+            key: str((layers.get(key) or {}).get("status") or "")
+            for key in ("bullet_agent", "bullet_pane", "session")
+        }
+        failing = {k: v for k, v in failing.items() if v and v != "ok"}
+        if failing:
+            ev.emit("bullet.probe.fail", name=name, sev="warn", **failing)
     if not enabled:
         state["status"] = (
             "disabled" if state["consecutive_failures"] < FAIL_THRESHOLD else "degraded"

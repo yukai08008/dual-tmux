@@ -180,7 +180,7 @@ def test_two_client_handoff_is_exclusive_under_ten_seconds(monkeypatch, tmp_path
     monkeypatch.setattr(hub, "finish_handoff", finish_handoff)
     monkeypatch.setattr(hub, "claim_generation", claim_generation)
 
-    def claim_occupancy(_name, cfg=None):
+    def claim_occupancy(_name, cfg=None, reason=""):
         with state_lock:
             state.update(state="owned", holder="tm_new", generation=4, handoff=None)
             return {"ok": True, "holder": "tm_new", "generation": 4, "claimed_at": 1}
@@ -428,7 +428,7 @@ def test_control_resume_restores_input_ready_trigger_under_ten_seconds(
         hub, "claim_generation", lambda *_a, **_kw: pytest.fail("no claim")
     )
 
-    def claim_occupancy(_name, cfg=None):
+    def claim_occupancy(_name, cfg=None, reason=""):
         with state_lock:
             state.update(state="owned", holder="tm_new", generation=4, handoff=None)
             return {"ok": True, "holder": "tm_new", "generation": 4, "claimed_at": 1}
