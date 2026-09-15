@@ -1,0 +1,72 @@
+version: v0.4.76
+parent_final: main@1615642 (v0.4.75)
+title: Trigger 受控运维 Bullet（S12）
+type: feature
+prd: dev_plans/v0.4.76-trigger-bullet-ops/PRD.md
+test_cases: dev_plans/v0.4.76-trigger-bullet-ops/TEST_CASES.md
+
+invariants:
+  - "现有 CLI 命令集不减少；新动词只增"
+  - "rebuild fail-closed：working 无 --force 拒绝；探测失败拒绝盲启"
+  - "读路径不发射事件；hint 只陈述事实"
+  - "技能保留 raw send-keys fallback"
+
+deliverables:
+  - module: src/dual_tmux/cli.py
+    change: dt bullet（_bullet_snapshot/cmd_bullet）与 dt rebuild（_apply_rebuild_legacy/apply_rebuild/cmd_rebuild）
+    public_api: [cmd_bullet, cmd_rebuild, _bullet_snapshot, _apply_rebuild_legacy]
+  - module: src/dual_tmux/control.py
+    change: ControlService.rebuild + OperationSpec bullet.rebuild
+  - module: src/dual_tmux/ui.py
+    change: print_bullet 渲染
+  - module: src/dual_tmux/log.py
+    change: KIND_META 增 bullet.rebuild.*
+  - module: src/dual_tmux/skills/
+    change: dual-tmux 与 tmux-trigger SKILL.md 事件驱动守则改写
+  - module: src/dual_tmux/opsdir.py
+    change: AGENTS.md 模板接入 dt send/bullet/rebuild/log
+  - module: docs/events.md / ROADMAP.md / docs/contracts/cli-v1.json
+    change: rebuild 事件、S12、契约增量
+  - module: tests/test_bullet_ops.py
+    change: 新动词回归
+
+feature_branches:
+  - name: feat/v0.4.76-trigger-bullet-ops
+    title: dt bullet + dt rebuild + 技能改写
+    deps: []
+    files: [src/dual_tmux, tests, docs, ROADMAP.md]
+    acceptance:
+      - "hint 规则全部有测试"
+      - "rebuild working 拒绝与 --force 覆盖有测试"
+      - "契约与操作目录增量为评审过的显式变更"
+      - "全量 pytest 通过"
+    estimated_loc: ~600
+
+acceptance_count: 4
+total_estimated_loc: ~600
+
+risk_register:
+  - id: R1
+    risk: rebuild 误杀进行中回合
+    mitigation: working fail-closed + --force + fence 事件记录 pids
+    severity: high
+  - id: R2
+    risk: 技能依赖新动词但 dt 未升级
+    mitigation: 保留 raw send-keys fallback
+    severity: medium
+
+git_workflow:
+  branch_creation: from main@1615642
+  feature_order: single-branch
+  merge_policy: --no-ff
+  before_merge_checks:
+    - ".venv/bin/python -m pytest tests/ -q"
+  final_tag: v0.4.76
+
+deployment_checklist:
+  - "wheel 安装后 dt --version = 0.4.76"
+  - "dt bullet --json 输出含 hint"
+  - "真实隧道 dt rebuild 拒绝 working（无 --force）"
+  - "技能经 opsdir.prepare 重装后包含新守则"
+
+签名: Agent-PM-0.4.76

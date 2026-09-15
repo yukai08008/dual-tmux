@@ -141,7 +141,8 @@ def test_ops_launch(monkeypatch, tmp_path):
     assert ".opencode/skills/tmux-trigger/SKILL.md" in oc
     assert "immediately Read these files" in agents
     assert ".opencode/skills/dual-tmux/SKILL.md" in agents
-    assert "tmux send-keys -t run_msg" in agents
+    assert "dt send dt-msg" in agents
+    assert "dt bullet" in agents
     assert "rebuild/replace the workspace container" in agents
     assert "mermaid filed in the workspace" in agents
     trigger_skill = (skills_dir() / "tmux-trigger" / "SKILL.md").read_text()
