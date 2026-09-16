@@ -12,3 +12,4 @@
 | BL-TRIGGER-001 | [trigger 有能力判断 bullet 状态（卡死检测）](20260902-trigger-bullet-status-detection.md) | BACKLOG |
 | BL-RUNTIME-001 | [Session Ownership 与安全接管](20260902-session-ownership-safe-takeover.md) | API CODE_COMPLETE → v0.4.51；Web → v0.4.52 |
 | BL-RUNTIME-002 | [Codex/Claude Client-local session store 跨机器复制](20260907-native-session-store-sync.md) | DELIVERED → v0.4.53 |
+| BL-SYNC-001 | [删除共识：墓碑化删除](20260916-deletion-consensus-tombstones.md)（设计文档：docs/deletion-consensus.md） | BACKLOG |
