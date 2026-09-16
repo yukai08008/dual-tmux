@@ -1,8 +1,16 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-16 00:33 +08:00 | 更新者: ZCode
+> 最近更新: 2026-09-16 22:10 +08:00 | 更新者: ZCode
 
 ## 状态树
+
+### v0.4.78 (RELEASED) — 孤儿进程治理（S13/S14 落地）
+
+- S14 巡检：容器 run 点扫描分类（合法写者=绑定会话最新者，无绑定时最新 opencode 整体；其余 age≥600s 为孤儿）；`dt orphans [dt] [--json] [--clean]`；tick 低频巡检（默认每小时，env 可调）发 `orphan.found`；`auto_orphan_clean` 按隧道开关（默认关）TERM→KILL 清理。红线：合法写者永不清理、DST 冻结只扫不清、他机占用跳过、host run 点不扫描。
+- S13 不变量：resume/rebuild 启动前全容器 sweep（`orphan.sweep`，fail-closed）；`dt drop`/`dt rm --kill` 断链前按绑定会话围栏（daemon park 不受影响，远端 bullet 永不清退）。
+- 事件新增 orphan 分类；随带合入 hotfix/v0.4.49-workpoint-alias-hops 全部内容（v0.4.77 冲突解决、reconnect(force=)、prompt/hostkey pane 识别、persist 回退、upgrade 修复、test_parse_hops 隔离、2 组案例与回归清单）。
+- 冒烟发现并修复扫描自匹配 bug：exec wrapper（sh -lc 含脚本文本）被误判为合法写者，脚本+解析双层排除。
+- PR #83 已合并至 `main`（merge `4cc174d`）；全量 pytest 581 passed + 1 skipped（新增 18 用例）；真实冒烟红线生效（7 条他机占用隧道跳过）；Release `v0.4.78` 已发布（Latest，32 个累积 wheel，SHA 校验一致），`dt upgrade` 验证通过。
 
 ### v0.4.77 (RELEASED) — 自动恢复收敛（S12 补全）
 
@@ -318,7 +326,7 @@
 
 ## 当前焦点
 
-- v0.4.77（自动恢复收敛）已合并 `main`（PR #81）并发布 Release；ROADMAP S1–S12 全部落地。用户心智模型收敛为：恢复一律 resume，中途故障 dt 自动处理（死了自动 resume、卡了自动 rebuild）。
+- v0.4.78（S13/S14 孤儿治理）已合并 `main`（PR #83）并发布 Release；ROADMAP S1–S14 全部落地。单活跃会话不变量闭环：启动前清场、断链收尾、泄漏例巡。
 - 事件后续可选方向：跨机事件汇聚（hub 分片同步）、飞书告警外发（warn/error 级别）、Web/飞书 UI 上的 rebuild 按钮（API 已具备）。
 - 继续把剩余 CLI 写路径收成事件。CLI 不阉割。
 
