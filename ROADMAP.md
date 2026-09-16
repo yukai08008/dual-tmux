@@ -1,5 +1,6 @@
 # dual-tmux ROADMAP
 
+> v0.4.78：孤儿进程治理（S13/S14 落地）。新增 orphan 模块：容器 run 点 opencode 扫描/分类（绑定会话最新者为合法写者，其余超宽限 10 分钟即孤儿）；`dt orphans [dt] [--json] [--clean]` 手动列出/清理；tick 低频巡检（默认每小时，`orphan.found` 事件 + 按隧道 `auto_orphan_clean` 开关清理，红线：合法写者永不清理、DST 冻结只扫不清、他机占用跳过）；resume/rebuild 启动前全容器清场（`orphan.sweep`）；`dt drop`/`dt rm --kill` 断链前按绑定会话围栏，杜绝泄漏；事件体系新增 orphan 分类。
 > v0.4.77：自动恢复收敛（S12 补全）。`auto_recover` 默认开启（显式关闭仍生效）；stalled 边沿接入自动重建（`recovery.rebuild.auto`，退避 5/15/30 分钟、每周期最多 3 次、观察到 working 清零、用尽转 attention）；`dt bullet` 输出 `recovery` 字段直接给出恢复动词（trigger 侧 down → `dt resume`，trigger 活 + bullet 病 → `dt rebuild`）。用户心智模型收敛为：**恢复一律 resume，中途故障 dt 自动处理**。
 > v0.4.76：Trigger 受控运维 Bullet（S12）。新增 `dt bullet`（一站式只读诊断：活动状态/健康/管道/远端写者/最近事件 + 事实 hint）与 `dt rebuild`（围栏化重建：路由修复→跳板重连→孤儿 fence→绑定会话重启，span 事件可审计）；技能与 AGENTS.md 改写为事件驱动守则——派发走 `dt send`（占用守卫 + bullet.send 事件）、行动前查 `dt bullet --json`、卡死恢复一条 `dt rebuild` 替代手工 pgrep/kill/--auto 配方。
 > v0.4.75：事件体系（S11）。events.jsonl 升级为带分类（system/trigger/bullet）与严重度（info/warn/error）的结构化事件：补齐建立管道、替换模型、命令 Bullet、Trigger 回合、Bullet 运行/卡死/探测失败等缺失采集点；周期观察事件边沿触发防刷屏，2 万行保留上限；`dt log` 与 Web /events 页升级为中文标签 + 类别/严重度筛选。设计见 [docs/events.md](docs/events.md)。
@@ -164,7 +165,7 @@ flowchart LR
 
 权威规范见 [docs/events.md](docs/events.md) 与 `src/dual_tmux/skills/tmux-trigger/SKILL.md`。
 
-## S13 Backlog：隧道单活跃会话不变量（待立项）
+## S13 隧道单活跃会话不变量（已落地 v0.4.78）
 
 案例：dt-cp-gate 的 bullet 容器内残留 3 个活跃 opencode（父 bash PPID=0 的孤儿，最长存活 10 天）——freeze/resume 反复重连时，旧 `docker exec -it` 链路死亡但容器内 opencode 未被收尾，新链路又在同一 /workspace 拉起新实例。
 
@@ -176,7 +177,7 @@ flowchart LR
 - 收尾：`dt rm --kill` / `dt freeze` 断开 tmux 链路时，向容器内旧 pane 链路的 opencode 发 SIGTERM，而不是依赖 pts 断开后进程自然存活。
 - 明确不变量表述：非绑定会话的 opencode 不属于"远端 bullet agent 不可清退"的保护范围，可被 fence 清理。
 
-## S14 版本需求：孤儿进程例行巡检（待立项）
+## S14 孤儿进程例行巡检（已落地 v0.4.78）
 
 背景：S13 案例证明孤儿不是意外而是系统性泄漏（每次 resume 断链必漏一个），靠人肉发现太晚（本次最长 10 天）。需要例行的、事件可见的巡检。
 
