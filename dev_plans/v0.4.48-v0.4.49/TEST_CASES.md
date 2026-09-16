@@ -53,6 +53,10 @@
 | E-50 | dt-alex-serp freeze 绑定 container 内最新活动会话 calm-garden | workpoint-alias-hops | 实测（已通过） |
 | B-54 | remote freeze 按当前 SSH 连接年龄过滤其他 pane，优先已绑定 session，并从最新消息读取实际 model | workpoint-alias-hops | tests/test_agentclient.py |
 | E-51 | dt-company_intro_v2 freeze 从陈旧 quiet-orchid 修正为当前 pane nimble-cactus，保留 GPT 5.6 live model | workpoint-alias-hops | 实测（已通过） |
+| B-55 | 已在运行目标会话时 resume 免除重复等待；TUI 识别支持权限弹窗与交互状态 | resume-already-running-opencode | tests/test_bullet_resume.py |
+| E-52 | dt-company-change 在权限确认弹窗时 resume 秒级完成并正常 attach | resume-already-running-opencode | 实测（已通过） |
+| B-56 | 批量 SSH 探针带 accept-new 保证容器自愈生效；trigger 快照空租户自动回退 | resume-remote-bullet-hostkey-fallback | tests/test_bullet_resume.py, tests/test_persist_sync.py |
+| E-53 | dt-cp-gate 宿主容器自动自愈为 cp_gateway_24629，trigger 快照成功恢复 | resume-remote-bullet-hostkey-fallback | 实测（已通过） |
 
 | ID | 用例 | 自动化 |
 |---|---|---|

@@ -14,6 +14,7 @@ def build_cmd(host: str, container: str, directory: str, port: int = 22) -> str:
     prefix = " ".join(
         [
             "ssh", "-t",
+            "-o", "StrictHostKeyChecking=accept-new",
             "-o", "ServerAliveInterval=15",
             "-o", "ServerAliveCountMax=3",
             *target.extra_args, target.dest,

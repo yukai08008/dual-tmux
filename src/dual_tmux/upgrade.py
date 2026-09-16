@@ -96,7 +96,7 @@ def install_latest(current: str, runner=subprocess.run) -> ReleaseAsset:
         latest_key = tuple(
             int(part) for part in latest_match.group("base").split(".")
         ) + (int(latest_match.group("post") or 0),)
-        if latest_key <= current_key:
+        if latest_key < current_key:
             return asset
     elif asset.version == current:
         return asset

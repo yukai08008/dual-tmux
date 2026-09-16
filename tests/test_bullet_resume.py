@@ -165,6 +165,101 @@ def test_resume_waits_for_trigger_session_ready(monkeypatch, tmp_path):
     assert calls == [("op_msg", "ses_trigger")]
 
 
+def test_resume_skips_wait_when_trigger_already_running_bound_session(monkeypatch, tmp_path):
+    data = _dst()
+    monkeypatch.setattr(cli.opsdir, "prepare", lambda _data: tmp_path)
+    monkeypatch.setattr(cli.tmux_ops, "pane_command", lambda _name: "opencode")
+    monkeypatch.setattr(cli.tmux_ops, "pane_info", lambda _name: {"pid": "42"})
+    monkeypatch.setattr(cli.oc_ops, "id_from_pid", lambda _pid, **_kw: "ses_trigger")
+    monkeypatch.setattr(cli.tmux_ops, "ensure_agent", lambda *_a, **_kw: False)
+
+    calls = []
+    monkeypatch.setattr(cli, "_wait_opencode_ready", lambda *args: calls.append(args))
+    cli._start_side(data, "op_msg", "trigger", resume=True)
+
+    assert calls == []
+
+
+def test_resume_retries_live_session_identity_after_agent_is_already_running(
+    monkeypatch, tmp_path
+):
+    data = _dst()
+    monkeypatch.setattr(cli.opsdir, "prepare", lambda _data: tmp_path)
+    monkeypatch.setattr(cli.tmux_ops, "pane_command", lambda _name: "opencode")
+    states = iter(["", "", "ses_trigger"])
+    monkeypatch.setattr(
+        cli.tmux_ops,
+        "pane_info",
+        lambda _name: {"pid": next(states, "ses_trigger")},
+    )
+    monkeypatch.setattr(cli.oc_ops, "id_from_pid", lambda pid, **_kw: pid)
+    monkeypatch.setattr(cli.tmux_ops, "ensure_agent", lambda *_a, **_kw: False)
+    monkeypatch.setattr(cli.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(cli, "_wait_opencode_ready", lambda *_args: pytest.fail("must skip"))
+
+    cli._start_side(data, "op_msg", "trigger", resume=True)
+
+
+def test_resume_skips_wait_when_already_running_tui_has_no_session_argv(
+    monkeypatch, tmp_path
+):
+    data = _dst()
+    monkeypatch.setattr(cli.opsdir, "prepare", lambda _data: tmp_path)
+    monkeypatch.setattr(cli.tmux_ops, "pane_command", lambda _name: "opencode")
+    monkeypatch.setattr(cli.tmux_ops, "pane_info", lambda _name: {"pid": "42"})
+    monkeypatch.setattr(cli.oc_ops, "id_from_pid", lambda _pid, **_kw: "")
+    monkeypatch.setattr(cli.tmux_ops, "ensure_agent", lambda *_a, **_kw: False)
+    monkeypatch.setattr(cli, "_pane_shows_agent", lambda _name: True)
+    monkeypatch.setattr(cli.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(cli, "_wait_opencode_ready", lambda *_args: pytest.fail("must skip"))
+
+    cli._start_side(data, "op_msg", "trigger", resume=True)
+
+
+def test_ownership_snapshot_survives_missing_native_persist(monkeypatch):
+    from dual_tmux import ownership
+
+    data = {
+        "name": "dt-msg",
+        "op": "op_msg",
+        "run": "run_msg",
+        "trigger": {"tool": "opencode", "session_id": "ses_trigger"},
+        "bullet": {"tool": "opencode", "session_id": "ses_bullet"},
+    }
+    monkeypatch.setattr(ownership, "_occupancy_lease", lambda _data: {
+        "state": "owned", "holder": "tm_a", "generation": 1,
+        "source": "local", "evidence": {}, "conflict": False,
+    })
+    monkeypatch.setattr(ownership, "probe_writers", lambda *_args: {
+        "status": "ok", "count": 0, "pids": [], "reason": "",
+    })
+    monkeypatch.setattr(ownership, "_runtime", lambda _pane: "down")
+    monkeypatch.setattr(ownership.tmux_ops, "has_session", lambda _pane: False)
+    monkeypatch.setitem(__import__("sys").modules, "dual_tmux.native_persist", None)
+
+    facts = ownership.snapshot(data)
+    assert facts["native_snapshots"]["trigger"]["status"] == "unsupported"
+
+
+def test_pane_blocks_keys_detects_hostkey_prompt(monkeypatch):
+    text = (
+        "The authenticity of host '10.88.0.20 (10.88.0.20)' can't be established.\n"
+        "Are you sure you want to continue connecting (yes/no/[fingerprint])?"
+    )
+    monkeypatch.setattr(cli.tmux_ops, "capture_pane", lambda *_a, **_kw: text)
+    assert cli._pane_blocks_keys("run_msg") is True
+
+
+def test_pane_shows_agent_detects_prompts_and_build_status(monkeypatch):
+    prompt_text = (
+        "  ▣  Build · Grok 4.6\n"
+        "  ┃  △ Permission required\n"
+        "  ┃   Allow once   Allow always   Reject  ctrl+f fullscreen"
+    )
+    monkeypatch.setattr(cli.tmux_ops, "capture_pane", lambda *_a, **_kw: prompt_text)
+    assert cli._pane_shows_agent("op_msg") is True
+
+
 def test_capture_runtime_clears_stale_remote_target_for_local_bullet():
     data = _dst()
     wp.capture_runtime(
@@ -221,6 +316,7 @@ def _patch_resume(monkeypatch, data: dict):
     monkeypatch.setattr(cli, "find_dt", lambda _name: None)
     monkeypatch.setattr(cli.ev, "emit", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(cli, "_pane_shows_agent", lambda _name: False)
+    monkeypatch.setattr(cli, "_pane_blocks_keys", lambda _name: False)
     monkeypatch.setattr(
         recovery, "ensure_remote_session", lambda *_args, **_kwargs: False
     )
@@ -232,7 +328,9 @@ def test_resume_stops_before_session_command_when_jump_does_not_stay(monkeypatch
     calls = []
     monkeypatch.setattr(cli.tmux_ops, "pane_command", lambda _name: "zsh")
     monkeypatch.setattr(
-        cli.tmux_ops, "reconnect", lambda name, cmd: calls.append(("jump", name, cmd))
+        cli.tmux_ops,
+        "reconnect",
+        lambda name, cmd, **_kw: calls.append(("jump", name, cmd)),
     )
     monkeypatch.setattr(
         cli.tmux_ops, "wait_stable_command", lambda *_args, **_kwargs: "zsh"
@@ -251,7 +349,9 @@ def test_resume_waits_for_remote_jump_before_starting_bullet(monkeypatch):
     _patch_resume(monkeypatch, data)
     calls = []
     monkeypatch.setattr(cli.tmux_ops, "pane_command", lambda _name: "zsh")
-    monkeypatch.setattr(cli.tmux_ops, "reconnect", lambda *_args: calls.append("jump"))
+    monkeypatch.setattr(
+        cli.tmux_ops, "reconnect", lambda *_args, **_kw: calls.append("jump")
+    )
     monkeypatch.setattr(
         cli.tmux_ops,
         "wait_stable_command",
@@ -299,6 +399,52 @@ def test_resume_imports_local_bullet_snapshot(monkeypatch):
 
     cli._apply_resume_legacy("msg")
     assert seen == [("ses_trigger", "trigger"), ("ses_bullet", "bullet")]
+
+
+def test_ensure_remote_session_returns_false_when_no_snapshot(monkeypatch):
+    data = _dst()
+    monkeypatch.setattr(
+        recovery,
+        "_remote_probe",
+        lambda _data, **_kw: {"transport": {"ok": True}, "session": {"ok": False}},
+    )
+    monkeypatch.setattr(cli.oc_ops, "persist_snapshot", lambda _bullet: None)
+    assert recovery.ensure_remote_session(data) is False
+
+
+def test_ssh_argv_includes_accept_new_for_batch_mode(monkeypatch):
+    data = _dst()
+    argv = cli._ssh_argv(data)
+    assert "BatchMode=yes" in argv
+    assert "StrictHostKeyChecking=accept-new" in argv
+
+
+def test_ensure_remote_jump_refuses_hostkey_prompt(monkeypatch):
+    data = _dst()
+    data["runtime"]["cmd"] = "ssh -t box"
+    monkeypatch.setattr(cli, "_pane_blocks_keys", lambda _name: True)
+    monkeypatch.setattr(cli.tmux_ops, "pane_command", lambda _name: "ssh")
+    monkeypatch.setattr(
+        cli.tmux_ops, "reconnect", lambda *_a, **_k: None
+    )
+    monkeypatch.setattr(cli.tmux_ops, "wait_stable_command", lambda *_a, **_k: "ssh")
+    with pytest.raises(SystemExit, match="host-key prompt"):
+        cli._ensure_remote_jump(data)
+
+
+def test_start_side_refuses_hostkey_prompt(monkeypatch, tmp_path):
+    data = _dst()
+    monkeypatch.setattr(cli.opsdir, "prepare", lambda _data: tmp_path)
+    monkeypatch.setattr(cli.tmux_ops, "pane_command", lambda _name: "ssh")
+    monkeypatch.setattr(cli, "_pane_blocks_keys", lambda _name: True)
+    monkeypatch.setattr(cli, "_fence_remote_bullet", lambda *_a, **_k: False)
+    monkeypatch.setattr(
+        cli.tmux_ops,
+        "ensure_agent",
+        lambda *_a, **_k: pytest.fail("must not send into host-key prompt"),
+    )
+    with pytest.raises(SystemExit, match="host-key prompt"):
+        cli._start_side(data, "run_msg", "bullet", resume=True)
 
 
 def test_resume_stops_loaded_trigger_before_importing_newer_snapshot(monkeypatch):

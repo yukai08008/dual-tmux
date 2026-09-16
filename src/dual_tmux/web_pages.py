@@ -290,7 +290,7 @@ def events_page() -> str:
       <div class="card models">
         <div class="field"><label>Tunnel</label><input id="event-name" placeholder="dt-name"></div>
         <div class="field"><label>Kind 前缀</label><input id="event-kind" placeholder="freeze"></div>
-        <div class="field"><label>类别</label><select id="event-cat"><option value="">全部</option><option value="system">system 系统</option><option value="trigger">trigger 交互</option><option value="bullet">bullet 运行</option></select></div>
+        <div class="field"><label>类别</label><select id="event-cat"><option value="">全部</option><option value="system">system 系统</option><option value="trigger">trigger 交互</option><option value="bullet">bullet 运行</option><option value="orphan">orphan 孤儿</option></select></div>
         <div class="field"><label>严重度</label><select id="event-sev"><option value="">全部</option><option value="info">info</option><option value="warn">warn</option><option value="error">error</option></select></div>
         <button id="event-load">刷新</button>
       </div>
