@@ -1,8 +1,15 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-16 22:10 +08:00 | 更新者: ZCode
+> 最近更新: 2026-09-16 23:30 +08:00 | 更新者: ZCode
 
 ## 状态树
+
+### v0.4.78.post1 (RELEASED) — persist 同步锁修复
+
+- 现象：`dt pull` 首次报 `persist opencode sync: sync failed`（无原因），重跑成功。根因（现场取证）：persist 脚本无网络超时，一个自 Sep 12 挂死 4 天的运行永久持有锁；cron 每分钟静默跳过，--wait 30 秒超时后同样静默退出。
+- 三层修复：锁等待 30s→90s 且超时明确报因；rsync `--timeout=180` + ssh ConnectTimeout/ServerAlive 防挂死；锁内 PID 心跳 + 死持有者/锁龄 >30 分钟自动接管（`took over a stale lock`）；包装层静默失败自动重试一次。
+- 现场处置：清理挂死 4 天的进程与陈旧锁；重装脚本后 `dt pull` 连续成功（~8 秒完成三类 persist 快照）。
+- PR #85 已合并至 `main`（merge `508ae7b`）；全量 pytest 585 passed + 1 skipped（新增 3 用例）；Release `v0.4.78.post1` 已发布（SHA 校验一致），`dt upgrade` 验证通过。
 
 ### v0.4.78 (RELEASED) — 孤儿进程治理（S13/S14 落地）
 
