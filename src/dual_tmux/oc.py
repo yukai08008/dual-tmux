@@ -552,7 +552,7 @@ else:
    db=os.environ.get('OPENCODE_DB') or os.path.expanduser('~/.local/share/opencode/opencode.db')
    found.append((sid,cwd,pid,started,db,''))
  except Exception: pass
- for sid,cwd,pid,started,db,container_id in sorted(found,key=lambda x:(x[0]==preferred,x[3]),reverse=True):
+for sid,cwd,pid,started,db,container_id in sorted(found,key=lambda x:(x[0]==preferred,x[3]),reverse=True):
  try:
   if not os.path.isfile(db): continue
   c=sqlite3.connect('file:'+db+'?mode=ro',uri=True)
@@ -1067,10 +1067,13 @@ def _tick_snapshots(
         local_tenant = persist_tenant()
         if source == local_tenant and local:
             return ()
+        newest = resolve_snapshot(info)
+        if newest:
+            return (newest,)
         slug = info.get("slug") or "—"
         raise SystemExit(
             f"[err] {role} session {sid} ({slug}) has no persist JSON under "
-            f"{persist_root()}/{source}/. Pull persist, then dt resume."
+            f"{persist_root()}/tm_*/. Pull persist, then dt resume."
         )
     newest = resolve_snapshot(info)
     return (newest,) if newest else ()

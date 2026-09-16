@@ -115,6 +115,8 @@ def _reconcile_remote_runtime(
 ) -> dict[str, Any]:
     """Repair a stale host/container route only when exact evidence is unique."""
     runtime = data.get("runtime") or {}
+    if not runtime.get("server"):
+        return {"status": "not-applicable", "changed": False, "locations": []}
     configured = str(runtime.get("container") or "")
     # Keep the normal path fast. Inventory every running container only after
     # the configured endpoint fails to prove the exact bound session.
@@ -520,9 +522,7 @@ def ensure_remote_session(data: dict, *, runner: Runner = subprocess.run) -> boo
         return False
     snapshot = oc_ops.persist_snapshot(bullet)
     if snapshot is None:
-        raise SystemExit(
-            f"[err] bullet session {sid} missing remotely and no local persist JSON"
-        )
+        return False
     directory = (data.get("runtime") or {}).get("directory") or "/workspace"
     # Persist exports carry the absolute directory of the Client that owned
     # the session.  A remote import must be rebound to the remote workspace;

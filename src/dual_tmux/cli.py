@@ -385,7 +385,60 @@ def _pane_shows_agent(tmux_name: str) -> bool:
     from . import paneparse
 
     text = tmux_ops.capture_pane(tmux_name, start=-15)
-    return bool(paneparse.RUNNING_RE.search(text) or paneparse.FOOTER_RE.search(text))
+    return bool(
+        paneparse.RUNNING_RE.search(text)
+        or paneparse.FOOTER_RE.search(text)
+        or paneparse.STATUS_RE.search(text)
+        or paneparse.BUILD_RE.search(text)
+        or paneparse.PROMPT_RE.search(text)
+    )
+
+
+def _pane_blocks_keys(tmux_name: str) -> bool:
+    """True when the pane is waiting on an SSH host-key prompt."""
+    from . import paneparse
+
+    return bool(paneparse.HOSTKEY_RE.search(tmux_ops.capture_pane(tmux_name, start=-20)))
+
+
+def _ensure_remote_jump(data: dict, *, timeout: float = 25) -> None:
+    """Land the bullet pane on the configured SSH/docker jump before sending keys."""
+    runtime = data.get("runtime") or {}
+    if not runtime.get("server"):
+        return
+    jump = runtime.get("cmd") or ""
+    if not jump:
+        raise SystemExit("[err] bullet runtime has a server but no reconnect command")
+    tmux_name = data["run"]
+    transports = {"ssh", "docker"}
+    blocked = _pane_blocks_keys(tmux_name)
+    current = tmux_ops.pane_command(tmux_name)
+    if blocked or current not in transports:
+        tmux_ops.reconnect(tmux_name, jump, force=blocked)
+        landed = tmux_ops.wait_stable_command(tmux_name, transports, timeout=timeout)
+        if landed not in transports:
+            ev.emit(
+                "transport.reconnect.fail",
+                name=str(data.get("name") or ""),
+                pane=str(tmux_name),
+                transport=tmux_ops.transport_of(jump),
+                landed=landed,
+            )
+            raise SystemExit(
+                f"[err] bullet jump did not stay connected (cmd={landed or '—'}); "
+                "stopped before sending the session command"
+            )
+        ev.emit(
+            "transport.reconnect.ok",
+            name=str(data.get("name") or ""),
+            pane=str(tmux_name),
+            transport=tmux_ops.transport_of(jump),
+        )
+    if _pane_blocks_keys(tmux_name):
+        raise SystemExit(
+            f"[err] {tmux_name} is waiting on an SSH host-key prompt; "
+            "refusing to send agent keys into the confirmation"
+        )
 
 
 def _live_session_id(pane: dict) -> str:
@@ -395,6 +448,18 @@ def _live_session_id(pane: dict) -> str:
         return oc_ops.id_from_pid(pid, cwd=cwd)
     except TypeError:
         return oc_ops.id_from_pid(pid)
+
+
+def _live_session_id_until(tmux_name: str, session_id: str, timeout: float = 2) -> bool:
+    """Allow a just-started child process to appear in the pane PID tree."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if tmux_ops.pane_command(tmux_name) == "opencode":
+            pane = tmux_ops.pane_info(tmux_name) or {}
+            if _live_session_id(pane) == session_id:
+                return True
+        time.sleep(0.1)
+    return False
 
 
 def _wait_opencode_ready(tmux_name: str, session_id: str, timeout: float = 12) -> None:
@@ -464,14 +529,15 @@ def _start_side(
         directory = (data.get("runtime") or {}).get("directory") or ""
         if directory and Path(directory).expanduser().is_dir():
             cwd = str(Path(directory).expanduser())
+    target_sid = str(info.get("session_id") or "")
+    live_sid = ""
     if (
         side == "trigger"
         and resume
-        and info.get("session_id")
+        and target_sid
     ):
         pane = tmux_ops.pane_info(tmux_name) or {}
         live_sid = _live_session_id(pane)
-        target_sid = str(info.get("session_id") or "")
         if live_sid and live_sid != target_sid:
             backup = oc_ops.backup_local_snapshot(live_sid)
             if not tmux_ops.quit_opencode(tmux_name):
@@ -483,8 +549,14 @@ def _start_side(
                 f"stopped stale trigger {live_sid} before resuming {target_sid}; "
                 f"backup: {backup}"
             )
+            live_sid = ""
     if side == "bullet" and _fence_remote_bullet(data, info, tmux_name):
         return
+    if _pane_blocks_keys(tmux_name):
+        raise SystemExit(
+            f"[err] {tmux_name} is waiting on an SSH host-key prompt; "
+            "refusing to send agent keys into the confirmation"
+        )
     sent = tmux_ops.ensure_agent(tmux_name, cmd, cwd=cwd)
     if sent:
         ui.ok(f"{side} {cmd} -> {tmux_name}" + (f"  cwd={cwd}" if cwd else ""))
@@ -503,7 +575,15 @@ def _start_side(
         and tmux_ops.pane_command(tmux_name) == "opencode"
     ):
         try:
-            _wait_opencode_ready(tmux_name, str(info.get("session_id") or ""))
+            if not sent:
+                current_live = live_sid or _live_session_id(tmux_ops.pane_info(tmux_name) or {})
+                if current_live == target_sid:
+                    return
+                if _live_session_id_until(tmux_name, target_sid):
+                    return
+                if _pane_shows_agent(tmux_name):
+                    return
+            _wait_opencode_ready(tmux_name, target_sid)
         except SystemExit as exc:
             ev.emit(
                 f"{side}.start.fail",
@@ -1112,6 +1192,20 @@ def _apply_model_legacy(name: str, model: str, sides: list[str]) -> dict:
             if side == "bullet":
                 from . import recovery
 
+                route = recovery.reconcile_remote_runtime(data)
+                if route["status"] == "ambiguous":
+                    names = ", ".join(item["location"] for item in route["locations"])
+                    raise SystemExit(
+                        f"[err] bullet session exists in multiple remote locations ({names}); runtime was not changed"
+                    )
+                if route["changed"]:
+                    save(find_dt(data["name"]), data)
+                    write_entry(data["run"], (data.get("runtime") or {}).get("cmd") or "")
+                    ui.info(
+                        "repaired bullet runtime → "
+                        + (route["locations"][0]["container"] or "host")
+                    )
+                _ensure_remote_jump(data)
                 fenced = recovery.fence_remote_bullet(data)
                 if fenced:
                     ui.warn(f"fenced stale bullet pid(s): {', '.join(map(str, fenced))}")
@@ -1400,32 +1494,9 @@ def _apply_resume_legacy(
     if not oc_ops.is_dst(data):
         raise SystemExit("[err] not a DST. Freeze both oc sessions first: dt freeze")
     runtime = data.get("runtime") or {}
-    jump = runtime.get("cmd") or ""
     remote_bullet = bool(runtime.get("server"))
-    if remote_bullet and not jump:
-        raise SystemExit("[err] bullet runtime has a server but no reconnect command")
-    transports = {"ssh", "docker"}
-    if remote_bullet and tmux_ops.pane_command(data["run"]) not in transports:
-        tmux_ops.reconnect(data["run"], jump)
-        landed = tmux_ops.wait_stable_command(data["run"], transports, timeout=25)
-        if landed not in transports:
-            ev.emit(
-                "transport.reconnect.fail",
-                name=str(data.get("name") or ""),
-                pane=str(data.get("run") or ""),
-                transport=tmux_ops.transport_of(jump),
-                landed=landed,
-            )
-            raise SystemExit(
-                f"[err] bullet jump did not stay connected (cmd={landed or '—'}); "
-                "resume stopped before sending the session command"
-            )
-        ev.emit(
-            "transport.reconnect.ok",
-            name=str(data.get("name") or ""),
-            pane=str(data.get("run") or ""),
-            transport=tmux_ops.transport_of(jump),
-        )
+    if remote_bullet:
+        _ensure_remote_jump(data)
     if remote_bullet:
         from .recovery import ensure_remote_session
 
