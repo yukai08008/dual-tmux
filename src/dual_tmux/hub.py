@@ -730,8 +730,25 @@ def claim(name: str, force: bool = False) -> str:
     return str(claim_occupancy(name).get("holder") or load_config().client)
 
 
-def drop_local(data: dict) -> list[str]:
+def drop_local(data: dict, *, teardown: bool = False) -> list[str]:
+    """Drop the local tmux pair.
 
+    teardown=True (user-initiated drop/remove) first fences the remote bullet
+    by its bound session so the dying jump chain does not leak an orphan.
+    The daemon park path keeps the default: the remote bullet agent is never
+    an eviction target.
+    """
+    if teardown:
+        runtime = data.get("runtime") or {}
+        if runtime.get("server") and (data.get("bullet") or {}).get("session_id"):
+            import subprocess
+
+            from .recovery import fence_remote_bullet
+
+            try:
+                fence_remote_bullet(data, runner=subprocess.run)
+            except (OSError, SystemExit, subprocess.SubprocessError):
+                pass
     dropped = []
     for key in ("op", "run"):
         name = data.get(key) or ""

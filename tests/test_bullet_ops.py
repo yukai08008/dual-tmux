@@ -174,6 +174,10 @@ def _rebuild_env(monkeypatch, bullet_state: str, *, force: bool = False):
         lambda _d, **_kw: order.append("persist") or False,
     )
     monkeypatch.setattr(
+        "dual_tmux.orphan.sweep_run_point",
+        lambda _d, reason, **_kw: order.append("sweep") or [],
+    )
+    monkeypatch.setattr(
         cli, "_start_side", lambda data, pane, side, model="", resume=False: order.append("start")
     )
     return data, order
@@ -211,7 +215,7 @@ def test_rebuild_remote_pipeline_order(monkeypatch):
         lambda _pane, _want, timeout=25: order.append("wait") or "ssh",
     )
     cli._apply_rebuild_legacy("dt-x")
-    assert order == ["reconcile", "reconnect", "wait", "fence", "shows", "persist", "start"]
+    assert order == ["reconcile", "reconnect", "wait", "fence", "sweep", "shows", "persist", "start"]
 
 
 def test_rebuild_refuses_blind_when_probe_fails(monkeypatch):

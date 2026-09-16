@@ -283,10 +283,19 @@ def snapshot(data: dict, *, lease: dict | None = None) -> dict:
             "conflict": bool(lease.get("conflict")),
         },
     }
-    from . import native_persist
+    try:
+        from . import native_persist
+    except ImportError:
+        # An incomplete older wheel must not brick OpenCode-only ownership or
+        # resume. Native clients will report the packaging problem at import.
+        native_persist = None
 
     result["native_snapshots"] = {
-        role: native_persist.inspect_session(data.get(role) or {})
+        role: (
+            native_persist.inspect_session(data.get(role) or {})
+            if native_persist is not None
+            else {"status": "unsupported", "reason": "native_persist_unavailable"}
+        )
         for role in ("trigger", "bullet")
     }
     result["takeover"] = _takeover(lease, sides, writers)

@@ -57,6 +57,10 @@ def test_apply_model_fail_closed_when_freeze_fails(monkeypatch, tmp_path):
     monkeypatch.setattr(cli.oc_ops, "probe_model", lambda _m: (True, "ok"))
     monkeypatch.setattr(cli, "find_dt", lambda _name: tunnel_file)
     monkeypatch.setattr(cli.tmux_ops, "pane_command", lambda _t: "")
+    monkeypatch.setattr(
+        "dual_tmux.recovery.reconcile_remote_runtime",
+        lambda _d: {"status": "not-applicable", "changed": False, "locations": []},
+    )
     monkeypatch.setattr("dual_tmux.recovery.fence_remote_bullet", lambda _d: [])
     monkeypatch.setattr(cli.oc_ops, "start_cmd", lambda _i, _m: "opencode")
     monkeypatch.setattr(cli.tmux_ops, "ensure_agent", lambda *_a, **_k: None)
@@ -67,6 +71,91 @@ def test_apply_model_fail_closed_when_freeze_fails(monkeypatch, tmp_path):
         cli._apply_model_legacy("dt-demo", "new/model", ["bullet"])
 
     assert not saved_payloads
+
+
+def test_apply_model_repairs_runtime_and_lands_jump_before_starting(monkeypatch, tmp_path):
+    import pytest
+
+    from dual_tmux import cli
+
+    tunnel_file = tmp_path / "dt-demo.json"
+    data = {
+        "name": "dt-demo",
+        "op": "op_demo",
+        "run": "run_demo",
+        "runtime": {
+            "server": "root@10.88.0.20",
+            "container": "me_andy_browser",
+            "directory": "/workspace",
+            "cmd": "ssh -t root@10.88.0.20 docker exec -it me_andy_browser bash",
+        },
+        "bullet": {"tool": "opencode", "model": "old/model"},
+    }
+    started = []
+    repaired = {
+        "status": "repaired",
+        "changed": True,
+        "locations": [{"location": "cp_gateway_24629", "container": "cp_gateway_24629"}],
+    }
+
+    monkeypatch.setattr(cli, "_resolve", lambda _name: data)
+    monkeypatch.setattr(cli.hub, "require_active", lambda _data: None)
+    monkeypatch.setattr(cli.oc_ops, "probe_model", lambda _m: (True, "ok"))
+    monkeypatch.setattr(cli, "find_dt", lambda _name: tunnel_file)
+    monkeypatch.setattr(cli.tmux_ops, "pane_command", lambda _t: "ssh")
+    monkeypatch.setattr(
+        "dual_tmux.recovery.reconcile_remote_runtime", lambda _d: repaired
+    )
+    monkeypatch.setattr(cli, "write_entry", lambda *_a, **_k: None)
+    monkeypatch.setattr(cli, "_ensure_remote_jump", lambda _d: started.append("jump"))
+    monkeypatch.setattr("dual_tmux.recovery.fence_remote_bullet", lambda _d: [])
+    monkeypatch.setattr(cli.oc_ops, "start_cmd", lambda _i, _m: "opencode --model new")
+    monkeypatch.setattr(
+        cli.tmux_ops, "ensure_agent", lambda *_a, **_k: started.append("start")
+    )
+    monkeypatch.setattr(cli, "freeze_sides", lambda *_a, **_k: {"bullet": True})
+    monkeypatch.setattr(cli, "save", lambda _p, d: None)
+    monkeypatch.setattr(cli, "load", lambda _p: data)
+    monkeypatch.setattr(cli.hub, "push_best_effort", lambda **_k: None)
+
+    cli._apply_model_legacy("dt-demo", "new/model", ["bullet"])
+    assert started == ["jump", "start"]
+
+
+def test_apply_model_refuses_hostkey_prompt(monkeypatch, tmp_path):
+    import pytest
+
+    from dual_tmux import cli
+
+    data = {
+        "name": "dt-demo",
+        "op": "op_demo",
+        "run": "run_demo",
+        "runtime": {"server": "box", "cmd": "ssh -t box"},
+        "bullet": {"tool": "opencode", "model": "old/model"},
+    }
+    monkeypatch.setattr(cli, "_resolve", lambda _name: data)
+    monkeypatch.setattr(cli.hub, "require_active", lambda _data: None)
+    monkeypatch.setattr(cli.oc_ops, "probe_model", lambda _m: (True, "ok"))
+    monkeypatch.setattr(cli, "find_dt", lambda _name: tmp_path / "dt-demo.json")
+    monkeypatch.setattr(cli.tmux_ops, "pane_command", lambda _t: "ssh")
+    monkeypatch.setattr(
+        "dual_tmux.recovery.reconcile_remote_runtime",
+        lambda _d: {"status": "healthy", "changed": False, "locations": []},
+    )
+    monkeypatch.setattr(
+        cli,
+        "_ensure_remote_jump",
+        lambda _d: (_ for _ in ()).throw(SystemExit("[err] run_demo is waiting on an SSH host-key prompt")),
+    )
+    monkeypatch.setattr(
+        cli.tmux_ops,
+        "ensure_agent",
+        lambda *_a, **_k: pytest.fail("must not start into host-key prompt"),
+    )
+
+    with pytest.raises(SystemExit, match="host-key prompt"):
+        cli._apply_model_legacy("dt-demo", "new/model", ["bullet"])
 
 
 def test_apply_model_saves_when_freeze_succeeds(monkeypatch, tmp_path):
@@ -86,6 +175,10 @@ def test_apply_model_saves_when_freeze_succeeds(monkeypatch, tmp_path):
     monkeypatch.setattr(cli.oc_ops, "probe_model", lambda _m: (True, "ok"))
     monkeypatch.setattr(cli, "find_dt", lambda _name: tunnel_file)
     monkeypatch.setattr(cli.tmux_ops, "pane_command", lambda _t: "")
+    monkeypatch.setattr(
+        "dual_tmux.recovery.reconcile_remote_runtime",
+        lambda _d: {"status": "not-applicable", "changed": False, "locations": []},
+    )
     monkeypatch.setattr("dual_tmux.recovery.fence_remote_bullet", lambda _d: [])
     monkeypatch.setattr(cli.oc_ops, "start_cmd", lambda _i, _m: "opencode")
     monkeypatch.setattr(cli.tmux_ops, "ensure_agent", lambda *_a, **_k: None)

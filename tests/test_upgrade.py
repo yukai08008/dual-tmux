@@ -131,15 +131,21 @@ def test_install_latest_forces_new_release_wheel(monkeypatch):
     assert calls == [["uv", "tool", "install", "--force", asset.url]]
 
 
-def test_install_latest_skips_same_version(monkeypatch):
+def test_install_latest_refreshes_same_version_wheel(monkeypatch):
     asset = upgrade.ReleaseAsset("0.4.48", "v0.4.48", "https://github.com/unused")
     monkeypatch.setattr(upgrade, "discover_latest", lambda: asset)
     calls = []
+
+    class Result:
+        returncode = 0
+
     assert (
-        upgrade.install_latest("0.4.48", lambda *args, **kwargs: calls.append(args))
+        upgrade.install_latest(
+            "0.4.48", lambda argv, **kwargs: calls.append(argv) or Result()
+        )
         == asset
     )
-    assert calls == []
+    assert calls == [["uv", "tool", "install", "--force", asset.url]]
 
 
 def test_install_latest_never_downgrades_post_release(monkeypatch):
