@@ -20,6 +20,7 @@
 | `system` | 隧道生命周期与系统运维 | `dt.new`、`hub.push`、`freeze.*`、`transport.reconnect` |
 | `trigger` | 用户与 Trigger 的交互 | `trigger.send`、`trigger.turn.*`、`bullet.send`（命令 Bullet） |
 | `bullet` | 远端 Bullet Agent 生命周期 | `bullet.start.*`、`bullet.run.*`、`bullet.fence` |
+| `orphan` | run 点孤儿进程治理（S13/S14，v0.4.78） | `orphan.found`、`orphan.clean.*`、`orphan.sweep` |
 
 | sev | 含义 |
 |---|---|
@@ -71,6 +72,16 @@
 | `bullet.fence` | 清理远端孤儿实例 | recovery.py | pids, session |
 | `bullet.rebuild.start / .ok / .fail` | `dt rebuild` 围栏化重建（span） | cli.py | ms, error |
 | `bullet.probe.fail` | 探测失败（健康→降级转移时） | recovery.py | bullet_agent/session/bullet_pane 状态 |
+
+### orphan — run 点孤儿治理（v0.4.78，S13/S14）
+
+| kind | 触发时机 | 采集点 | 关键字段 |
+|---|---|---|---|
+| `orphan.found`（warn） | 巡检/扫描发现超宽限孤儿（绑定会话最新者为合法写者，其余 age≥600s 即孤儿） | orphan.py | pids, ages |
+| `orphan.clean.ok / .fail` | 清理（TERM→2s→KILL）；fail 含存活数 | orphan.py | terminated / remaining, error |
+| `orphan.sweep` | resume/rebuild 启动前全容器清场（TUI 不在场时） | orphan.py | reason, pids |
+
+巡检：tick 低频触发（默认每小时，`DUAL_TMUX_ORPHAN_PATROL_INTERVAL` 可调）；`auto_orphan_clean` 按隧道开关（默认关）。红线：合法写者永不清理；DST 冻结只扫不清；他机占用跳过本轮。host run 点（无容器）不扫描——共享主机无法归因。
 
 ## 噪音控制（不变量）
 

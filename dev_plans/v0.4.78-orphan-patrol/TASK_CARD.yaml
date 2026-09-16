@@ -1,0 +1,37 @@
+version: v0.4.78
+parent_final: hotfix/v0.4.49-workpoint-alias-hops@189091f (含 v0.4.77)
+title: 孤儿进程治理（S13/S14 落地）
+type: feature
+prd: dev_plans/v0.4.78-orphan-patrol/PRD.md
+test_cases: tests/test_orphan.py
+
+invariants:
+  - "现有 CLI 命令集不减少（仅新增 orphans）"
+  - "合法写者永不被清理；探测失败 fail-closed"
+  - "daemon park 不围栏远端 bullet"
+  - "host run 点不扫描不清理"
+
+deliverables:
+  - module: src/dual_tmux/orphan.py
+    change: scan/clean/patrol/maybe_patrol/sweep_run_point/foreign_held
+    public_api: [scan, clean, patrol, maybe_patrol, sweep_run_point, foreign_held, GRACE_SECONDS]
+  - module: src/dual_tmux/cli.py
+    change: dt orphans 命令、rebuild/resume sweep 接线、tick 巡检接线、rm --kill 围栏
+  - module: src/dual_tmux/hub.py
+    change: drop_local(teardown=) 用户断链前围栏（park 不受影响）
+  - module: src/dual_tmux/log.py / web_pages.py
+    change: orphan 事件分类注册与筛选
+  - module: tests/test_orphan.py
+    change: 17 个用例
+
+acceptance_count: 3
+total_estimated_loc: ~700
+
+git_workflow:
+  branch_creation: from origin/hotfix/v0.4.49-workpoint-alias-hops
+  merge_policy: --no-ff
+  before_merge_checks:
+    - ".venv/bin/python -m pytest tests/ -q"
+  final_tag: v0.4.78
+
+签名: Agent-PM-0.4.78
