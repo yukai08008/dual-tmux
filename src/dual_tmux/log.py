@@ -12,7 +12,7 @@ from .workpoint import now_iso
 _RESERVED = {"ts", "kind", "pid", "sev", "cat"}
 
 SEVERITIES = ("info", "warn", "error")
-CATEGORIES = ("system", "trigger", "bullet")
+CATEGORIES = ("system", "trigger", "bullet", "orphan")
 
 # Keep last N event lines once the file passes the rotation size gate.
 MAX_EVENT_LINES = 20_000
@@ -92,6 +92,11 @@ KIND_META: dict[str, tuple[str, str, str]] = {
     "bullet.rebuild.ok": ("bullet", "info", "Bullet 围栏重建完成"),
     "bullet.rebuild.fail": ("bullet", "error", "Bullet 围栏重建失败"),
     "bullet.probe.fail": ("bullet", "warn", "Bullet 探测失败"),
+    # --- orphan: run-point hygiene (S13/S14) ---------------------------
+    "orphan.found": ("orphan", "warn", "发现孤儿进程"),
+    "orphan.clean.ok": ("orphan", "info", "孤儿进程清理完成"),
+    "orphan.clean.fail": ("orphan", "error", "孤儿进程清理失败"),
+    "orphan.sweep": ("orphan", "info", "启动前清场（全容器孤儿围栏）"),
 }
 
 _WARN_SUFFIXES = (".reject", ".violation", ".stalled", ".unconfirmed")
@@ -132,6 +137,8 @@ def meta(kind: str) -> dict[str, str]:
         cat = "trigger"
     elif low.startswith("bullet."):
         cat = "bullet"
+    elif low.startswith("orphan."):
+        cat = "orphan"
     elif not any(low.startswith(prefix) for prefix in _SYSTEM_PREFIXES):
         cat = "system"
     return {"cat": cat, "sev": sev, "label": kind}
