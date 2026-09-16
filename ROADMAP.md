@@ -164,6 +164,35 @@ flowchart LR
 
 权威规范见 [docs/events.md](docs/events.md) 与 `src/dual_tmux/skills/tmux-trigger/SKILL.md`。
 
+## S13 Backlog：隧道单活跃会话不变量（待立项）
+
+案例：dt-cp-gate 的 bullet 容器内残留 3 个活跃 opencode（父 bash PPID=0 的孤儿，最长存活 10 天）——freeze/resume 反复重连时，旧 `docker exec -it` 链路死亡但容器内 opencode 未被收尾，新链路又在同一 /workspace 拉起新实例。
+
+目标：一条隧道在任何时刻只保留一对活跃 agent（trigger 一个，bullet 一个），其余必须是死进程。
+
+思路：
+- resume/reconnect 建立新 bullet 前，按 run 点围栏清理旧 opencode（沿 S12 fence 思路扩展到跨 pts 的全容器孤儿，而非仅绑定会话）。
+- 检测：`dt health` / `dt bullet` 增加 writers>1 的显式告警事件（目前 `dt bullet` 已有 multiple_writers hint，但 health 层不报）。
+- 收尾：`dt rm --kill` / `dt freeze` 断开 tmux 链路时，向容器内旧 pane 链路的 opencode 发 SIGTERM，而不是依赖 pts 断开后进程自然存活。
+- 明确不变量表述：非绑定会话的 opencode 不属于"远端 bullet agent 不可清退"的保护范围，可被 fence 清理。
+
+## S14 版本需求：孤儿进程例行巡检（待立项）
+
+背景：S13 案例证明孤儿不是意外而是系统性泄漏（每次 resume 断链必漏一个），靠人肉发现太晚（本次最长 10 天）。需要例行的、事件可见的巡检。
+
+扫描：
+- 挂在分钟 tick 下做低频巡检（如每 N 次 tick 或每日一次，间隔可配），不增加新的常驻进程。
+- 对每条非 DST 隧道的 run 点（含容器）执行一次 `pgrep opencode` + 会话归类：进程命令行/持久化 JSON 匹配绑定 session id → 合法写者；其余 → 孤儿候选。
+- 孤儿候选带存活时长；仅当超过宽限期（如 >10min，避开正在进行的 resume）才升级为孤儿。
+
+处置：
+- 默认只报告不清理：发 `orphan.found` 事件（sev=warn），计入 health；`dt log --cat orphan` 可查。
+- 自动清理按隧道开关（`auto_orphan_clean`，默认关）放行：对孤儿 SIGTERM → 宽限 → SIGKILL，全程 `orphan.clean.ok/fail` 事件记录 PID。
+- 红线：绑定 session id 的写者永不清理；DST 冻结态只扫描不清理；占用被他人持有时跳过本轮。
+- 新命令 `dt orphans [dt] [--clean]`：手动列出/清理，供巡检发现后的即时处置，不必等自动周期。
+
+验收：dt-cp-gate 场景复现（连续 freeze/resume N 次）后，巡检能在下一个周期发现全部孤儿并报告；开启 auto_orphan_clean 后容器内回到仅 1 个绑定写者。
+
 ## 不变量（全程）
 
 - 独立模式零 SSH / 零占用。

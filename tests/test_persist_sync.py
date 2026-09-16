@@ -526,6 +526,30 @@ def test_ensure_local_tick_pick_uses_one_machine(tmp_path: Path, monkeypatch):
     assert imported == [newer]
 
 
+def test_ensure_local_tick_pick_falls_back_when_source_tenant_has_no_snapshot(tmp_path: Path, monkeypatch):
+    root = tmp_path / "sessions" / "opencode"
+    home_snap = root / "tm_home" / "eager-orchid.json"
+    _write_json(home_snap, "ses_fdbe", "eager-orchid", updated=100, messages=("msg_home",))
+    monkeypatch.setenv("OPENCODE_SESSIONS", str(root))
+    monkeypatch.setattr("dual_tmux.oc.persist_tenant", lambda: "tm_empty")
+    imported_ids: set[str] = set()
+    monkeypatch.setattr("dual_tmux.oc.by_id", lambda sid: object() if sid in imported_ids else None)
+    monkeypatch.setattr("dual_tmux.oc.local_has_message", lambda *_a: True)
+    imported: list[Path] = []
+
+    def fake_import(p: Path) -> None:
+        imported.append(p)
+        imported_ids.add("ses_fdbe")
+
+    assert ensure_local(
+        {"session_id": "ses_fdbe", "slug": "eager-orchid"},
+        importer=fake_import,
+        pick="tick",
+        source="tm_empty",
+    )
+    assert imported == [home_snap]
+
+
 def test_sync_persist_streams_progress(monkeypatch, tmp_path):
     from dual_tmux import hotfix
     from dual_tmux.config import AppConfig

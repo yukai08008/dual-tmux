@@ -36,6 +36,7 @@ def test_cmd():
     assert "myserver" in cmd
     assert "ServerAliveInterval=15" in cmd
     assert "ServerAliveCountMax=3" in cmd
+    assert "StrictHostKeyChecking=accept-new" in cmd
     assert "docker exec -it box" in cmd
     assert "/workspace/app" in cmd
     assert build_cmd("myserver", "", "/workspace").endswith("myserver")
@@ -182,8 +183,15 @@ root@m7:/workspace#
 """
 
 
-def test_parse_hops():
+def test_parse_hops(monkeypatch):
+    from dual_tmux import workpoint
     from dual_tmux.workpoint import parse_hops, _from_hops
+
+    # resolve_shell_alias spawns a real login shell and reads ~/.zshrc, making
+    # the test sensitive to the local alias definition of `tom7r`.  Mock it to
+    # return "" so the alias is resolved purely via ~/.ssh/config host-block
+    # matching, which is the code path this test exercises.
+    monkeypatch.setattr(workpoint, "resolve_shell_alias", lambda _token, **_kw: "")
 
     hops = parse_hops(SAMPLE_PANE)
     assert hops[0]["command"] == "tom7r"

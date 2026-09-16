@@ -247,10 +247,10 @@ def transport_of(cmd: str) -> str:
     return "other"
 
 
-def reconnect(name: str, cmd: str) -> None:
+def reconnect(name: str, cmd: str, *, force: bool = False) -> None:
     ensure_session(name)
     current = pane_command(name)
-    if current in {"ssh", "docker", "tmux"}:
+    if not force and current in {"ssh", "docker", "tmux"}:
         from .ui import skip
 
         skip(f"{name} already on the jump (cmd={current})")

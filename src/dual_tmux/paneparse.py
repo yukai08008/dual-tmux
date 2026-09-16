@@ -18,6 +18,17 @@ STATUS_RE = re.compile(r"Build(?P<auto>\s+auto)?\s*[·•][^\n]*", re.IGNORECASE
 THOUGHT_RE = re.compile(r"^\s*Thought:\s*", re.IGNORECASE)
 REASON_RE = re.compile(r"^\s*The user\b", re.IGNORECASE)
 FOOTER_RE = re.compile(r"ctrl\+p commands|OpenCode \d|tokens\b|\$[\d.]+ spent", re.IGNORECASE)
+PROMPT_RE = re.compile(
+    r"Permission required|Allow once|Allow always|ctrl\+f fullscreen|Ask anything|⇆ select|enter confirm",
+    re.IGNORECASE,
+)
+HOSTKEY_RE = re.compile(
+    r"Are you sure you want to continue connecting|"
+    r"can't be established|"
+    r"Please type 'yes', 'no' or the fingerprint|"
+    r"Host key verification failed",
+    re.IGNORECASE,
+)
 CHROME_RE = re.compile(
     r"^(ok |skip |err |· |% |░|▒|▓|┌|└|│|▀|━|╹|OpenCode |Context$|MCP$|LSP$|"
     r"Build auto|Connected$|LSPs are|问候$|▼ MCP)",
