@@ -339,6 +339,12 @@
 
 ## Backlog
 
+### Sync：删除共识——墓碑化删除（BL-SYNC-001，DESIGN）
+
+- 案例（dt-a）：删除不传播——并集合并 + 裸 rsync 下，Hub 删除后本机副本仍在并被 tick 采样，任意 push/sync 即复活。
+- 设计已定稿：删除写带逻辑时钟的墓碑文件，merge 以对等身份比较时钟，全路径收敛；支持删后同名重建。
+- **权威设计：`docs/deletion-consensus.md`；引导条目：`dev_plans/_backlog/20260916-deletion-consensus-tombstones.md`。**
+
 ### Runtime：Session Ownership 与安全接管（BL-RUNTIME-001，PLANNED）
 
 - v0.4.49 API：lease/runtime/attached/progress 四维分离；owner handoff；resume 两阶段事务；同 session writer 单活。
