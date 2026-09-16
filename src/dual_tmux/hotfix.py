@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -197,10 +198,23 @@ def persist_script(kind: str, host: str, user: str) -> str:
         'if ! mkdir "$LOCK" >/dev/null 2>&1; then',
         '    [ "$WAIT" = "--wait" ] || exit 0',
         "    i=0",
-        '    while [ "$i" -lt 30 ] && [ -d "$LOCK" ]; do sleep 1; i=$((i+1)); done',
-        '    mkdir "$LOCK" >/dev/null 2>&1 || exit 1',
+        '    while [ "$i" -lt 90 ] && [ -d "$LOCK" ]; do sleep 1; i=$((i+1)); done',
+        '    if ! mkdir "$LOCK" >/dev/null 2>&1; then',
+        '        holder="$(cat "$LOCK/pid" 2>/dev/null || true)"',
+        '        mtime="$(stat -f %m "$LOCK" 2>/dev/null || stat -c %Y "$LOCK" 2>/dev/null || echo 0)"',
+        '        age=$(( $(date +%s) - mtime ))',
+        '        if { [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; } || [ "$age" -gt 1800 ]; then',
+        '            rm -rf "$LOCK"',
+        f'            echo "persist-{kind} took over a stale lock (holder=${{holder:-unknown}} age=${{age}}s)" >&2',
+        '            mkdir "$LOCK" >/dev/null 2>&1 || exit 1',
+        "        else",
+        f'            echo "persist-{kind} lock still held by an overlapping run after 90s; retry later" >&2',
+        "            exit 1",
+        "        fi",
+        "    fi",
         "fi",
-        "trap 'rmdir \"$LOCK\" 2>/dev/null' EXIT",
+        'echo $$ > "$LOCK/pid"',
+        "trap 'rm -rf \"$LOCK\" 2>/dev/null' EXIT",
         'PROGRESS=""',
         'if [ "$WAIT" = "--wait" ] && [ -t 1 ]; then',
         '    if rsync --info=help >/dev/null 2>&1; then',
@@ -214,14 +228,14 @@ def persist_script(kind: str, host: str, user: str) -> str:
         lines.append(extra)
     lines.extend(
         [
-            f'rsync -a --delete {exclude} $PROGRESS "$LOCAL"/ "$HOST:{rel}/$ME/" || exit 1',
-            f'names="$(ssh -o BatchMode=yes "$HOST" "for d in \\"\\$HOME/{rel}\\"/*/; do [ -d \\"\\$d\\" ] || continue; b=\\$(basename \\"\\$d\\"); case \\"\\$b\\" in tm_*) printf \'%s\\\\n\' \\"\\$b\\" ;; esac; done")" || exit 1',
+            f'rsync -a --delete --timeout=180 {exclude} $PROGRESS "$LOCAL"/ "$HOST:{rel}/$ME/" || exit 1',
+            f'names="$(ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 "$HOST" "for d in \\"\\$HOME/{rel}\\"/*/; do [ -d \\"\\$d\\" ] || continue; b=\\$(basename \\"\\$d\\"); case \\"\\$b\\" in tm_*) printf \'%s\\\\n\' \\"\\$b\\" ;; esac; done")" || exit 1',
             "failed=0",
             "while IFS= read -r n; do",
             '    [ -n "$n" ] || continue',
             '    [ "$n" = "$ME" ] && continue',
             '    mkdir -p "$ROOT/$n"',
-            f'    rsync -a $PROGRESS "$HOST:{rel}/$n/" "$ROOT/$n/" || failed=1',
+            f'    rsync -a --timeout=180 $PROGRESS "$HOST:{rel}/$n/" "$ROOT/$n/" || failed=1',
             'done <<< "$names"',
             'exit "$failed"',
             "",
@@ -257,8 +271,19 @@ def sync_persist(
             f"[err] persist {kind} sync timed out after {timeout}s"
         ) from exc
     if result.returncode != 0:
-        err = (result.stderr or result.stdout or "sync failed").strip().splitlines()
-        raise SystemExit(f"[err] persist {kind} sync: {err[-1] if err else 'failed'}")
+        # A silent failure is the lock-contention path (overlapping cron
+        # run); one retry mirrors the manual rerun users already had to do.
+        silent = not (result.stderr or "").strip() and not (
+            result.stdout or ""
+        ).strip()
+        if silent:
+            time.sleep(2)
+            result = subprocess.run(check=False, **run_kwargs)
+        if result.returncode != 0:
+            err = (result.stderr or result.stdout or "sync failed").strip().splitlines()
+            raise SystemExit(
+                f"[err] persist {kind} sync: {err[-1] if err else 'failed'}"
+            )
     return path
 
 

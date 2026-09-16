@@ -550,6 +550,83 @@ def test_ensure_local_tick_pick_falls_back_when_source_tenant_has_no_snapshot(tm
     assert imported == [home_snap]
 
 
+def test_persist_script_lock_wait_reports_reason():
+    from dual_tmux.hotfix import persist_script
+
+    body = persist_script("opencode", "tom7r", "andy")
+    assert '-lt 90 ]' in body
+    assert "still held by an overlapping run after 90s" in body
+
+
+def test_persist_script_takes_over_stale_lock_and_times_out_io():
+    from dual_tmux.hotfix import persist_script
+
+    body = persist_script("opencode", "tom7r", "andy")
+    # stale-lock takeover: pid heartbeat in the lock dir, dead-holder or
+    # 30-minute age check, then rm -rf and recreate
+    assert 'echo $$ > "$LOCK/pid"' in body
+    assert '! kill -0 "$holder" 2>/dev/null' in body
+    assert '[ "$age" -gt 1800 ]' in body
+    assert 'rm -rf "$LOCK"' in body
+    assert "took over a stale lock" in body
+    assert "trap 'rm -rf \"$LOCK\" 2>/dev/null' EXIT" in body
+    # a hung rsync/ssh must never hold the lock forever
+    assert body.count("--timeout=180") == 2
+    assert "ConnectTimeout=10" in body
+    assert "ServerAliveCountMax=3" in body
+
+
+def test_sync_persist_retries_once_on_silent_lock_failure(monkeypatch, tmp_path):
+    from dual_tmux import hotfix
+    from dual_tmux.config import AppConfig
+
+    script = tmp_path / "dt-persist-opencode"
+    script.write_text("#!/bin/sh\nexit 0\n")
+    calls = []
+
+    class Result:
+        def __init__(self, returncode, stderr="", stdout=""):
+            self.returncode = returncode
+            self.stderr = stderr
+            self.stdout = stdout
+
+    def run(**kwargs):
+        calls.append(1)
+        return Result(1) if len(calls) == 1 else Result(0)
+
+    monkeypatch.setattr(hotfix, "persist_bin", lambda _kind: script)
+    monkeypatch.setattr(hotfix.subprocess, "run", run)
+    monkeypatch.setattr(hotfix.time, "sleep", lambda _s: None)
+    hotfix.sync_persist("opencode", AppConfig(client="tm_a", server="tom7r", user="andy"))
+    assert len(calls) == 2
+
+
+def test_sync_persist_raises_immediately_on_real_failure(monkeypatch, tmp_path):
+    from dual_tmux import hotfix
+    from dual_tmux.config import AppConfig
+
+    script = tmp_path / "dt-persist-opencode"
+    script.write_text("#!/bin/sh\nexit 0\n")
+    calls = []
+
+    class Result:
+        returncode = 1
+        stderr = "rsync: connection refused\n"
+        stdout = ""
+
+    def run(**kwargs):
+        calls.append(1)
+        return Result()
+
+    monkeypatch.setattr(hotfix, "persist_bin", lambda _kind: script)
+    monkeypatch.setattr(hotfix.subprocess, "run", run)
+    with pytest.raises(SystemExit, match="connection refused"):
+        hotfix.sync_persist(
+            "opencode", AppConfig(client="tm_a", server="tom7r", user="andy")
+        )
+    assert len(calls) == 1
+
+
 def test_sync_persist_streams_progress(monkeypatch, tmp_path):
     from dual_tmux import hotfix
     from dual_tmux.config import AppConfig
