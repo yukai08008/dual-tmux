@@ -209,7 +209,7 @@ def test_hub_drop_releases_and_resume_claims_with_force(monkeypatch, tmp_path):
     monkeypatch.setattr(
         cli.hub,
         "drop_local",
-        lambda tunnel: ownership.append(("drop", tunnel["name"])),
+        lambda tunnel, teardown=False: ownership.append(("drop", tunnel["name"])),
     )
     monkeypatch.setattr(
         cli.hub, "release", lambda name: ownership.append(("release", name))

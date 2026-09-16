@@ -733,7 +733,7 @@ def _bullet_snapshot(data: dict) -> dict:
     bullet_rows = [
         row
         for row in ev.read_events(limit=50, name=name)
-        if str(row.get("kind") or "").startswith(("bullet.", "transport."))
+        if str(row.get("kind") or "").startswith(("bullet.", "transport.", "orphan."))
     ][-10:]
     return {
         "schema": 1,
@@ -828,6 +828,16 @@ def _apply_rebuild_legacy(name: str, force: bool = False) -> dict:
                 raise SystemExit(
                     "[err] remote bullet process check failed; refusing to rebuild blind"
                 )
+            # S13: before starting a fresh bullet, sweep every remaining
+            # opencode at the run point (older duplicates and no-session
+            # strays the session-scoped fence cannot see).
+            from . import orphan
+
+            swept = orphan.sweep_run_point(data, reason="rebuild")
+            if swept is None:
+                raise SystemExit(
+                    "[err] run-point sweep failed; refusing to rebuild blind"
+                )
             if not _pane_shows_agent(data["run"]):
                 recovery.ensure_remote_session(data)
         _start_side(data, data["run"], "bullet", resume=True)
@@ -852,6 +862,66 @@ def apply_rebuild(name: str, force: bool = False) -> dict:
 def cmd_rebuild(args: argparse.Namespace) -> None:
     data = apply_rebuild(args.name, force=bool(getattr(args, "force", False)))
     ui.ok(f"rebuilt bullet for {data.get('name')}")
+
+
+def cmd_orphans(args: argparse.Namespace) -> None:
+    import json as _json
+
+    from . import orphan
+
+    if args.name:
+        targets = [_resolve(args.name)]
+    else:
+        targets = [
+            data
+            for data in (load(path) for path in iter_dt_files())
+            if (data.get("runtime") or {}).get("container")
+        ]
+    cleaned_any = False
+    for data in targets:
+        if orphan.foreign_held(data):
+            ui.warn(f"{data.get('name')}: occupancy held elsewhere; skipped")
+            continue
+        info = orphan.scan(data)
+        if info["status"] == "not-applicable":
+            continue
+        if info["status"] == "unavailable":
+            ui.warn(f"{data.get('name')}: run point unreachable")
+            continue
+        orphans = info["orphans"]
+        if getattr(args, "json", False):
+            print(
+                _json.dumps(
+                    {
+                        "name": data.get("name"),
+                        "legal": info["legal"],
+                        "orphans": orphans,
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            continue
+        legal = info["legal"]
+        ui.info(
+            f"{data.get('name')}: legal pid={legal['pid'] if legal else '—'}"
+            f" args={(legal['args'][:60] if legal else '')}"
+        )
+        if not orphans:
+            ui.ok(f"  no orphans (grace {orphan.GRACE_SECONDS}s)")
+            continue
+        for p in orphans:
+            ui.warn(f"  orphan pid={p['pid']} age={p['age']}s args={p['args'][:60]}")
+        if getattr(args, "clean", False):
+            outcome = orphan.clean(data, orphans)
+            cleaned_any = True
+            if outcome["remaining"]:
+                ui.warn(
+                    f"  clean left {outcome['remaining']} process(es) alive"
+                )
+            else:
+                ui.ok(f"  cleaned {len(outcome['terminated'])} orphan(s)")
+    if getattr(args, "clean", False) and not cleaned_any:
+        ui.skip("nothing to clean")
 
 
 def _ssh_argv(data: dict) -> list[str]:
@@ -1502,8 +1572,18 @@ def _apply_resume_legacy(
 
         if _pane_shows_agent(data["run"]):
             ui.skip("remote bullet TUI is live; persist recovery not needed")
-        elif ensure_remote_session(data):
-            ui.ok("imported remote bullet persist JSON")
+        else:
+            # S13: no live TUI, so every opencode at the run point is a
+            # leftover from a dead jump chain — sweep before starting fresh.
+            from . import orphan
+
+            swept = orphan.sweep_run_point(data, reason="resume")
+            if swept:
+                ui.warn(
+                    f"swept {len(swept)} orphan opencode(s) at the run point"
+                )
+            if ensure_remote_session(data):
+                ui.ok("imported remote bullet persist JSON")
     trigger = _side(data, "trigger")
     bullet = _side(data, "bullet")
 
@@ -1861,6 +1941,12 @@ def cmd_tick(_: argparse.Namespace) -> None:
         except (OSError, RuntimeError, ValueError):
             pass
         try:
+            from . import orphan
+
+            orphan.maybe_patrol(data)
+        except (OSError, RuntimeError, ValueError):
+            pass
+        try:
             written = _export_local_snapshots(data, cfg.client)
             remote_bullet = bool((data.get("runtime") or {}).get("server"))
             native_seen = native_seen or any(
@@ -1935,7 +2021,7 @@ def cmd_recover(args: argparse.Namespace) -> None:
 
 def cmd_drop(args: argparse.Namespace) -> None:
     data = _resolve(args.name)
-    hub.drop_local(data)
+    hub.drop_local(data, teardown=True)
     try:
         hub.release(data["name"])
         if require_config().hub_enabled:
@@ -2017,6 +2103,16 @@ def cmd_rm(args: argparse.Namespace) -> None:
     opsdir.remove_ops(op)
     killed = []
     if args.kill:
+        # S13: fence the bound remote bullet before killing the jump chain
+        # so the container keeps no leaked opencode for a removed tunnel.
+        import subprocess
+
+        from .recovery import fence_remote_bullet
+
+        try:
+            fence_remote_bullet(data, runner=subprocess.run)
+        except (OSError, SystemExit, subprocess.SubprocessError):
+            pass
         if tmux_ops.kill_session(op):
             killed.append(op)
         if tmux_ops.kill_session(run):
@@ -2460,6 +2556,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--force", action="store_true", help="allow rebuilding a working bullet turn"
     )
 
+    p_orphans = sub.add_parser(
+        "orphans", help="list (or --clean) leaked opencode processes at container run points"
+    )
+    p_orphans.add_argument("name", nargs="?", default="", help="defaults to all container tunnels")
+    p_orphans.add_argument("--json", action="store_true", help="one JSON line per tunnel")
+    p_orphans.add_argument("--clean", action="store_true", help="TERM then KILL the listed orphans")
+
     p_config = sub.add_parser("config", help="show or init Client/Server config")
     p_config.add_argument("--init", action="store_true")
     p_config.add_argument(
@@ -2689,6 +2792,7 @@ def main() -> None:
         "send": cmd_send,
         "bullet": cmd_bullet,
         "rebuild": cmd_rebuild,
+        "orphans": cmd_orphans,
         "config": cmd_config,
         "push": cmd_push,
         "pull": cmd_pull,

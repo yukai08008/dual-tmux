@@ -59,6 +59,7 @@ def test_cli_contract_covers_all_current_command_families():
         "send",
         "bullet",
         "rebuild",
+        "orphans",
         "show",
         "skill",
         "tick",
