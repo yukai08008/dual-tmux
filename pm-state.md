@@ -1,8 +1,22 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-16 23:30 +08:00 | 更新者: ZCode
+> 最近更新: 2026-09-17 09:00 +08:00 | 更新者: ZCode
 
 ## 状态树
+
+### v0.4.79.post1 (RELEASED) — Hub 墓碑写入 base64 修复
+
+- v0.4.79 真实冒烟发现：`remove_remote` 把墓碑 JSON 明文放 ssh 命令行，远端 shell 重解析剥掉双引号，Hub 即时墓碑写入必败（rsync 收敛路径不受影响）。改 base64 传输（与 `_lock_remote` evidence 同法）+ shell 安全回归测试。
+- PR #89 已合并（merge `1d00d61`）；全量 pytest 602 passed + 1 skipped（新增 1）；Release `v0.4.79.post1` 已发布（Latest，35 个累积 wheel，SHA 35/35 校验一致），`dt upgrade` 0.4.79 → 0.4.79.post1 验证通过。
+
+### v0.4.79 (RELEASED) — 删除共识：墓碑化删除（BL-SYNC-001）
+
+- 删除成为复制数据集中带逻辑时钟的一等事实：`dt rm` 写墓碑 `tombstones/dt-<name>.json`（schema/name/deleted_at/deleted_by）到本机 + Hub；Hub 不可达时本机照写，后续同步补写。
+- `merge_snapshot` 四行真值表：墓碑时钟 ≥ 活记录 ⇒ 双侧删活文件并发 `sync.tombstone.applied`；活记录更晚 ⇒ 删后重建，双侧墓碑作废并发 `dt.rm.recreate`；merge 返回 prune 清单由 sync 经 ssh 物理清理 Hub 残留（rsync 无 `--delete`）。push/pull/sync 全路径携带墓碑目录；`remove_remote` 的 tunnels 项删除职责移交墓碑，locks/ownership/entries 清理保留。
+- `dt rm` 在物理清理前写墓碑（崩溃窗口自愈）；遇他机占用照常删除但发 `dt.rm.foreign_occupancy`（warn）；`dt new` 落盘即作废旧墓碑。doctor 新增 `tombstones` 自检（>90 天修剪；删而未收敛对告警且墓碑保留）。CLI 参数零变更；读路径不感知墓碑（独立目录）。
+- 设计修正：真值表第 2 行结果栏原稿"删 Hub 活文件"与同文档"墓碑作废"不变量及收敛性矛盾（字面实现会在两机间振荡），按收敛语义实现并修正单元格（PR #88 说明）。设计文档 docs/deletion-consensus.md；任务卡 agent_issues `IS-250916234105-tombstone-consensus`。
+- PR #88 已合并（merge `6c40032`）；全量 pytest 601 passed + 1 skipped（新增 tests/test_tombstones.py 16 用例）；Release `v0.4.79` 已发布（34 个累积 wheel，SHA 34/34），`dt upgrade` 验证通过；真实冒烟（tom7r，dt-tomb-smoke）四路径全绿：删后重建 / rm 双侧墓碑 / 他机旧副本 pull 收敛 / Hub 活文件 sync 清理，`dt log --name` 时间线完整。
+- 现场注记：冒烟 `dt push` 演示了旧机制的真实复活路径（本机 dt-a.json 被推回 Hub，已复原）；dt-a 僵尸自 09-12 起每分钟拉断 tick（1948 次，先于本任务），留待 owner 用 `dt rm dt-a` 走新收敛路径处置。
 
 ### v0.4.78.post1 (RELEASED) — persist 同步锁修复
 
