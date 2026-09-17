@@ -20,7 +20,7 @@ from . import tmux as tmux_ops
 from .activity import activity_path
 from .config import AppConfig, load_config
 from .identity import remote_dt_root
-from .paths import entries_dir, home_dir, tunnels_dir
+from .paths import entries_dir, home_dir, tombstones_dir, tunnels_dir
 from .sshutil import SshTarget
 
 
@@ -82,6 +82,51 @@ LOCK_TTL = 300
 FAULT_TAKEOVER_TTL = 30
 STALLED_OWNER_EVIDENCE_TTL = 300
 
+TOMBSTONE_SCHEMA = 1
+
+
+def _tombstone_time(path: Path) -> float:
+    """Use the tombstone's logical clock (deleted_at), falling back to mtime."""
+    try:
+        value = str(
+            json.loads(path.read_text(encoding="utf-8")).get("deleted_at") or ""
+        )
+        if value:
+            return datetime.fromisoformat(value).timestamp()
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        pass
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def _binding_run(path: Path) -> str:
+    try:
+        return str(json.loads(path.read_text(encoding="utf-8")).get("run") or "")
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return ""
+
+
+def write_tombstone(name: str, deleted_by: str) -> dict:
+    """Record the deletion as a first-class fact on this Client."""
+    from .store import normalize_dt
+    from .workpoint import now_iso
+
+    normalized = normalize_dt(name)
+    record = {
+        "schema": TOMBSTONE_SCHEMA,
+        "name": normalized,
+        "deleted_at": now_iso(),
+        "deleted_by": deleted_by,
+    }
+    path = tombstones_dir() / f"{normalized}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    return record
+
 
 def enabled(cfg: AppConfig | None = None) -> bool:
     return (cfg or load_config()).hub_enabled
@@ -121,7 +166,8 @@ def _ensure_remote(cfg: AppConfig) -> None:
         (
             f"mkdir -p {remote_root(cfg)}/tunnels {remote_root(cfg)}/entries "
             f"{remote_root(cfg)}/locks {remote_root(cfg)}/activity "
-            f"{remote_root(cfg)}/ownership {remote_root(cfg)}/occupancy"
+            f"{remote_root(cfg)}/ownership {remote_root(cfg)}/occupancy "
+            f"{remote_root(cfg)}/tombstones"
         )
     ]
     result = _run(dest)
@@ -215,9 +261,11 @@ def push(cfg: AppConfig | None = None) -> str:
     _ensure_remote(cfg)
     tunnels_dir().mkdir(parents=True, exist_ok=True)
     entries_dir().mkdir(parents=True, exist_ok=True)
+    tombstones_dir().mkdir(parents=True, exist_ok=True)
     host = SshTarget(cfg.server, cfg.ssh_port).dest
     _rsync(f"{tunnels_dir()}/", f"{host}:{root}/tunnels/", cfg)
     _rsync(f"{entries_dir()}/", f"{host}:{root}/entries/", cfg)
+    _rsync(f"{tombstones_dir()}/", f"{host}:{root}/tombstones/", cfg)
     log = activity_path()
     if log.is_file():
         _rsync(str(log), f"{host}:{root}/activity/{cfg.client}.log", cfg)
@@ -266,10 +314,43 @@ def pull(
             )
         ev.emit("hub.pull", host=host, root=root, name=normalized)
     else:
+        _run(ssh_argv(cfg) + [f"mkdir -p {root}/tombstones"])
         _rsync(f"{host}:{root}/tunnels/", f"{tunnels_dir()}/", cfg, progress=progress)
         _rsync(f"{host}:{root}/entries/", f"{entries_dir()}/", cfg, progress=progress)
+        _rsync(
+            f"{host}:{root}/tombstones/", f"{tombstones_dir()}/", cfg, progress=progress
+        )
         ev.emit("hub.pull", host=host, root=root)
+    apply_local_tombstones()
     return f"{host}:{root}"
+
+
+def apply_local_tombstones() -> list[str]:
+    """Drop local live copies a tombstone outranks (post-pull convergence).
+
+    The mirror case is delete-then-recreate: a local live record newer than
+    the tombstone invalidates it on the spot.
+    """
+    applied: list[str] = []
+    root = tombstones_dir()
+    if not root.is_dir():
+        return applied
+    for tomb in sorted(root.glob("dt-*.json")):
+        name = tomb.stem
+        live = tunnels_dir() / tomb.name
+        if not live.is_file():
+            continue
+        if _tombstone_time(tomb) >= _tunnel_time(live):
+            run = _binding_run(live)
+            live.unlink()
+            if run:
+                (entries_dir() / f"{run}.cmd").unlink(missing_ok=True)
+            ev.emit("sync.tombstone.applied", name=name, run=run)
+            applied.append(name)
+        else:
+            tomb.unlink()
+            ev.emit("dt.rm.recreate", name=name)
+    return applied
 
 
 def read_tunnel_binding(name: str, cfg: AppConfig | None = None) -> dict:
@@ -366,19 +447,86 @@ def merge_snapshot(
     local_entries: Path,
     hub_tunnels: Path,
     hub_entries: Path,
-) -> None:
-    """Merge a downloaded hub snapshot with local bindings without deletions."""
+    local_tombstones: Path | None = None,
+    hub_tombstones: Path | None = None,
+) -> list[str]:
+    """Merge a downloaded hub snapshot with local bindings.
+
+    When tombstone directories are supplied, tombstones join the same
+    logical-clock comparison as live records: a tombstone at least as new as
+    every live copy deletes those copies on both sides, while a newer live
+    record invalidates the tombstone (delete-then-recreate). Returns hub-side
+    relative paths the caller must physically remove; rsync without --delete
+    cannot prune them by itself.
+    """
     for root in (local_tunnels, local_entries, hub_tunnels, hub_entries):
         root.mkdir(parents=True, exist_ok=True)
+    tombstones_supplied = (
+        local_tombstones is not None and hub_tombstones is not None
+    )
+    if tombstones_supplied:
+        assert local_tombstones is not None and hub_tombstones is not None
+        local_tombstones.mkdir(parents=True, exist_ok=True)
+        hub_tombstones.mkdir(parents=True, exist_ok=True)
     names = {
         path.name
         for root in (local_tunnels, hub_tunnels)
         for path in root.glob("dt-*.json")
     }
+    if tombstones_supplied:
+        names |= {
+            path.name
+            for root in (local_tombstones, hub_tombstones)
+            for path in root.glob("dt-*.json")
+        }
+    hub_prune: list[str] = []
     owned_entries: set[str] = set()
     for name in sorted(names):
         local = local_tunnels / name
         remote = hub_tunnels / name
+        local_tomb = (
+            local_tombstones / name if tombstones_supplied else None
+        )
+        hub_tomb = hub_tombstones / name if tombstones_supplied else None
+        has_tomb = bool(local_tomb and local_tomb.is_file()) or bool(
+            hub_tomb and hub_tomb.is_file()
+        )
+        if has_tomb:
+            live_paths = [path for path in (local, remote) if path.is_file()]
+            tomb_paths = [
+                path
+                for path in (local_tomb, hub_tomb)
+                if path is not None and path.is_file()
+            ]
+            live_clock = max((_tunnel_time(path) for path in live_paths), default=0.0)
+            tomb_clock = max((_tombstone_time(path) for path in tomb_paths), default=0.0)
+            if not live_paths or tomb_clock >= live_clock:
+                # Deletion wins: live copies die on both sides and the newest
+                # tombstone converges everywhere.
+                for path in live_paths:
+                    run = _binding_run(path)
+                    path.unlink()
+                    if path == local:
+                        if run:
+                            (local_entries / f"{run}.cmd").unlink(missing_ok=True)
+                        ev.emit("sync.tombstone.applied", name=path.stem, run=run)
+                    else:
+                        hub_prune.append(f"tunnels/{name}")
+                        if run:
+                            run_entry = f"entries/{run}.cmd"
+                            (hub_entries / f"{run}.cmd").unlink(missing_ok=True)
+                            hub_prune.append(run_entry)
+                winner = max(tomb_paths, key=_tombstone_time)
+                for path in (local_tomb, hub_tomb):
+                    if path is not None and path != winner:
+                        shutil.copy2(winner, path)
+                continue
+            # Live record outranks the tombstone: delete-then-recreate.
+            for path in tomb_paths:
+                path.unlink()
+                if path == hub_tomb:
+                    hub_prune.append(f"tombstones/{name}")
+            ev.emit("dt.rm.recreate", name=local.stem)
         winner = _copy_newer(local, remote, logical_time=True)
         try:
             run = str(json.loads(winner.read_text(encoding="utf-8")).get("run") or "")
@@ -400,6 +548,7 @@ def merge_snapshot(
     } - owned_entries
     for name in sorted(orphan_entries):
         _copy_newer(local_entries / name, hub_entries / name)
+    return list(dict.fromkeys(hub_prune))
 
 
 def sync(cfg: AppConfig | None = None) -> str:
@@ -411,17 +560,34 @@ def sync(cfg: AppConfig | None = None) -> str:
     _ensure_remote(cfg)
     tunnels_dir().mkdir(parents=True, exist_ok=True)
     entries_dir().mkdir(parents=True, exist_ok=True)
+    tombstones_dir().mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="dual-tmux-sync-") as raw:
         snapshot = Path(raw)
         hub_tunnels = snapshot / "tunnels"
         hub_entries = snapshot / "entries"
+        hub_tombstones = snapshot / "tombstones"
         hub_tunnels.mkdir()
         hub_entries.mkdir()
+        hub_tombstones.mkdir()
         _rsync(f"{host}:{root}/tunnels/", f"{hub_tunnels}/", cfg)
         _rsync(f"{host}:{root}/entries/", f"{hub_entries}/", cfg)
-        merge_snapshot(tunnels_dir(), entries_dir(), hub_tunnels, hub_entries)
+        _rsync(f"{host}:{root}/tombstones/", f"{hub_tombstones}/", cfg)
+        hub_prune = merge_snapshot(
+            tunnels_dir(),
+            entries_dir(),
+            hub_tunnels,
+            hub_entries,
+            tombstones_dir(),
+            hub_tombstones,
+        )
         _rsync(f"{hub_tunnels}/", f"{host}:{root}/tunnels/", cfg, update=True)
         _rsync(f"{hub_entries}/", f"{host}:{root}/entries/", cfg, update=True)
+        _rsync(f"{hub_tombstones}/", f"{host}:{root}/tombstones/", cfg, update=True)
+        if hub_prune:
+            quoted = " ".join(
+                f"{root}/{shlex.quote(item)}" for item in hub_prune
+            )
+            _run(ssh_argv(cfg) + [f"rm -f {quoted}"])
     log = activity_path()
     if log.is_file():
         _rsync(str(log), f"{host}:{root}/activity/{cfg.client}.log", cfg)
@@ -429,15 +595,51 @@ def sync(cfg: AppConfig | None = None) -> str:
     return f"{host}:{root}"
 
 
-def remove_remote(name: str, run: str = "", cfg: AppConfig | None = None) -> None:
+def remove_remote(
+    name: str, run: str = "", cfg: AppConfig | None = None, *, tombstone: dict | None = None
+) -> None:
+    """Clean hub-side state for a removed tunnel.
+
+    The hub live binding is no longer rm'd here: deletion is expressed as the
+    tombstone record (single round trip with the cleanup below) and every
+    replica converges on merge. locks/ownership/entries cleanup is unchanged.
+    """
     cfg = cfg or load_config()
     if not cfg.hub_enabled:
         return
     root = remote_root(cfg)
+    if tombstone is not None:
+        payload = json.dumps(tombstone, ensure_ascii=False, separators=(",", ":"))
+        script = r"""
+set -e
+ROOT="$1"; NAME="$2"; RUN="$3"; JSON="$4"
+rm -f "$ROOT/locks/$NAME" "$ROOT/ownership/$NAME.json"
+if [ -n "$RUN" ]; then rm -f "$ROOT/entries/$RUN.cmd"; fi
+mkdir -p "$ROOT/tombstones"
+python3 - "$ROOT/tombstones/$NAME.json" "$JSON" <<'PY'
+import json, os, sys, tempfile
+path, payload = sys.argv[1:]
+value = json.loads(payload)
+os.makedirs(os.path.dirname(path), exist_ok=True)
+fd, tmp = tempfile.mkstemp(prefix=".tombstone-", dir=os.path.dirname(path))
+with os.fdopen(fd, "w") as fh:
+    json.dump(value, fh, ensure_ascii=False, separators=(",", ":"))
+    fh.write("\n")
+os.replace(tmp, path)
+PY
+"""
+        result = _run(
+            ssh_argv(cfg)
+            + ["bash", "-s", "--", root, name, run or "", payload],
+            input=script,
+            timeout=15,
+        )
+        if result.returncode != 0:
+            raise SystemExit("[err] hub rm failed")
+        return
     parts = [
         (
-            f"rm -f {root}/tunnels/{name}.json {root}/locks/{name} "
-            f"{root}/ownership/{name}.json"
+            f"rm -f {root}/locks/{name} {root}/ownership/{name}.json"
         )
     ]
     if run:

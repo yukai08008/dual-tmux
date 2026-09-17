@@ -27,9 +27,15 @@ from .config import (
     switch_config,
     write_config,
 )
-from .health import collect_checks, ensure_ready, guide_if_needed, print_checks
+from .health import (
+    collect_checks,
+    ensure_ready,
+    guide_if_needed,
+    print_checks,
+    tombstone_checks,
+)
 from .identity import SOURCE_HINT, USER_HINT, remote_dt_root, remote_sessions_root
-from .paths import config_path, home_dir, tunnels_dir
+from .paths import config_path, home_dir, tombstones_dir, tunnels_dir
 from .runtime import build_cmd
 from .sshutil import list_ssh_hosts, parse_ssh_target
 from .store import (
@@ -154,6 +160,12 @@ def cmd_new(args: argparse.Namespace) -> None:
         data["trigger"] = old.get("trigger") or data["trigger"]
         data["bullet"] = old.get("bullet") or data["bullet"]
     save(path, data)
+    stale_tomb = tombstones_dir() / f"{name}.json"
+    if stale_tomb.is_file():
+        # Delete-then-recreate: the fresh binding's clock outranks the old
+        # tombstone, which stops applying the moment it is written.
+        stale_tomb.unlink()
+        ev.emit("dt.rm.recreate", name=name)
     launch = opsdir.prepare(data)
     tmux_ops.ensure_session(op, cwd=str(launch))
     ev.emit("dt.new", name=name, op=op, run=run, server=server)
@@ -2067,6 +2079,7 @@ def cmd_doctor(_: argparse.Namespace) -> None:
         except SystemExit as exc:
             ui.warn(str(exc))
     _, checks = collect_checks()
+    checks.extend(tombstone_checks())
     ok = print_checks(checks)
     ui.info(f"tunnels  {len(iter_dt_files())}")
     try:
@@ -2096,9 +2109,18 @@ def cmd_rm(args: argparse.Namespace) -> None:
             ui.skip("cancelled")
             return
     try:
+        holder, _age = hub.read_lock(name)
+    except SystemExit:
+        holder = ""
+    cfg = load_config()
+    if holder and holder != cfg.client:
+        # Deletion is decoupled from occupancy: proceed, but leave a trace.
+        ev.emit("dt.rm.foreign_occupancy", name=name, holder=holder)
+    try:
         hub.release(name)
     except SystemExit:
         pass
+    tombstone = hub.write_tombstone(name, cfg.client)
     data = remove_dt(name)
     opsdir.remove_ops(op)
     killed = []
@@ -2117,7 +2139,15 @@ def cmd_rm(args: argparse.Namespace) -> None:
             killed.append(op)
         if tmux_ops.kill_session(run):
             killed.append(run)
-    ev.emit("dt.rm", name=name, op=op, run=run, kill=args.kill, killed=",".join(killed))
+    ev.emit(
+        "dt.rm",
+        name=name,
+        op=op,
+        run=run,
+        kill=args.kill,
+        killed=",".join(killed),
+        tombstone=True,
+    )
     ui.ok(f"removed {name}")
     if killed:
         ui.info(f"killed tmux  {' '.join(killed)}")
@@ -2125,10 +2155,11 @@ def cmd_rm(args: argparse.Namespace) -> None:
         ui.info("tmux sessions kept (pass --kill to destroy op_*/run_*)")
     ui.info("OpenCode sqlite untouched")
     try:
-        hub.remove_remote(name, run)
-        ui.info("hub removed tunnel json")
+        hub.remove_remote(name, run, tombstone=tombstone)
+        ui.info("hub tombstone written")
     except SystemExit as exc:
         ui.warn(f"hub rm skipped  {exc}")
+        ui.info("local tombstone kept; hub converges on next sync")
 
 
 def cmd_push(_: argparse.Namespace) -> None:
