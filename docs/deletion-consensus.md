@@ -1,6 +1,6 @@
 # 删除共识：墓碑化删除（Tombstone Deletion Consensus）
 
-> 状态：DESIGN（待立项，见 `dev_plans/_backlog/20260916-deletion-consensus-tombstones.md`）
+> 状态：IMPLEMENTED（v0.4.79；BL-SYNC-001 DELIVERED）
 > 起草：2026-09-16 | 案例来源：dt-a 删除后在其他副本复活
 
 ## 目标
@@ -41,7 +41,7 @@ dt-a 案例（2026-09-16）：Hub 侧已无 `dt-a.json`，本机副本仍在且�
 | 本机 | Hub | 结果 |
 |---|---|---|
 | 活记录 T1 | 墓碑 T2 ≥ T1 | 删本机活文件（事件 `sync.tombstone.applied`） |
-| 墓碑 T1 | 活记录 T2 > T1 | 删 Hub 活文件 + 删 Hub 墓碑（删后重建，`dt.new` 事件已在） |
+| 墓碑 T1 | 活记录 T2 > T1 | 活记录胜出：删本机墓碑 + 删 Hub 墓碑（删后重建，`dt.new` 事件已在；v0.4.79 修正——原稿"删 Hub 活文件"与本文"墓碑作废"不变量及收敛性矛盾） |
 | 只有一侧有墓碑 | | 墓碑复制到另一侧；对侧活文件按上行两条规则处理 |
 | 都没有 | | 无操作 |
 
