@@ -10,6 +10,14 @@
 | 部分写入 | `save()` 异常会向上传播，不会报告成功；但旧文件可能已损坏 | `test_fault_baseline.py` | tunnel/entry/health/memory 全部使用 fsync + atomic replace |
 | 多端独热 | 当前是长 TTL owner + tick 延迟驱逐，尚非严格独热 | `exclusive-trigger-ownership.md` | 新端 ≤10 秒；旧端 detach/kill 回 shell；全部写操作 fencing |
 
+## Recovery drop 安全前提
+
+auto-recovery 的破坏性动作是一条链：`observe()` 达到失败阈值 → `recover_now()` 发起 resume → resume 以 `occupancy_steal` 抢占 occupancy → 原持有端在下一个 tick 由 `enforce_local()` 掉落本地 `op_*`/`run_*`（发出 `dt.drop`）。因此 recovery 间接拥有 drop 能力，2026-09-17 的 IS-260917185420 事故正是这条链在 trigger_agent 探针假阴性 + 用户活跃 turn 期间被点燃。该动作只允许在以下前提下发生（`recovery.py`）：
+
+1. **warm-up 静默期**：`times.resume_at` 之后 `RECOVERY_WARMUP_SECONDS`（默认 60 秒）内，探针失败不计入连续失败——resume 后 Agent TUI 尚未就绪，`trigger_agent` 层（pane command 比对）会假阴性。
+2. **turn 安静窗口**：发起 recovery 前检查 trigger 侧最近 `RECOVERY_TURN_WINDOW_SECONDS`（默认 300 秒）内是否有 turn 活动。活动证据来自两路独立信号，取较新者：本地 activity evidence（trigger 侧 working 态或语义指纹变化），以及经 hub 同步的各 client ticks 指纹变化（在本地 pane 已被掉落的机器上仍能看到持有方的 turn）。窗口期内跳过本次动作并发 `recovery.drop.suppressed` 事件，安静满窗口后重新评估。
+3. 两个前提同时满足才可能触达 drop 链：连续失败达 `FAIL_THRESHOLD` 且无近期 turn 活动。活动证据缺失时 fail-open（不阻止 recovery），保证真实 trigger_agent 死亡的恢复时延只增加一个安静窗口，正常故障的 drop 语义不变。
+
 ## 当前明确不宣称的保证
 
 - 普通 tunnel `store.save()` 目前直接 `write_text`，发生真实 short write 时不能保证保留旧版本。

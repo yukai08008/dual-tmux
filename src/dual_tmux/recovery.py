@@ -24,6 +24,16 @@ BACKOFF_SECONDS = (60, 120, 300, 600, 1800)
 CIRCUIT_SECONDS = 300
 MAX_AUTO_REBUILDS = 3
 AUTO_REBUILD_BACKOFF = (300, 900, 1800)
+# Safety margins around the destructive recovery action (a resume that steals
+# occupancy and thereby drops the previous holder's local sessions):
+# - WARMUP: right after a resume the Agent TUI is still settling and the
+#   trigger_agent probe reports false negatives; failures inside the window
+#   must not count toward the consecutive-failure threshold.
+# - TURN_WINDOW: a trigger turn that is running or ended within the window
+#   proves someone is using the tunnel; recovery must wait until it goes quiet.
+RECOVERY_WARMUP_SECONDS = 60
+RECOVERY_TURN_WINDOW_SECONDS = 300
+RECOVERY_TURN_RECHECK_SECONDS = 60
 Runner = Callable[..., subprocess.CompletedProcess]
 
 
@@ -177,6 +187,53 @@ def _reconcile_remote_runtime(
 
 def state_path(name: str) -> Path:
     return home_dir() / "health" / f"{name}.json"
+
+
+def _resume_epoch(data: dict) -> int:
+    """Epoch of the most recent resume, 0 when the tunnel was never resumed."""
+    from datetime import datetime
+
+    stamp = str(((data.get("times") or {}).get("resume_at")) or "")
+    if not stamp:
+        return 0
+    try:
+        return int(datetime.fromisoformat(stamp.replace(" ", "T")).timestamp())
+    except ValueError:
+        return 0
+
+
+def _turn_activity_epoch(data: dict) -> int:
+    """Latest observable trigger-side turn activity.
+
+    Two independent sources, whichever is newer: the local activity evidence
+    (a working trigger side, or its last semantic change) and the per-client
+    tick fingerprints synced through the hub, which also show the current
+    occupancy holder's turns on a machine whose local panes were dropped.
+    """
+    from .activity import read_evidence, source_tick_epoch
+    from .identity import legal_source
+    from .oc import persist_root
+
+    side = (read_evidence(str(data.get("name") or "")).get("sides") or {}).get(
+        "trigger"
+    ) or {}
+    latest = int(side.get("last_semantic_change_at") or 0)
+    if str(side.get("state") or "") == "working":
+        latest = max(latest, int(side.get("sampled_at") or 0))
+    op = str(data.get("op") or "")
+    base = persist_root()
+    if op and base.is_dir():
+        try:
+            for path in sorted(base.iterdir()):
+                if path.is_dir() and legal_source(path.name):
+                    latest = max(
+                        latest, source_tick_epoch(path.name, data, root=base)
+                    )
+        except OSError:
+            # A concurrent hub sync can make a tick log vanish mid-read; a
+            # missing sample must not crash the tick or block recovery.
+            pass
+    return latest
 
 
 def _default_state(name: str) -> dict[str, Any]:
@@ -625,6 +682,20 @@ def observe(
         save_state(state)
         return state
     state["healthy"] = False
+    resume_epoch = _resume_epoch(data)
+    if resume_epoch and epoch - resume_epoch < RECOVERY_WARMUP_SECONDS:
+        # Warm-up silence right after a resume: the Agent TUI is still
+        # settling and the trigger_agent probe can report a false negative.
+        # Counting it would escalate toward a recovery resume that steals
+        # occupancy and drops the sessions the user just got back.
+        state["last_error"] = ",".join(result.get("failures") or [])
+        state["status"] = (
+            "suspect"
+            if int(state.get("consecutive_failures") or 0) < FAIL_THRESHOLD
+            else "degraded"
+        )
+        save_state(state)
+        return state
     state["consecutive_failures"] = int(state.get("consecutive_failures") or 0) + 1
     state["last_error"] = ",".join(result.get("failures") or [])
     state["status"] = (
@@ -660,6 +731,26 @@ def observe(
         return state
     if epoch < int(state.get("next_retry_at") or 0):
         save_state(state)
+        return state
+    activity_epoch = _turn_activity_epoch(data)
+    if activity_epoch and epoch - activity_epoch < RECOVERY_TURN_WINDOW_SECONDS:
+        # A trigger turn that is running or ended recently proves the tunnel
+        # is in use. Firing the recovery resume now would steal occupancy and
+        # evict the active user's sessions. Re-check once the turn has been
+        # quiet for the full window.
+        state["status"] = "degraded"
+        state["next_retry_at"] = epoch + RECOVERY_TURN_RECHECK_SECONDS
+        save_state(state)
+        ev.emit(
+            "recovery.drop.suppressed",
+            name=name,
+            reason="active_turn",
+            last_activity_at=activity_epoch,
+            consecutive_failures=int(state.get("consecutive_failures") or 0),
+            recovery_attempts=int(state.get("recovery_attempts") or 0),
+            retry_at=state["next_retry_at"],
+            sev="warn",
+        )
         return state
     state["status"] = "recovering"
     save_state(state)
