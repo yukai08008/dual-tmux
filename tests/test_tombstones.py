@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -11,6 +13,7 @@ import pytest
 
 from dual_tmux import cli, hub
 from dual_tmux import log as ev
+from dual_tmux.config import AppConfig
 from dual_tmux.health import tombstone_checks
 from dual_tmux.hub import apply_local_tombstones, merge_snapshot
 from dual_tmux.paths import tombstones_dir, tunnels_dir
@@ -217,6 +220,41 @@ def test_cmd_rm_hub_unreachable_still_writes_local_tombstone(
 
     assert (tombstones_dir() / "dt-x.json").is_file()
     assert "hub rm skipped" in capsys.readouterr().out
+
+
+def test_remove_remote_payload_survives_remote_shell(tmp_path, monkeypatch):
+    """The tombstone must arrive intact after the remote shell re-parses the
+    ssh command line: every argument is shell-safe and the base64 blob decodes
+    back to the exact record (raw JSON would lose its quotes)."""
+    monkeypatch.setenv("DUAL_TMUX_HOME", str(tmp_path / "home"))
+    captured: dict = {}
+
+    class Result:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(argv, **_k):
+        captured["argv"] = argv
+        captured["stdin"] = _k.get("input")
+        return Result()
+
+    monkeypatch.setattr(hub, "_run", fake_run)
+    record = hub.write_tombstone("dt-x", "tm_andy_home")
+
+    hub.remove_remote(
+        "dt-x",
+        "run_x",
+        AppConfig(client="tm_andy_home", server="tom7r", user="andy"),
+        tombstone=record,
+    )
+
+    dest_index = captured["argv"].index("tom7r")
+    for arg in captured["argv"][dest_index + 1 :]:
+        # "~" is wanted: the remote shell expands it to the hub home dir
+        assert not re.search(r"""[^\w@%+=:,./~-]""", arg), arg
+    b64 = captured["argv"][-1]
+    assert json.loads(base64.b64decode(b64)) == record
 
 
 def test_cmd_rm_warns_on_foreign_occupancy(tmp_path, monkeypatch):

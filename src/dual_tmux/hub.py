@@ -609,17 +609,23 @@ def remove_remote(
         return
     root = remote_root(cfg)
     if tombstone is not None:
-        payload = json.dumps(tombstone, ensure_ascii=False, separators=(",", ":"))
+        # Base64 transport: raw JSON on the ssh command line has its quotes
+        # eaten by the remote shell before bash -s ever sees the payload.
+        payload = base64.b64encode(
+            json.dumps(tombstone, ensure_ascii=False, separators=(",", ":")).encode(
+                "utf-8"
+            )
+        ).decode("ascii")
         script = r"""
 set -e
-ROOT="$1"; NAME="$2"; RUN="$3"; JSON="$4"
+ROOT="$1"; NAME="$2"; RUN="$3"; B64="$4"
 rm -f "$ROOT/locks/$NAME" "$ROOT/ownership/$NAME.json"
 if [ -n "$RUN" ]; then rm -f "$ROOT/entries/$RUN.cmd"; fi
 mkdir -p "$ROOT/tombstones"
-python3 - "$ROOT/tombstones/$NAME.json" "$JSON" <<'PY'
-import json, os, sys, tempfile
-path, payload = sys.argv[1:]
-value = json.loads(payload)
+python3 - "$ROOT/tombstones/$NAME.json" "$B64" <<'PY'
+import base64, json, os, sys, tempfile
+path, b64 = sys.argv[1:]
+value = json.loads(base64.b64decode(b64).decode("utf-8"))
 os.makedirs(os.path.dirname(path), exist_ok=True)
 fd, tmp = tempfile.mkstemp(prefix=".tombstone-", dir=os.path.dirname(path))
 with os.fdopen(fd, "w") as fh:
