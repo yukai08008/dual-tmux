@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 
 from . import tmux as tmux_ops
 from .config import AppConfig, load_config
@@ -13,11 +15,13 @@ from .identity import (
     legal_user,
     remote_sessions_root,
 )
-from .paths import config_path, home_dir
+from .paths import config_path, home_dir, tombstones_dir, tunnels_dir
 from .sshutil import SshTarget
 
 SSH_HINT = "fix ~/.ssh/config and keys yourself; this CLI never writes SSH files"
 INIT_HINT = "dt config --init --local --client tm_<id>  (or add --server/--user for Hub mode)"
+
+TOMBSTONE_MAX_AGE_DAYS = 90
 
 
 @dataclass
@@ -106,6 +110,79 @@ def collect_checks() -> tuple[AppConfig | None, list[Check]]:
             )
         )
     return cfg, checks
+
+
+def tombstone_clock(path) -> float:
+    """Tombstone logical clock via fromisoformat, falling back to mtime."""
+    try:
+        value = str(
+            json.loads(path.read_text(encoding="utf-8")).get("deleted_at") or ""
+        )
+        if value:
+            return datetime.fromisoformat(value).timestamp()
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        pass
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def tunnel_clock(path) -> float:
+    try:
+        value = str(
+            json.loads(path.read_text(encoding="utf-8")).get("updated_at") or ""
+        )
+        if value:
+            return datetime.fromisoformat(value).timestamp()
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        pass
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def tombstone_checks() -> list[Check]:
+    """Prune stale tombstones (>90d) and flag unresolved live/tombstone pairs."""
+    checks: list[Check] = []
+    root = tombstones_dir()
+    pruned = 0
+    kept = 0
+    conflicts: list[str] = []
+    if root.is_dir():
+        cutoff = (datetime.now().astimezone() - timedelta(days=TOMBSTONE_MAX_AGE_DAYS)).timestamp()
+        for path in sorted(root.glob("dt-*.json")):
+            live = tunnels_dir() / path.name
+            if live.is_file() and tombstone_clock(path) >= tunnel_clock(live):
+                # Deletion still pending on this Client; the tombstone is the
+                # only carrier of that fact, so it is not stale yet.
+                conflicts.append(path.stem)
+                kept += 1
+                continue
+            if tombstone_clock(path) < cutoff:
+                path.unlink(missing_ok=True)
+                pruned += 1
+            else:
+                kept += 1
+    checks.append(
+        Check(
+            "tombstones",
+            True,
+            f"{kept} kept, {pruned} pruned (> {TOMBSTONE_MAX_AGE_DAYS}d)",
+        )
+    )
+    if conflicts:
+        checks.append(
+            Check(
+                "tombstone/live",
+                False,
+                f"deletion pending: {', '.join(conflicts)}",
+                "run dt sync to converge this replica (or dt new to recreate)",
+                required=False,
+            )
+        )
+    return checks
 
 
 def print_checks(checks: list[Check]) -> bool:

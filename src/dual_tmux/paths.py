@@ -20,6 +20,10 @@ def entries_dir() -> Path:
     return home_dir() / "entries"
 
 
+def tombstones_dir() -> Path:
+    return home_dir() / "tombstones"
+
+
 def events_path() -> Path:
     return home_dir() / "events.jsonl"
 
