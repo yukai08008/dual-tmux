@@ -1,5 +1,9 @@
 # BL-SYNC-001：删除共识——隧道删除在所有副本收敛（墓碑化）
 
+## v0.4.79 交付状态
+
+PR #88（merge `6c40032`）+ 修复 PR #89（v0.4.79.post1，Hub 墓碑 base64 传输）；Release `v0.4.79`/`v0.4.79.post1` 已发布（Latest，35 个累积 wheel，SHA 校验一致），`dt upgrade` 验证通过。真实冒烟（tom7r，dt-tomb-smoke）：删后重建压过旧墓碑、`dt rm` 双侧墓碑、他机旧副本 pull 收敛（`sync.tombstone.applied`）、Hub 活文件经 sync 物理清理、`dt log --name` 完整时间线。任务卡：agent_issues `IS-250916234105-tombstone-consensus`。
+
 ## 背景
 
 2026-09-16 真实案例（dt-a）：Hub 侧的 `dt-a.json` 已清理，但本机副本仍在，且被每分钟 tick 继续健康采样（probe 事件照发）。任何一次 `dt push`/`sync` 都会把本机副本重新推上 Hub（复活），再经 pull 流向所有机器——一个逻辑上已删除的隧道以僵尸形态持续参与接管与同步，本机随时可以 `dt resume dt-a`。
