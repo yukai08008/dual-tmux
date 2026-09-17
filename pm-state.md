@@ -16,7 +16,7 @@
 - `dt rm` 在物理清理前写墓碑（崩溃窗口自愈）；遇他机占用照常删除但发 `dt.rm.foreign_occupancy`（warn）；`dt new` 落盘即作废旧墓碑。doctor 新增 `tombstones` 自检（>90 天修剪；删而未收敛对告警且墓碑保留）。CLI 参数零变更；读路径不感知墓碑（独立目录）。
 - 设计修正：真值表第 2 行结果栏原稿"删 Hub 活文件"与同文档"墓碑作废"不变量及收敛性矛盾（字面实现会在两机间振荡），按收敛语义实现并修正单元格（PR #88 说明）。设计文档 docs/deletion-consensus.md；任务卡 agent_issues `IS-250916234105-tombstone-consensus`。
 - PR #88 已合并（merge `6c40032`）；全量 pytest 601 passed + 1 skipped（新增 tests/test_tombstones.py 16 用例）；Release `v0.4.79` 已发布（34 个累积 wheel，SHA 34/34），`dt upgrade` 验证通过；真实冒烟（tom7r，dt-tomb-smoke）四路径全绿：删后重建 / rm 双侧墓碑 / 他机旧副本 pull 收敛 / Hub 活文件 sync 清理，`dt log --name` 时间线完整。
-- 现场注记：冒烟 `dt push` 演示了旧机制的真实复活路径（本机 dt-a.json 被推回 Hub，已复原）；dt-a 僵尸自 09-12 起每分钟拉断 tick（1948 次，先于本任务），留待 owner 用 `dt rm dt-a` 走新收敛路径处置。
+- 现场注记：冒烟 `dt push` 演示了旧机制的真实复活路径（本机 dt-a.json 被推回 Hub，已复原）；dt-a 僵尸自 09-12 起每分钟拉断 tick（1948 次，先于本任务）；经 owner 授权于 09-17 08:53 在任务卡内以 `dt rm dt-a` 走新收敛路径处置——双侧墓碑落盘、本机活文件与 op_a/entries 清理，link_stat 类 tick 失败于 08:53:03 后绝迹（`dt log --name dt-a` 完整可追溯）。tick 现存另一既有报错（bullet jump did not stay connected，09-16 起，属个别隧道断链）与本特性无关。
 
 ### v0.4.78.post1 (RELEASED) — persist 同步锁修复
 
