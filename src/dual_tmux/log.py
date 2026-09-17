@@ -70,6 +70,7 @@ KIND_META: dict[str, tuple[str, str, str]] = {
     "recovery.rebuild.auto.fail": ("system", "error", "自动重建失败"),
     "recovery.rebuild.hold": ("system", "warn", "自动重建停止（需人工）"),
     "recovery.attempt.fail": ("system", "error", "恢复尝试失败"),
+    "recovery.drop.suppressed": ("system", "warn", "活跃 turn 期间抑制 recovery drop"),
     "recovery.remote_import": ("system", "info", "远端会话导入"),
     "dt.daemon.start": ("system", "info", "daemon 启动"),
     "dt.daemon.stop": ("system", "info", "daemon 停止"),
