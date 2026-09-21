@@ -14,4 +14,4 @@
 | BL-RUNTIME-002 | [Codex/Claude Client-local session store 跨机器复制](20260907-native-session-store-sync.md) | DELIVERED → v0.4.53 |
 | BL-SYNC-001 | [删除共识：墓碑化删除](20260916-deletion-consensus-tombstones.md)（设计文档：docs/deletion-consensus.md） | DELIVERED → v0.4.79 |
 | BL-BULLET-001 | [tick 单隧道 resume 失败中断整轮（bullet 断链/远端缺失）](20260917-bullet-jump-disconnect.md) | BACKLOG |
-| BL-LS-001 | [`dt ls` 增加隧道语义描述（description 字段）](20260918-tunnel-description.md) | BACKLOG |
+| BL-LS-001 | [`dt ls` 增加隧道语义描述（description 字段）](20260918-tunnel-description.md) | DELIVERED → v0.4.80 |
