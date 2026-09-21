@@ -186,6 +186,7 @@ class TunnelNode(NodeModel):
     bullet: RoleBindingNode | None = None
     client: str = ""
     user: str = ""
+    description: str = ""
     branched_from: str | None = None
     updated_at: datetime | None = None
     auto_recover: bool = True

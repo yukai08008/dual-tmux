@@ -117,6 +117,7 @@ def from_legacy_tunnel(record: dict[str, Any]) -> TunnelNode:
         bullet=_binding(record.get("bullet"), AgentRole.BULLET, str(record.get("name") or "")),
         client=str(record.get("client") or ""),
         user=str(record.get("user") or ""),
+        description=str(record.get("description") or ""),
         branched_from=(
             str(record["branched_from"]) if record.get("branched_from") else None
         ),
@@ -170,6 +171,7 @@ def to_legacy_tunnel(
         record.update(
             client=node.client,
             user=node.user,
+            description=node.description,
             runtime=runtime,
             trigger=_side(node.trigger, None),
             bullet=_side(node.bullet, None),
@@ -198,6 +200,8 @@ def to_legacy_tunnel(
             )
         if node.auto_recover or "auto_recover" in record:
             record["auto_recover"] = node.auto_recover
+        if node.description or "description" in record:
+            record["description"] = node.description
     if node.branched_from:
         record["branched_from"] = node.branched_from
     else:

@@ -131,6 +131,7 @@ def cmd_new(args: argparse.Namespace) -> None:
         run, cwd=str(Path(directory).expanduser()) if not server else ""
     )
     write_entry(run, cmd)
+    desc = (getattr(args, "desc", "") or "").strip()
     data = {
         "name": name,
         "op": op,
@@ -151,6 +152,8 @@ def cmd_new(args: argparse.Namespace) -> None:
         "times": wp.empty_times(),
         "updated_at": now_iso(),
     }
+    if desc:
+        data["description"] = desc
     data["times"]["created_at"] = data["updated_at"]
     data["op_point"] = wp.discover(op)
     data["run_point"] = wp.discover(run)
@@ -1385,6 +1388,19 @@ def cmd_model(args: argparse.Namespace) -> None:
     print_inspect(data)
 
 
+def cmd_desc(args: argparse.Namespace) -> None:
+    data = _resolve(args.name)
+    path = find_dt(data["name"])
+    text = (args.text or "").strip()
+    if text:
+        data["description"] = text
+        save(path, data)
+        hub.push_best_effort(wait=True)
+    else:
+        data = load(path)
+    print(data.get("description") or "—")
+
+
 def cmd_freeze(args: argparse.Namespace) -> None:
     sides: list[str] = []
     if args.trigger or (not args.trigger and not args.bullet):
@@ -2469,6 +2485,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_new.add_argument("--container", default="")
     p_new.add_argument("--dir", default="", help="remote working directory")
     p_new.add_argument("--cmd", default="", help="override reconnect command")
+    p_new.add_argument(
+        "--desc", default="", help="one-line tunnel description shown by dt ls"
+    )
 
     p_bind = sub.add_parser(
         "bind", help="set DST tool/model/session_id on trigger and bullet"
@@ -2514,6 +2533,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_model.add_argument("--run", action="store_true", help="bullet (default)")
     p_model.add_argument("--op", action="store_true", help="trigger")
+
+    p_desc = sub.add_parser(
+        "desc", help="show or set the one-line tunnel description"
+    )
+    p_desc.add_argument("name", help="dt-app or app")
+    p_desc.add_argument(
+        "text", nargs="?", default="", help="omit to print the current description"
+    )
 
     p_freeze = sub.add_parser(
         "freeze", help="freeze op-oc and run-oc; DST only if both exist"
@@ -2810,6 +2837,7 @@ def main() -> None:
         "rm": cmd_rm,
         "bind": cmd_bind,
         "model": cmd_model,
+        "desc": cmd_desc,
         "freeze": cmd_freeze,
         "capture": cmd_capture,
         "make": cmd_make,
