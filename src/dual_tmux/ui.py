@@ -122,6 +122,7 @@ def print_ls(rows: list[dict]) -> None:
     table.add_column("run")
     table.add_column("trigger")
     table.add_column("bullet")
+    table.add_column("DESCRIPTION")
     for data in rows:
         table.add_row(
             str(data.get("name") or "—"),
@@ -130,8 +131,20 @@ def print_ls(rows: list[dict]) -> None:
             str(data.get("run") or "—"),
             _side_cell(data.get("trigger") or {}),
             _side_cell(data.get("bullet") or {}),
+            _desc_cell(str(data.get("description") or "")),
         )
     console.print(table)
+
+
+def _desc_cell(description: str) -> Text:
+    limit = 48
+    text = Text()
+    if not description:
+        text.append("—", style="dim")
+        return text
+    shown = description if len(description) <= limit else description[: limit - 1] + "…"
+    text.append(shown, style="dim")
+    return text
 
 
 def _side_cell(info: dict) -> Text:

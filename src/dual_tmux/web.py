@@ -245,6 +245,7 @@ def _tunnels() -> list[dict]:
                     else (raw_bull.get("agent_client") or {})
                 ),
                 "auto_recover": node.auto_recover,
+                "description": node.description,
                 "health": read_health_state(node.name),
             }
         )
