@@ -1,8 +1,15 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-17 09:00 +08:00 | 更新者: ZCode
+> 最近更新: 2026-09-21 15:10 +08:00 | 更新者: ZCode
 
 ## 状态树
+
+### v0.4.80 (RELEASED) — 隧道语义描述字段（BL-LS-001）
+
+- 注册表新增可选 `description`（一句话语义）：`dt new --desc` 创建写入，新命令 `dt desc <dt> [text]` 设置/打印（沿用 resolve → 变更 → store.save 既有写路径）。字段经 TunnelNode/from/to_legacy_tunnel 白名单进出强类型层，`store.save` 往返与 tick/daemon 会话真相同步的所有写回路径均不丢失；无该键的旧 JSON 往返后保持无键（零 doctor 噪音）。
+- `dt ls` 新增 dim 样式 DESCRIPTION 列（48 字符截断，未设置显示 —）；Web `/api/tunnels`、Dashboard 卡片、搜索命中与详情 meta 同步展示，搜索可按描述匹配。CLI 契约只增不改（+desc 动词、+new --desc），快照已再生。
+- PR #95 已合并（merge `0567066`）；全量 pytest 616 passed + 1 skipped（新增 tests/test_tunnel_description.py 8 用例）；ruff 24=24 零新增。Release `v0.4.80` 已发布（Latest，36 个累积 wheel，公网下载 SHA 与本地一致），`dt upgrade` 0.4.79.post1 → 0.4.80 真机验证通过（module/__version__ 与 dist 元数据一致，升级收敛不再重装）。
+- 发版修正：首发 wheel 漏 bump `dual_tmux/__init__.py`（dist=0.4.80 但模块自报 0.4.79.post1，upgrade 收敛判断失准），PR #96 补齐后原 tag/资产原位重切；本机 uv 按 URL 缓存了同名旧 wheel 导致一次装回旧包，清 URL 键缓存条目后恢复。真实冒烟：`dt desc` 补录 dt-news-analysis → `dt ls` 展示 → Hub（tom7r）对端可见 → 新旧两版二进制各跑一轮 tick 后 description 均存活。
 
 ### v0.4.79.post1 (RELEASED) — Hub 墓碑写入 base64 修复
 
