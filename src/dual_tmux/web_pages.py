@@ -364,10 +364,11 @@ def dashboard_page() -> str:
         live_s = "live" if (r["op_live"] or r["run_live"]) else "down"
         health_s = r["health"].get("status") or "disabled"
         kind = "DST" if r["dst"] else "DT"
+        desc = f" · {r['description']}" if r.get("description") else ""
         cards.append(
             f'<div class="stat"><b>{html.escape(r["name"])}</b>'
             f"<span>{kind} · {live_s} · health {html.escape(health_s)} · op {html.escape(r['op_cmd'] or '—')} · "
-            f"run {html.escape(r['run_cmd'] or '—')}</span></div>"
+            f"run {html.escape(r['run_cmd'] or '—')}{html.escape(desc)}</span></div>"
         )
     body = f"""
     <div class="top"><h1>Dashboard</h1><p>本机隧道一览（dt ls）</p></div>
@@ -1063,7 +1064,7 @@ function applyState(st) {{
     }}
     mop.value = row.trigger_model || '';
     mrun.value = row.bullet_model || '';
-    meta.innerHTML = st.name+' · op=<code>'+row.op+'</code> · run=<code>'+row.run+'</code> · DST='+(row.dst?'yes':'no');
+    meta.innerHTML = st.name+' · op=<code>'+row.op+'</code> · run=<code>'+row.run+'</code> · DST='+(row.dst?'yes':'no')+(row.description?' · <i>'+row.description+'</i>':'');
     const dstBanner = document.getElementById('dst-banner');
     if (dstBanner) {{
       if (row.dst) {{
@@ -1239,7 +1240,7 @@ function logFor(st,kind,text) {{
 function match(row, s) {{
   s = (s || '').toLowerCase();
   if (!s) return true;
-  const blob = [row.name, row.op, row.run, row.trigger, row.bullet].join(' ').toLowerCase();
+  const blob = [row.name, row.op, row.run, row.trigger, row.bullet, row.description].join(' ').toLowerCase();
   return s.split(/\\s+/).every(p => blob.includes(p));
 }}
 function renderHits() {{
@@ -1248,7 +1249,8 @@ function renderHits() {{
   hits.innerHTML = list.map(r => {{
     const kindBadge = r.dst ? '<span class="badge badge-dst">DST</span>' : '<span class="badge badge-draft">草稿</span>';
     const live = (r.op_live || r.run_live) ? 'live' : 'down';
-    return '<a href="#" data-name="'+r.name+'"><b>'+r.name+'</b> <span class="sub">'+kindBadge+' · '+live+' · '+r.op+' / '+r.run+'</span></a>';
+    const desc = r.description ? ' · <i>'+r.description+'</i>' : '';
+    return '<a href="#" data-name="'+r.name+'"><b>'+r.name+'</b> <span class="sub">'+kindBadge+' · '+live+' · '+r.op+' / '+r.run+desc+'</span></a>';
   }}).join('') || '<div class="sub" style="padding:8px">无匹配</div>';
   hits.style.display = 'block';
 }}

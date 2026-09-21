@@ -32,6 +32,7 @@ def test_cli_contract_covers_all_current_command_families():
         "config",
         "cron",
         "daemon",
+        "desc",
         "doctor",
         "drop",
         "enter",
