@@ -1,8 +1,16 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-17 09:00 +08:00 | 更新者: ZCode
+> 最近更新: 2026-09-21 15:20 +08:00 | 更新者: ZCode
 
 ## 状态树
+
+### v0.4.80 (RELEASED) — 隧道语义描述（description 字段，BL-LS-001）
+
+- 注册表新增可选 `description`（一句话语义）：`dt new --desc` 创建时写入，新命令 `dt desc <dt> [text]` 设置/补录（无参打印当前值），沿 `dt model` 的 load→变更→save 既有模式零新增写路径；`dt ls` 新增 DESCRIPTION 列（未设置显示 `—`，超长截断 dim 样式不破版），Web 隧道列表/详情同步渲染，`from_legacy_tunnel` 增补可选字段（缺省 ""）避免强类型层信息丢失。
+- 红线实证：注册表全部写回路径实测 description 存活——真实 cron tick 一轮、`dt model` 变更（含会话创建+freeze 的路径，经 `from_legacy_tunnel` 校验）、`dt drop`、push/pull 往返；无该键的旧 JSON 读取/升级/同步无感；CLI 契约只增不改（新增 `desc` 动词 + `new --desc` 选项，契约快照增量更新，既有命令零变更）。
+- PR #95 已合并（merge `0567066`，特性实现）+ PR #96（merge `a711a60`，模块 `__version__` 与发布元数据同步）；全量 pytest 616 passed + 1 skipped（新增 14 用例，基线 602+1）；Release `v0.4.80` 已发布（Latest，36 个累积 wheel），`dt upgrade` 0.4.79.post1 → 0.4.80 真机验证通过。
+- 真实冒烟（本机 tm_ouc，dt-test01）：`dt desc` 补录 → `dt ls` 显示/截断正确；push 后 Hub JSON（tom7r）实查携带 description，pull 回读不丢。任务卡 agent_issues `IS-260918155656-tunnel-description`。
+- 现场注记：冒烟中 `dt pull` 一度耗时 ~4 分钟——根因是 9/16 遗留的 persist-tmux/persist-native 死锁目录（持有进程已死的空目录）使每类 persist 触发 90s 等待+自动接管，本次已自愈清空，复测 pull 38s 正常；另 dt-msg 存在 9/19 起的既有 tick 失败（resume preflight: bullet_writer_probe_failed），早于本特性，与本特性无关，待另行处置。
 
 ### v0.4.79.post1 (RELEASED) — Hub 墓碑写入 base64 修复
 
