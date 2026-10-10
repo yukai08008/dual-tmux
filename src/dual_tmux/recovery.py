@@ -315,7 +315,7 @@ def _remote_probe(
     session_line = "echo DT_SESSION=0"
     if sid and tool == "opencode":
         session_line = f"{oc_ops.session_probe_script(sid)}; echo DT_SESSION=$?"
-    elif sid and tool in {"codex", "claude"}:
+    elif sid and tool in {"codex", "claude", "abc"}:
         from .agent_sessions import remote_session_probe_script
 
         session_line = f"{remote_session_probe_script(tool, sid)}; echo DT_SESSION=$?"
@@ -323,6 +323,10 @@ def _remote_probe(
     # command line while still matching the real Agent command.
     process_tool = f"[{tool[0]}]{tool[1:]}" if tool else "false"
     process_pattern = process_tool
+    if tool == "abc":
+        # "abc" is a common substring; require a token boundary so unrelated
+        # command lines (paths, file names) cannot satisfy the fencing probe.
+        process_pattern = "[a]bc( |$)"
     script = "\n".join(
         [
             "set +e",
@@ -470,7 +474,7 @@ def probe_tunnel(data: dict, *, runner: Runner = subprocess.run) -> dict[str, An
                 "present" if present else "missing",
                 bullet["session_id"],
             )
-        elif bullet_tool in {"codex", "claude"} and bullet.get("session_id"):
+        elif bullet_tool in {"codex", "claude", "abc"} and bullet.get("session_id"):
             from .agent_sessions import session_exists
 
             present = session_exists(bullet_tool, bullet["session_id"])

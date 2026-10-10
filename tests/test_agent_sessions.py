@@ -8,6 +8,7 @@ from dual_tmux import agent_sessions
 
 CODEX_ID = "01a05590-bd0f-74d2-8be6-7dd710d9ada5"
 CLAUDE_ID = "456f71f3-89ed-4bff-a9c1-6c039a460265"
+ABC_ID = "20261010-150157"
 
 
 def _write(path: Path, rows: list[dict]) -> None:
@@ -64,6 +65,13 @@ def _claude(
         ("codex", f"codex resume {CODEX_ID}", CODEX_ID),
         ("claude", f"claude --resume {CLAUDE_ID}", CLAUDE_ID),
         ("claude", f"claude --session-id={CLAUDE_ID}", CLAUDE_ID),
+        (
+            "abc",
+            "abc --resume --journal ~/.abc/sessions/20261010-150157.jsonl",
+            ABC_ID,
+        ),
+        ("abc", "abc --journal=~/.abc/sessions/20261010-150157-2.jsonl", f"{ABC_ID}-2"),
+        ("abc", "abc --journal ~/.abc/other/notes.jsonl", ""),
     ],
 )
 def test_explicit_session_id(tool, command, expected):
@@ -75,10 +83,20 @@ def test_explicit_session_id(tool, command, expected):
     [
         ("codex", CODEX_ID, f"codex resume {CODEX_ID}"),
         ("claude", CLAUDE_ID, f"claude --resume {CLAUDE_ID}"),
+        (
+            "abc",
+            ABC_ID,
+            f'abc --resume --journal "$HOME/.abc/sessions/{ABC_ID}.jsonl"',
+        ),
     ],
 )
 def test_resume_command_keeps_same_uuid(tool, session_id, expected):
     assert agent_sessions.resume_command(tool, session_id) == expected
+
+
+def test_abc_resume_command_rejects_non_journal_ids():
+    with pytest.raises(ValueError, match="invalid abc session id"):
+        agent_sessions.resume_command("abc", "not-a-journal-stem")
 
 
 def test_native_session_exists_and_remote_probe(tmp_path):
@@ -91,6 +109,7 @@ def test_native_session_exists_and_remote_probe(tmp_path):
     )
     assert CODEX_ID in agent_sessions.remote_session_probe_script("codex", CODEX_ID)
     assert CLAUDE_ID in agent_sessions.remote_session_probe_script("claude", CLAUDE_ID)
+    assert agent_sessions.remote_session_probe_script("abc", "short") == "false"
 
 
 def test_codex_explicit_id_wins_and_enriches_from_metadata(tmp_path, monkeypatch):
@@ -165,7 +184,10 @@ def test_remote_probe_quotes_ssh_and_docker(container):
     assert "/workspace" in seen["argv"][-1]
 
 
-@pytest.mark.parametrize(("tool", "sid"), [("codex", CODEX_ID), ("claude", CLAUDE_ID)])
+@pytest.mark.parametrize(
+    ("tool", "sid"),
+    [("codex", CODEX_ID), ("claude", CLAUDE_ID), ("abc", ABC_ID)],
+)
 def test_freeze_native_client_binds_proven_session(tool, sid, monkeypatch):
     from dual_tmux import cli
     from dual_tmux.agentclient import empty

@@ -1,11 +1,11 @@
-"""S13/S14: orphan opencode patrol and run-point hygiene.
+"""S13/S14: orphan agent patrol and run-point hygiene.
 
-A tunnel's container may accumulate leaked opencode processes: each resume
-whose ``docker exec`` chain dies without SIGTERM leaves the child alive.
-The invariant (S13): one tunnel keeps exactly one active pair of agents;
-anything else at the run point must be dead. This module scans container run
-points, classifies processes, reports ``orphan.*`` events, and cleans on
-explicit request or per-tunnel ``auto_orphan_clean``.
+A tunnel's container may accumulate leaked agent processes (opencode TUIs,
+abc REPLs): each resume whose ``docker exec`` chain dies without SIGTERM
+leaves the child alive. The invariant (S13): one tunnel keeps exactly one
+active pair of agents; anything else at the run point must be dead. This
+module scans container run points, classifies processes, reports ``orphan.*``
+events, and cleans on explicit request or per-tunnel ``auto_orphan_clean``.
 
 Scope: container run points only. A host run point is shared with other
 tunnels, so processes there cannot be attributed safely and are never swept.
@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import time
 from collections.abc import Callable
@@ -32,9 +33,9 @@ Runner = Callable[..., subprocess.CompletedProcess]
 _SCAN_SCRIPT = """
 tick=$(getconf CLK_TCK 2>/dev/null || echo 100)
 up=$(cut -d. -f1 /proc/uptime 2>/dev/null || echo 0)
-for p in $(pgrep -f '[o]pencode' 2>/dev/null); do
+for p in $( { pgrep -f '[o]pencode' 2>/dev/null; pgrep -f '[a]bc( |$)' 2>/dev/null; } | sort -u); do
   args=$(tr '\\0' ' ' </proc/$p/cmdline 2>/dev/null) || continue
-  case "$args" in *opencode*) ;; *) continue ;; esac
+  case "$args" in *opencode*|*abc*|*andybot_core*) ;; *) continue ;; esac
   case "$args" in *"/proc/uptime"*|*"getconf CLK_TCK"*) continue ;; esac
   st=$(awk '{print $22}' /proc/$p/stat 2>/dev/null) || continue
   age=$(( up - st / tick ))
@@ -43,6 +44,15 @@ done
 """
 
 _WRAPPER_MARKERS = ("/proc/uptime", "getconf CLK_TCK")
+# The shell gate above is deliberately loose; this boundary check keeps the
+# agent pool exact ("abc" alone is a common substring in paths and arguments).
+_ABC_ARGS_RE = re.compile(r"(^|[/ ])abc( |$)")
+
+
+def _is_agent_process(args: str) -> bool:
+    if "opencode" in args or "andybot_core" in args:
+        return True
+    return _ABC_ARGS_RE.search(args.strip()) is not None
 
 
 def _is_wrapper(args: str) -> bool:
@@ -94,10 +104,10 @@ def _parse_scan(stdout: str) -> list[dict[str, Any]]:
 
 
 def scan(data: dict, *, runner: Runner = subprocess.run) -> dict[str, Any]:
-    """Classify opencode processes inside the tunnel's container run point.
+    """Classify agent processes inside the tunnel's container run point.
 
     Exactly one process is legal: the newest one referencing the bound
-    session id, or when none does, the newest opencode overall (protects an
+    session id, or when none does, the newest agent overall (protects an
     interactive TUI). Everything else is a candidate; candidates older than
     the grace window are orphans. Returns {"status": "unavailable"} when the
     run point cannot be inspected.
@@ -113,7 +123,9 @@ def scan(data: dict, *, runner: Runner = subprocess.run) -> dict[str, Any]:
     if result.returncode != 0:
         return {"status": "unavailable", "processes": [], "legal": None, "orphans": []}
     processes = [
-        p for p in _parse_scan(result.stdout or "") if not _is_wrapper(p["args"])
+        p
+        for p in _parse_scan(result.stdout or "")
+        if not _is_wrapper(p["args"]) and _is_agent_process(p["args"])
     ]
     pool_all = [p for p in processes if p["age"] >= 0]
     bound = [p for p in pool_all if sid and sid in p["args"]]

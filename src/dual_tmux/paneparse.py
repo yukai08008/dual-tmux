@@ -34,7 +34,6 @@ CHROME_RE = re.compile(
     r"Build auto|Connected$|LSPs are|问候$|▼ MCP)",
 )
 
-
 @dataclass
 class ParsedTurn:
     tool: str
@@ -129,15 +128,71 @@ def parse_opencode_1_18(text: str) -> ParsedTurn:
     )
 
 
+ABC_SPINNER_RE = re.compile(r"^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]|思考中|生成中", re.IGNORECASE)
+ABC_FOOTER_RE = re.compile(
+    r"session \d{8}-\d{6}|tok/s|^abc[·•]|/model /effort", re.IGNORECASE
+)
+ABC_STATE_RE = re.compile(
+    r"^(cancelled|Agent error|incomplete|回合耗时)\b", re.IGNORECASE
+)
+
+
+def parse_abc_1(text: str) -> ParsedTurn:
+    """abc REPL (andybot_core): streaming markdown over a bordered input box.
+
+    Chrome per abc's own presentation discipline (正文 stdout、装饰 stderr):
+    box borders, the `│ ` input prompt, the footer status line (model ·
+    session id · slash hints), telemetry rows and the thinking spinner.
+    """
+    text = text or ""
+    body_lines: list[str] = []
+    phase = "unknown"
+    for ln in text.splitlines():
+        s = ln.rstrip()
+        if not s.strip() or _is_chrome(s):
+            continue
+        if ABC_FOOTER_RE.search(s):
+            phase = "idle" if phase == "unknown" else phase
+            continue
+        if ABC_SPINNER_RE.search(s):
+            phase = "running"
+            continue
+        if ABC_STATE_RE.match(s.strip()):
+            phase = "idle"
+            continue
+        if s.strip() in {"│", "┃"} or set(s.strip()) <= set("│┃┌┐└┘─━"):
+            phase = "idle" if phase == "unknown" else phase
+            continue
+        body_lines.append(s.strip())
+    body = "\n".join(body_lines).strip()
+    tail = "\n".join(text.splitlines()[-3:])
+    if ABC_SPINNER_RE.search(tail):
+        phase = "running"
+    completion_id = ""
+    if phase == "idle" and body:
+        completion_id = hashlib.sha256(f"abc\0{body}".encode()).hexdigest()[:20]
+    return ParsedTurn(
+        tool="abc",
+        parser="abc@1",
+        body=body,
+        model="",
+        elapsed="",
+        phase=phase,
+        completion_id=completion_id,
+    )
+
+
 PARSERS: dict[str, Parser] = {
     "plain": lambda text: parse_plain(text, "plain"),
     "opencode@1.18": parse_opencode_1_18,
+    "abc@1": parse_abc_1,
 }
 
 ALIASES: dict[str, str] = {
     "opencode": "opencode@1.18",
     "opencode@1": "opencode@1.18",
     "opencode@1.18.18": "opencode@1.18",
+    "abc": "abc@1",
 }
 
 
