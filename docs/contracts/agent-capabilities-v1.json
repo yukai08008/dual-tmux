@@ -54,6 +54,24 @@
         "ssh": true,
         "docker": true
       }
+    },
+    {
+      "name": "abc",
+      "display_name": "abc (andybot_core)",
+      "aliases": ["abc"],
+      "capabilities": {
+        "detect": true,
+        "version": true,
+        "start": true,
+        "send": true,
+        "metadata_freeze": true,
+        "session_freeze": true,
+        "resume": true,
+        "model": false,
+        "local": true,
+        "ssh": true,
+        "docker": true
+      }
     }
   ]
 }

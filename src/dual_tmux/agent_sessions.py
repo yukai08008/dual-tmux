@@ -1,4 +1,4 @@
-"""Conservative native session discovery for Codex and Claude Code."""
+"""Conservative native session discovery for Codex, Claude Code and abc."""
 
 from __future__ import annotations
 
@@ -19,7 +19,19 @@ Runner = Callable[..., subprocess.CompletedProcess]
 UUID_RE = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 )
+# abc session id = journal filename stem: YYYYMMDD-HHMMSS, plus -N for
+# same-second restarts (andybot_core default_journal_path collision suffix).
+ABC_SID_RE = re.compile(r"^\d{8}-\d{6}(-\d+)?$")
 SESSION_START_WINDOW_MS = 60_000
+
+
+def valid_sid(tool: str, sid: str) -> bool:
+    """Session-id shape check per native tool (UUID for codex/claude, stem for abc)."""
+    tool = normalize_name(tool)
+    value = (sid or "").strip()
+    if tool == "abc":
+        return bool(ABC_SID_RE.fullmatch(value))
+    return bool(UUID_RE.fullmatch(value))
 
 
 @dataclass(frozen=True)
@@ -64,6 +76,16 @@ def explicit_session_id(tool: str, commands: list[str]) -> str:
                     candidate = token.partition("=")[2]
                     if UUID_RE.fullmatch(candidate):
                         return candidate
+        elif tool == "abc":
+            for index, token in enumerate(tokens):
+                if token == "--journal" and index + 1 < len(tokens):
+                    candidate = Path(tokens[index + 1]).stem
+                    if ABC_SID_RE.fullmatch(candidate):
+                        return candidate
+                if token.startswith("--journal="):
+                    candidate = Path(token.partition("=")[2]).stem
+                    if ABC_SID_RE.fullmatch(candidate):
+                        return candidate
     return ""
 
 
@@ -104,13 +126,23 @@ def agent_process(
             continue
         seen.add(current)
         result = runner(
-            ["ps", "-p", current, "-o", "command=", "-o", "etime="],
+            ["ps", "-p", current, "-o", "command="],
             capture_output=True,
             text=True,
             check=False,
         )
-        line = (result.stdout or "").strip()
-        command, _, elapsed = line.rpartition(" ")
+        # etime must be a separate call: combining columns makes macOS ps
+        # truncate command= to the default 16-char column width.
+        elapsed_result = runner(
+            ["ps", "-p", current, "-o", "etime="],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        command = (result.stdout or "").strip()
+        elapsed = (elapsed_result.stdout or "").strip().splitlines()[-1] if (
+            elapsed_result.stdout or ""
+        ).strip() else ""
         if tool and any(
             normalize_name(token) == tool for token in _tokens(command)[:4]
         ):
@@ -190,6 +222,25 @@ def _claude_record(path: Path) -> AgentSession | None:
     return AgentSession(sid, directory, tool="claude", created_ms=_epoch_ms(created))
 
 
+def _abc_record(path: Path) -> AgentSession | None:
+    """abc journal: identity is the filename stem; started_at comes from the
+    session row. The journal carries no cwd, so directory stays empty and
+    binding relies on the explicit ``--journal`` argv or a fresh-start window."""
+    sid = path.stem
+    if not ABC_SID_RE.fullmatch(sid):
+        return None
+    created = 0
+    for row in _read_first_objects(path, 8):
+        if row.get("row") == "session":
+            data = row.get("data") or {}
+            created = _epoch_ms(str(data.get("started_at") or ""))
+            journal_sid = str(data.get("session_id") or "")
+            if journal_sid and journal_sid != sid:
+                return None
+            break
+    return AgentSession(sid, "", tool="abc", created_ms=created)
+
+
 def _created_ms(path: Path, session: AgentSession) -> int:
     if session.tool == "codex":
         for row in _read_first_objects(path, 4):
@@ -210,6 +261,8 @@ def _roots(tool: str, home: Path | None = None) -> list[Path]:
         return [codex_home / "sessions"]
     if tool == "claude":
         return [base / ".claude" / "projects"]
+    if tool == "abc":
+        return [base / ".abc" / "sessions"]
     return []
 
 
@@ -223,14 +276,16 @@ def discover_local(
     runner: Runner = subprocess.run,
 ) -> AgentSession | None:
     tool = normalize_name(tool)
-    if tool not in {"codex", "claude"}:
+    if tool not in {"codex", "claude", "abc"}:
         return None
     process_command, started_ms = (
         agent_process(pid, tool, runner=runner) if pid else ("", 0)
     )
     live_commands = [process_command, *(commands or [])]
     sid = explicit_session_id(tool, live_commands)
-    parser = _codex_record if tool == "codex" else _claude_record
+    parser = {"codex": _codex_record, "claude": _claude_record, "abc": _abc_record}[
+        tool
+    ]
     records: list[tuple[Path, AgentSession, int]] = []
     for root in _roots(tool, home):
         if not root.is_dir():
@@ -253,12 +308,23 @@ def discover_local(
         and created >= started_ms - 5000
         and created <= started_ms + SESSION_START_WINDOW_MS
     ]
+    if tool == "abc":
+        # abc journals carry no cwd: a fresh start is proven by the unique
+        # journal created inside the process start window instead.
+        candidates = [
+            record
+            for _path, record, created in records
+            if record.directory in {"", cwd}
+            and created >= started_ms - 5000
+            and created <= started_ms + SESSION_START_WINDOW_MS
+        ]
     return candidates[0] if len(candidates) == 1 else None
 
 
 _REMOTE_CODE = r"""import glob,json,os,shlex,sys,time
 tool=sys.argv[1]; expected=os.path.realpath(sys.argv[2]) if len(sys.argv)>2 and sys.argv[2] else ''; import re
 uuid_re=re.compile(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
+abc_re=re.compile(r'^\d{8}-\d{6}(-\d+)?$')
 def norm(x):
  x=os.path.basename(x).lower()
  return {'codex-cli':'codex','claude-code':'claude'}.get(x,x)
@@ -272,6 +338,12 @@ def explicit(args):
    if x.startswith('--resume=') or x.startswith('--session-id='):
     value=x.split('=',1)[1]
     if uuid_re.fullmatch(value): return value
+ if tool=='abc':
+  for i,x in enumerate(args):
+   cand=''
+   if x=='--journal' and i+1<len(args): cand=os.path.basename(args[i+1])[:-6]
+   elif x.startswith('--journal='): cand=os.path.basename(x.split('=',1)[1])[:-6]
+   if cand and abc_re.fullmatch(cand): return cand
  return ''
 found=[]
 if os.path.isdir('/proc'):
@@ -320,7 +392,7 @@ if expected: found=[x for x in found if x[2]==expected]
 if len(found)!=1: raise SystemExit(1)
 pid,sid,cwd,started=found[0]
 records=[]
-patterns=[os.path.expanduser('~/.codex/sessions/**/*.jsonl')] if tool=='codex' else [os.path.expanduser('~/.claude/projects/**/*.jsonl')]
+patterns=[os.path.expanduser('~/.codex/sessions/**/*.jsonl')] if tool=='codex' else ([os.path.expanduser('~/.abc/sessions/*.jsonl')] if tool=='abc' else [os.path.expanduser('~/.claude/projects/**/*.jsonl')])
 for pattern in patterns:
  for path in glob.glob(pattern,recursive=True):
   try:
@@ -335,6 +407,10 @@ for pattern in patterns:
     row=next((x for x in rows if x.get('type')=='session_meta'),None); p=(row or {}).get('payload') or {}
     if p.get('source') not in ('cli','exec') and p.get('originator') not in ('codex-tui','codex-cli'): continue
     rid=p.get('session_id') or p.get('id') or ''; rcwd=p.get('cwd') or ''; stamp=p.get('timestamp') or (row or {}).get('timestamp') or ''
+   elif tool=='abc':
+    rid=os.path.basename(path)[:-6]
+    if not abc_re.fullmatch(rid): continue
+    rcwd=''; stamp=''
    else:
     row=next((x for x in rows if x.get('type')=='user' and x.get('cwd')),None); rid=next((x.get('sessionId') for x in rows if x.get('sessionId')),os.path.basename(path)[:-6]); rcwd=(row or {}).get('cwd') or ''; stamp=(row or {}).get('timestamp') or ''
    try: created=int(__import__('datetime').datetime.fromisoformat(stamp.replace('Z','+00:00')).timestamp()*1000)
@@ -343,7 +419,10 @@ for pattern in patterns:
   except OSError: pass
 if sid:
  match=next((x for x in records if x[0]==sid),(sid,cwd,started)); print(json.dumps({'session_id':match[0],'directory':match[1],'tool':tool})); raise SystemExit(0)
-candidates=[x for x in records if os.path.realpath(x[1])==cwd and started-5000<=x[2]<=started+60000]
+if tool=='abc':
+ candidates=[x for x in records if x[1] in ('',cwd) and started-5000<=x[2]<=started+60000]
+else:
+ candidates=[x for x in records if os.path.realpath(x[1])==cwd and started-5000<=x[2]<=started+60000]
 if len(candidates)!=1: raise SystemExit(1)
 print(json.dumps({'session_id':candidates[0][0],'directory':candidates[0][1],'tool':tool}))
 """
@@ -358,7 +437,7 @@ def discover_remote(
     runner: Runner = subprocess.run,
 ) -> AgentSession | None:
     tool = normalize_name(tool)
-    if tool not in {"codex", "claude"}:
+    if tool not in {"codex", "claude", "abc"}:
         return None
     command = (
         f"python3 -c {shlex.quote(_REMOTE_CODE)} {shlex.quote(tool)} {shlex.quote(cwd)}"
@@ -382,27 +461,37 @@ def start_command(tool: str, model: str = "") -> str:
         return "codex" + (f" --model {shlex.quote(model)}" if model else "")
     if tool == "claude":
         return "claude" + (f" --model {shlex.quote(model)}" if model else "")
+    if tool == "abc":
+        return "abc" + (f" --model {shlex.quote(model)}" if model else "")
     raise ValueError(f"unsupported native session tool: {tool or 'unknown'}")
 
 
 def resume_command(tool: str, session_id: str) -> str:
     tool = normalize_name(tool)
-    sid = shlex.quote((session_id or "").strip())
+    sid = (session_id or "").strip()
     if not sid:
         raise ValueError("session id is required")
     if tool == "codex":
         return f"codex resume {sid}"
     if tool == "claude":
         return f"claude --resume {sid}"
+    if tool == "abc":
+        if not valid_sid(tool, sid):
+            raise ValueError(f"invalid abc session id: {sid}")
+        # "$HOME" (not "~"): quoted tildes do not expand, and the command runs
+        # in a remote shell whose home dt cannot assume. sid is digit/dash only.
+        return f'abc --resume --journal "$HOME/.abc/sessions/{sid}.jsonl"'
     raise ValueError(f"unsupported native session tool: {tool or 'unknown'}")
 
 
 def session_exists(tool: str, session_id: str, *, home: Path | None = None) -> bool:
     tool = normalize_name(tool)
     sid = (session_id or "").strip()
-    if tool not in {"codex", "claude"} or not UUID_RE.fullmatch(sid):
+    if tool not in {"codex", "claude", "abc"} or not valid_sid(tool, sid):
         return False
-    parser = _codex_record if tool == "codex" else _claude_record
+    parser = {"codex": _codex_record, "claude": _claude_record, "abc": _abc_record}[
+        tool
+    ]
     for root in _roots(tool, home):
         if not root.is_dir():
             continue
@@ -417,8 +506,25 @@ def remote_session_probe_script(tool: str, session_id: str) -> str:
     """Return a read-only Python probe suitable for an SSH/container shell."""
     tool = normalize_name(tool)
     sid = (session_id or "").strip()
-    if tool not in {"codex", "claude"} or not UUID_RE.fullmatch(sid):
+    if tool not in {"codex", "claude", "abc"} or not valid_sid(tool, sid):
         return "false"
+    if tool == "abc":
+        code = (
+            "import json,os,sys; sid=sys.argv[1]; ok=False; "
+            "path=os.path.expanduser('~/.abc/sessions/'+sid+'.jsonl'); "
+            "if os.path.isfile(path):\n"
+            " try:\n"
+            "  with open(path,errors='replace') as f:\n"
+            "   for _ in range(24):\n"
+            "    line=f.readline()\n"
+            "    if not line: break\n"
+            "    try: row=json.loads(line)\n"
+            "    except json.JSONDecodeError: continue\n"
+            "    if isinstance(row,dict) and isinstance(row.get('row'),str): ok=True; break\n"
+            " except OSError: pass\n"
+            "raise SystemExit(0 if ok else 1)"
+        )
+        return f"python3 -c {shlex.quote(code)} {shlex.quote(sid)}"
     if tool == "codex":
         patterns = "[os.path.expanduser('~/.codex/sessions/**/*.jsonl')]"
         expression = "p.get('session_id')==sid or p.get('id')==sid"

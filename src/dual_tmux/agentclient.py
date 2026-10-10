@@ -9,13 +9,14 @@ from pathlib import Path
 
 from .workpoint import now_iso
 
-SUPPORTED = ("opencode", "codex", "claude")
+SUPPORTED = ("opencode", "codex", "claude", "abc")
 ALIASES = {
     "opencode": "opencode",
     "codex": "codex",
     "codex-cli": "codex",
     "claude": "claude",
     "claude-code": "claude",
+    "abc": "abc",
 }
 VERSION_RE = re.compile(r"(?<!\d)(\d+(?:\.\d+){1,3}(?:[-+][0-9A-Za-z.-]+)?)")
 Runner = Callable[..., subprocess.CompletedProcess]

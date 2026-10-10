@@ -653,7 +653,7 @@ def as_bind(session: OcSession, tool: str = "") -> dict:
 def resume_cmd(info: dict) -> str:
     tool = info.get("tool") or "opencode"
     sid = info.get("session_id") or ""
-    if tool in {"codex", "claude"}:
+    if tool in {"codex", "claude", "abc"}:
         from .agent_sessions import resume_command
 
         try:
@@ -670,7 +670,7 @@ def resume_cmd(info: dict) -> str:
 def start_cmd(info: dict, model: str = "") -> str:
     tool = info.get("tool") or "opencode"
     chosen = model or info.get("model") or ""
-    if tool in {"codex", "claude"}:
+    if tool in {"codex", "claude", "abc"}:
         from .agent_sessions import start_command
 
         try:

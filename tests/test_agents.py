@@ -18,13 +18,28 @@ CAPABILITY_CONTRACT = (
 )
 
 
-def test_registry_resolves_three_clients_and_aliases():
-    assert [item.name for item in list_adapters()] == ["opencode", "codex", "claude"]
+def test_registry_resolves_native_clients_and_aliases():
+    assert [item.name for item in list_adapters()] == [
+        "opencode",
+        "codex",
+        "claude",
+        "abc",
+    ]
     assert get_adapter("codex-cli").name == "codex"
     assert get_adapter("claude-code").name == "claude"
     assert get_adapter("bash") is None
     with pytest.raises(ValueError, match="unsupported agent"):
         require_adapter("bash")
+
+
+def test_abc_adapter_matches_native_session_lifecycle():
+    adapter = require_adapter("abc")
+    assert adapter.display_name == "abc (andybot_core)"
+    assert adapter.supports("start")
+    assert adapter.supports("session_freeze")
+    assert adapter.supports("resume")
+    assert adapter.supports("send")
+    assert not adapter.supports("model")
 
 
 def test_capabilities_are_truthful_about_session_lifecycle():
@@ -51,6 +66,7 @@ def test_capability_matrix_is_json_safe():
     assert '"name": "opencode"' in encoded
     assert '"name": "codex"' in encoded
     assert '"name": "claude"' in encoded
+    assert '"name": "abc"' in encoded
 
 
 def test_capability_matrix_matches_versioned_contract():
