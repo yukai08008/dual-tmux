@@ -75,6 +75,7 @@ _ADAPTERS = {
         ("claude", "claude-code"),
         _NATIVE_SESSION,
     ),
+    "abc": AgentAdapter("abc", "abc (andybot_core)", ("abc",), _NATIVE_SESSION),
 }
 
 
@@ -91,7 +92,7 @@ def require_adapter(name: str) -> AgentAdapter:
 
 
 def list_adapters() -> tuple[AgentAdapter, ...]:
-    return tuple(_ADAPTERS[name] for name in ("opencode", "codex", "claude"))
+    return tuple(_ADAPTERS[name] for name in ("opencode", "codex", "claude", "abc"))
 
 
 def capability_matrix() -> list[dict]:

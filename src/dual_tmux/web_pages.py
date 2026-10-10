@@ -756,8 +756,8 @@ def tunnels_page(selected: str = "") -> str:
           <div class="field"><label>运行位置</label><select id="new-local"><option value="0">沿用当前配置</option><option value="1">强制仅本地</option></select></div>
           <div class="field"><label>Server（留空沿用配置）</label><input id="new-server" placeholder="tom7r 或 user@host"></div>
           <div class="field"><label>Container</label><input id="new-container" placeholder="可选"></div>
-          <div class="field"><label>trigger 客户端</label><select id="new-trigger-tool"><option value="opencode">OpenCode</option><option value="codex">Codex</option><option value="claude">Claude Code</option></select></div>
-          <div class="field"><label>bullet 客户端</label><select id="new-bullet-tool"><option value="opencode">OpenCode</option><option value="codex">Codex</option><option value="claude">Claude Code</option></select></div>
+          <div class="field"><label>trigger 客户端</label><select id="new-trigger-tool"><option value="opencode">OpenCode</option><option value="codex">Codex</option><option value="claude">Claude Code</option><option value="abc">abc (andybot_core)</option></select></div>
+          <div class="field"><label>bullet 客户端</label><select id="new-bullet-tool"><option value="opencode">OpenCode</option><option value="codex">Codex</option><option value="claude">Claude Code</option><option value="abc">abc (andybot_core)</option></select></div>
           <button type="submit">创建</button>
         </form>
         <form id="modef" class="models" style="margin-top:14px">

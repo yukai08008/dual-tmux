@@ -353,7 +353,7 @@ def _export_local_snapshots(data: dict, client: str) -> list:
     for side in sides:
         info = data.get(side) or {}
         tool = info.get("tool") or "opencode"
-        if tool in {"codex", "claude"}:
+        if tool in {"codex", "claude", "abc"}:
             from . import native_persist
             from .occupancy import read_occupancy
 
@@ -389,6 +389,7 @@ def _verify_local_snapshot_exports(data: dict, client: str) -> None:
         if (info.get("tool") or "opencode") in {
             "codex",
             "claude",
+            "abc",
         } and not native_persist.verify_export(info, namespace=namespace):
             raise SystemExit(
                 f"[err] {side} native session changed during handoff upload; retrying without release"
@@ -1082,7 +1083,7 @@ def _freeze_one_body(data: dict, side: str, tmux_name: str, tool: str, wait: boo
                 "frozen_at",
             ):
                 side_info[key] = ""
-        if client_name in {"codex", "claude"}:
+        if client_name in {"codex", "claude", "abc"}:
             for key in (
                 "model",
                 "session_id",
@@ -1102,7 +1103,7 @@ def _freeze_one_body(data: dict, side: str, tmux_name: str, tool: str, wait: boo
         location=client_meta.get("location"),
         error=client_meta.get("error"),
     )
-    if client_name in {"codex", "claude"}:
+    if client_name in {"codex", "claude", "abc"}:
         from . import agent_sessions
 
         if location in {"ssh", "docker"}:
@@ -1512,7 +1513,7 @@ def refresh_resume_inputs(data: dict) -> dict:
 
     op = str(data.get("op") or "")
     tool = (data.get("trigger") or {}).get("tool") or "opencode"
-    kind = "native" if tool in {"native", "codex", "claude"} else "opencode"
+    kind = "native" if tool in {"native", "codex", "claude", "abc"} else "opencode"
 
     ui.info("checking trigger activity across terminals")
     sync_ticks(kind, cfg, op=op)
@@ -1662,7 +1663,7 @@ def _apply_resume_legacy(
             raise SystemExit("[err] occupancy generation changed during native import")
 
     def ensure_native(info: dict, tmux_name: str, role: str) -> None:
-        if (info.get("tool") or "opencode") not in {"codex", "claude"}:
+        if (info.get("tool") or "opencode") not in {"codex", "claude", "abc"}:
             return
         from . import agent_sessions, native_persist
 
@@ -1978,7 +1979,7 @@ def cmd_tick(_: argparse.Namespace) -> None:
             written = _export_local_snapshots(data, cfg.client)
             remote_bullet = bool((data.get("runtime") or {}).get("server"))
             native_seen = native_seen or any(
-                (data.get(role) or {}).get("tool") in {"codex", "claude"}
+                (data.get(role) or {}).get("tool") in {"codex", "claude", "abc"}
                 for role in (("trigger",) if remote_bullet else ("trigger", "bullet"))
             )
             for snap in written:
@@ -2549,14 +2550,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_freeze.add_argument("--trigger", action="store_true")
     p_freeze.add_argument("--bullet", action="store_true")
     p_freeze.add_argument(
-        "--tool", choices=["auto", "opencode", "codex", "claude"], default="auto"
+        "--tool", choices=["auto", "opencode", "codex", "claude", "abc"], default="auto"
     )
     p_cap = sub.add_parser("capture", help="alias of freeze")
     p_cap.add_argument("name", nargs="?", help="defaults to latest tunnel")
     p_cap.add_argument("--trigger", action="store_true")
     p_cap.add_argument("--bullet", action="store_true")
     p_cap.add_argument(
-        "--tool", choices=["auto", "opencode", "codex", "claude"], default="auto"
+        "--tool", choices=["auto", "opencode", "codex", "claude", "abc"], default="auto"
     )
 
     p_make = sub.add_parser(
