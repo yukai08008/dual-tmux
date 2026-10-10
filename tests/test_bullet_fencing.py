@@ -114,12 +114,14 @@ def test_fence_skip_when_tui_attached(monkeypatch):
 
 def test_fence_refuses_blind_start_when_check_fails(monkeypatch):
     monkeypatch.setattr("dual_tmux.cli._pane_shows_agent", lambda name: False)
+    monkeypatch.setattr(recovery, "remote_session_pids", lambda data: [101, 102])
     monkeypatch.setattr(recovery, "fence_remote_bullet", lambda data: None)
     assert _fence_remote_bullet(_data(), _data()["bullet"], "run_x") is True
 
 
 def test_fence_proceeds_after_killing_orphans(monkeypatch):
     monkeypatch.setattr("dual_tmux.cli._pane_shows_agent", lambda name: False)
+    monkeypatch.setattr(recovery, "remote_session_pids", lambda data: [101, 102])
     monkeypatch.setattr(recovery, "fence_remote_bullet", lambda data: [101])
     assert _fence_remote_bullet(_data(), _data()["bullet"], "run_x") is False
 
