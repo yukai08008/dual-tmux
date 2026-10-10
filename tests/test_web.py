@@ -80,6 +80,7 @@ def test_web_exposes_agent_capabilities_and_operation_catalog():
         "opencode",
         "codex",
         "claude",
+        "abc",
     ]
     assert any(row["name"] == "pane.send" for row in operations["data"])
     assert any(row["name"] == "tunnel.create" for row in operations["data"])

@@ -102,6 +102,7 @@ def test_cli_contract_records_flags_defaults_and_choices():
         "opencode",
         "codex",
         "claude",
+        "abc",
     ]
     assert freeze_args["tool"]["default"] == "auto"
 

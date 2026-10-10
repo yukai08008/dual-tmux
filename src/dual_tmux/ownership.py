@@ -16,7 +16,7 @@ from .config import load_config
 from .paths import ownership_cache_dir
 
 SCHEMA = 1
-AGENTS = {"opencode", "codex", "claude"}
+AGENTS = {"opencode", "codex", "claude", "abc"}
 SHELLS = {"zsh", "bash", "sh", "fish", "dash", "ksh"}
 TRANSPORTS = {"ssh", "docker", "tmux"}
 EVIDENCE_TTL = 180

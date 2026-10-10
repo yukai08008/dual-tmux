@@ -21,7 +21,7 @@ from .agentclient import normalize_name
 from .paths import home_dir
 
 SCHEMA = 1
-TOOLS = {"codex", "claude"}
+TOOLS = {"codex", "claude", "abc"}
 REVISION_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -49,15 +49,19 @@ def _session_root(tool: str, home: Path) -> Path:
         return home / ".codex" / "sessions"
     if tool == "claude":
         return home / ".claude" / "projects"
+    if tool == "abc":
+        return home / ".abc" / "sessions"
     raise ValueError(f"unsupported native session tool: {tool}")
 
 
 def _record(path: Path, tool: str):
-    parser = (
-        agent_sessions._codex_record
-        if tool == "codex"
-        else agent_sessions._claude_record
-    )
+    parser = {
+        "codex": agent_sessions._codex_record,
+        "claude": agent_sessions._claude_record,
+        "abc": agent_sessions._abc_record,
+    }.get(tool)
+    if parser is None:
+        raise ValueError(f"unsupported native session tool: {tool}")
     return parser(path)
 
 
@@ -67,7 +71,7 @@ def locate_session(
     """Locate exactly one native JSONL for a UUID, failing closed on duplicates."""
     tool = normalize_name(tool)
     sid = (session_id or "").strip()
-    if tool not in TOOLS or not agent_sessions.UUID_RE.fullmatch(sid):
+    if tool not in TOOLS or not agent_sessions.valid_sid(tool, sid):
         return None
     base = home or Path.home()
     root = _session_root(tool, base)
@@ -114,7 +118,26 @@ def _validated_payload(path: Path, tool: str, session_id: str) -> bytes:
                 seen.add(str(value))
         elif tool == "claude" and row.get("sessionId"):
             seen.add(str(row["sessionId"]))
-    if seen != {session_id}:
+        elif tool == "abc":
+            # abc journals carry no per-row session id; identity is the
+            # filename. A session row contradicting the stem fails closed.
+            if not isinstance(row.get("row"), str) or not row["row"]:
+                raise SystemExit(
+                    f"[err] native snapshot has a malformed abc row: {path}"
+                )
+            data = row.get("data") or {}
+            if row["row"] == "session":
+                claimed = str(data.get("session_id") or "")
+                journal = str(data.get("journal_path") or "")
+                if claimed and claimed != session_id:
+                    raise SystemExit(
+                        f"[err] native snapshot UUID mismatch: expected {session_id}, found {sorted(seen)}"
+                    )
+                if journal and Path(journal).stem != session_id:
+                    raise SystemExit(
+                        f"[err] native snapshot abc journal_path mismatch: {path}"
+                    )
+    if tool != "abc" and seen != {session_id}:
         raise SystemExit(
             f"[err] native snapshot UUID mismatch: expected {session_id}, found {sorted(seen)}"
         )
@@ -262,7 +285,7 @@ def _load_active(path: Path, tool: str, sid: str) -> tuple[dict, Path, bytes]:
         manifest.get("schema") != SCHEMA
         or manifest.get("tool") != tool
         or manifest.get("session_id") != sid
-        or not agent_sessions.UUID_RE.fullmatch(str(manifest.get("session_id") or ""))
+        or not agent_sessions.valid_sid(tool, str(manifest.get("session_id") or ""))
     ):
         raise SystemExit(f"[err] native snapshot manifest identity mismatch: {path}")
     files = manifest.get("files")
