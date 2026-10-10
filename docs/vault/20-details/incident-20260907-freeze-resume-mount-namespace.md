@@ -44,7 +44,7 @@ skip run_new_event_v2 bullet TUI already attached; not starting a duplicate
 ## Runtime topology
 
 - Local pane: `run_new_event_v2`
-- Local pane command: `ssh root@10.89.0.15`
+- Local pane command: `ssh root@198.51.100.15`
 - Remote OpenCode cwd: `/workspace`
 - Remote OpenCode argv: `opencode --auto`
 - OpenCode process actually runs in a Docker mount namespace.

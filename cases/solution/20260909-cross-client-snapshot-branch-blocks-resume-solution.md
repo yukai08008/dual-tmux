@@ -13,7 +13,7 @@
 ## 真实恢复
 
 `dt-alex-serp` 已先保存 session JSON 和完整 SQLite 备份，再将 292 条本机消息与
-`tm_andy_home` 6 条独有消息合并为 298 条；两边 tail 均存在，integrity=`ok`。
+`tm_a_home` 6 条独有消息合并为 298 条；两边 tail 均存在，integrity=`ok`。
 随后成功恢复 trigger/bullet 并取得 ownership generation 3。
 
 ## 发布结果

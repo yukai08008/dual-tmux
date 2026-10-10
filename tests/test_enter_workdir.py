@@ -24,7 +24,7 @@ def test_ensure_session_cwd_creates_new_pane_at_requested_path(monkeypatch, tmp_
 
 def test_ensure_session_cwd_aligns_existing_idle_shell(monkeypatch, tmp_path):
     target = tmp_path / "ops" / "op_gate"
-    state = {"cwd": "/Users/andy"}
+    state = {"cwd": "~"}
     sent = []
     monkeypatch.setattr(tmux, "ensure_session", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
@@ -53,7 +53,7 @@ def test_ensure_session_cwd_preserves_running_foreground_program(monkeypatch):
     monkeypatch.setattr(
         tmux,
         "pane_info",
-        lambda _name: {"cmd": "opencode", "cwd": "/Users/andy"},
+        lambda _name: {"cmd": "opencode", "cwd": "~"},
     )
     monkeypatch.setattr(
         tmux.subprocess,

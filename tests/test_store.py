@@ -71,8 +71,8 @@ def test_list_ssh_hosts(tmp_path):
     assert list_ssh_hosts(cfg) == ["tom7r", "github.com"]
     t = parse_ssh_target("ssh -p 10700 root@1.2.3.4", cfg)
     assert t.stored == "tom7r"
-    t2 = parse_ssh_target("ssh -p 22 root@9.9.9.9", cfg)
-    assert t2.stored == "root@9.9.9.9"
+    t2 = parse_ssh_target("ssh -p 22 root@192.0.2.9", cfg)
+    assert t2.stored == "root@192.0.2.9"
 
 
 def test_dst_bind():
@@ -173,8 +173,8 @@ def test_remove_dt(monkeypatch, tmp_path):
 
 
 SAMPLE_PANE = """
- andy_ouc@Mac  ~/Desktop/吕鑫航交接 
- andy_ouc@Mac  ~/Desktop/吕鑫航交接  tom7r
+ user@Mac  ~/Desktop/吕鑫航交接 
+ user@Mac  ~/Desktop/吕鑫航交接  tom7r
 (base) ┌─root@m7:~
 └─ $ docker ps|grep  messenger
 (base) ┌─root@m7:~
@@ -225,13 +225,13 @@ def test_live_ssh_process_overrides_docker_only_scrollback(monkeypatch):
     monkeypatch.setattr(
         workpoint,
         "walk_commands",
-        lambda _pid: ["-zsh", "ssh root@10.88.0.20"],
+        lambda _pid: ["-zsh", "ssh root@198.51.100.20"],
     )
 
     workpoint._from_processes("1", point)
 
-    assert point["ssh"] == "root@10.88.0.20"
-    assert point["resume_cmd"] == "ssh root@10.88.0.20"
+    assert point["ssh"] == "root@198.51.100.20"
+    assert point["resume_cmd"] == "ssh root@198.51.100.20"
     assert point["kind"] == "docker"
 
 
@@ -247,7 +247,7 @@ pts/2 bash -lc echo docker exec fake_box
 """
 
     assert remote_docker_exec_containers(
-        ["ssh", "root@10.88.0.20"], runner=lambda *args, **kwargs: Result()
+        ["ssh", "root@198.51.100.20"], runner=lambda *args, **kwargs: Result()
     ) == ["cp_gateway_24629", "work_box"]
 
 
@@ -272,22 +272,22 @@ def test_direct_ssh_runtime_keeps_command_and_does_not_copy_local_cwd():
     point = {
         **empty_point(),
         "kind": "ssh",
-        "cwd": "/Users/andy",
-        "directory": "/Users/andy",
-        "ssh": "root@106.75.97.247",
-        "resume_cmd": "ssh -oPort=24500 root@106.75.97.247",
+        "cwd": "~",
+        "directory": "~",
+        "ssh": "root@203.0.113.10",
+        "resume_cmd": "ssh -oPort=24500 root@203.0.113.10",
     }
     apply_runtime(data, point)
-    assert data["runtime"]["server"] == "root@106.75.97.247"
+    assert data["runtime"]["server"] == "root@203.0.113.10"
     assert data["runtime"]["ssh_port"] == 24500
     assert data["runtime"]["directory"] == "/workspace"
-    assert data["runtime"]["cmd"] == "ssh -oPort=24500 root@106.75.97.247"
+    assert data["runtime"]["cmd"] == "ssh -oPort=24500 root@203.0.113.10"
 
 
 def test_remote_point_uses_persisted_runtime_not_local_tmux_cwd():
     data = {
         "runtime": {
-            "server": "root@106.75.97.247",
+            "server": "root@203.0.113.10",
             "container": "me_andy_browser",
             "directory": "/root/intro_v2",
             "cmd": "ssh business docker exec me_andy_browser",
@@ -296,13 +296,13 @@ def test_remote_point_uses_persisted_runtime_not_local_tmux_cwd():
     point = {
         **empty_point(),
         "kind": "docker",
-        "cwd": "/Users/andy/trigger",
-        "directory": "/Users/andy/trigger",
+        "cwd": "~/trigger",
+        "directory": "~/trigger",
         "ssh": "bash",
         "container": "me_andy_browser",
     }
     got = canonical_runtime_point(data, point)
-    assert got["ssh"] == "root@106.75.97.247"
+    assert got["ssh"] == "root@203.0.113.10"
     assert got["cwd"] == got["directory"] == "/root/intro_v2"
     assert got["resume_cmd"] == data["runtime"]["cmd"]
 

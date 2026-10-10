@@ -107,9 +107,9 @@ def test_export_falls_back_to_sid_filename(tmp_path: Path, local_session):
 def test_persist_tenant_prefers_name_file(monkeypatch, tmp_path: Path):
     name = tmp_path / ".config" / "session-persist" / "name"
     name.parent.mkdir(parents=True)
-    name.write_text("tm_andy_ouc\n", encoding="utf-8")
+    name.write_text("tm_a_ouc\n", encoding="utf-8")
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
-    assert oc.persist_tenant("tm_ouc") == "tm_andy_ouc"
+    assert oc.persist_tenant("tm_ouc") == "tm_a_ouc"
     name.unlink()
     assert oc.persist_tenant("tm_ouc") == "tm_ouc"
 
@@ -137,8 +137,8 @@ def test_bind_session_directory_rewrites_foreign_home(tmp_path, monkeypatch):
         "INSERT INTO session VALUES (?, ?, ?)",
         (
             "ses_1",
-            "/Users/andy_ouc/.dual-tmux/ops/op_a",
-            "Users/andy_ouc/.dual-tmux/ops/op_a",
+            "~/.dual-tmux/ops/op_a",
+            "Users/mac/.dual-tmux/ops/op_a",
         ),
     )
     con.commit()

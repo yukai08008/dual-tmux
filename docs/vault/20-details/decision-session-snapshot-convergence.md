@@ -23,7 +23,7 @@ Owner Client 内建原子 export 并发布 manifest；接管方比较 session up
 - `dt pull` 只同步 tunnel/entry，不同步 conversation。
 - 现有 persist job 只 rsync 已存在的 JSON，无法保证 export 实际发生。
 - OUC 的 Hub OpenCode source 目录为空，而 Home 同 ID trigger 停在数日前。
-- OUC lease holder 为 `tm_ouc`，Hub persist source 为 `tm_andy_ouc`，identity 漂移未被阻断。
+- OUC lease holder 为 `tm_ouc`，Hub persist source 为 `tm_a_ouc`，identity 漂移未被阻断。
 - `ensure_local()` 只做 by-ID existence check，会把同 ID 的旧内容误判为无需导入。
 
 ## Consequences

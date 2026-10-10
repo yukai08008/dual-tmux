@@ -28,7 +28,7 @@ dt-a 案例（2026-09-16）：Hub 侧已无 `dt-a.json`，本机副本仍在且�
 ```
 
 ```json
-{"schema": 1, "name": "dt-a", "deleted_at": "2026-09-16T12:00:00+08:00", "deleted_by": "tm_andy_home"}
+{"schema": 1, "name": "dt-a", "deleted_at": "2026-09-16T12:00:00+08:00", "deleted_by": "tm_a_home"}
 ```
 
 - 墓碑目录与 `tunnels/` 分离：`tunnels/` 的 `dt-*.json` glob、`dt ls`、DataNode 仓储均不受影响。

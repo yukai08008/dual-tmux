@@ -4,7 +4,7 @@
 
 ## 背景
 
-用户发现 bullet（run_company_intro_v2，docker@root@106.75.97.247，OpenCode 1.18.25，grok-4.6 via xs-cp-gateway）一直 queue：发往 bullet 的消息不被处理，长期无反馈。
+用户发现 bullet（run_company_intro_v2，docker@root@203.0.113.10，OpenCode 1.18.25，grok-4.6 via xs-cp-gateway）一直 queue：发往 bullet 的消息不被处理，长期无反馈。
 
 ## 排查事实
 

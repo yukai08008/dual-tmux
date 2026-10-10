@@ -51,7 +51,7 @@ flowchart TB
   K --> HubS
 ```
 
-`tm_*` 就是 MACHINE。同一 `user` 下可以有 `tm_ouc`、`tm_andy_home`。
+`tm_*` 就是 MACHINE。同一 `user` 下可以有 `tm_ouc`、`tm_a_home`。
 
 bullet 会话不同步。另一台机器 resume 是重连同一个端点上的同一个 session id。
 

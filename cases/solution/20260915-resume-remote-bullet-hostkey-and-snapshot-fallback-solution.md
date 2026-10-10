@@ -9,7 +9,7 @@
 3. **`ensure_remote_session` 绝不虚报会话丢失**：
    在 `src/dual_tmux/recovery.py` 中，`ensure_remote_session` 作为快照导入器，当本机无快照（`snapshot is None`）时仅返回 `False`，不发起非法中断。确凿的远端扫描缺失检查交由 `control.py` 在 `route["status"] == "missing"` 时统一 fail-closed。
 4. **Trigger 快照跨 Client 智能回退**：
-   在 `src/dual_tmux/oc.py` 的 `_tick_snapshots` 中增加防御兜底：若推选来源下既无本地 sqlite 会话又无快照文件，自动通过 `resolve_snapshot(info)` 回退到包含真实快照的合法机器目录（如 `tm_andy_home`），避免空 tick 误判导致的死锁。
+   在 `src/dual_tmux/oc.py` 的 `_tick_snapshots` 中增加防御兜底：若推选来源下既无本地 sqlite 会话又无快照文件，自动通过 `resolve_snapshot(info)` 回退到包含真实快照的合法机器目录（如 `tm_a_home`），避免空 tick 误判导致的死锁。
 
 ## 不变量与守护红线
 

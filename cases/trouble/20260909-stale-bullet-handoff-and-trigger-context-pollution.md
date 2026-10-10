@@ -10,7 +10,7 @@
 - `dt-company_intro_v2` 进入后充满重复内容；Trigger 上下文持续增长到
   `192.6K / 96%`，而 Bullet token 不变、界面只显示 spinner。
 - `dt-alex-serp` 恢复到了错误的旧会话；另一次 pane 仍引用已经不存在的目录
-  `/Users/andy_ouc/.dual-tmux/ops/op_alex_serp`，报 `FileSystem.access NotFound`。
+  `~/.dual-tmux/ops/op_alex_serp`，报 `FileSystem.access NotFound`。
 - `dt upgrade` 发现 `0.4.55.post10`，但对应 GitHub Release wheel 尚不存在，返回
   HTTP 404。后续同 URL 重建 wheel 时，本地 `uv` 缓存又保留了旧构件。
 

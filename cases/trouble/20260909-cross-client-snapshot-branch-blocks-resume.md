@@ -3,14 +3,14 @@
 ## 背景
 
 执行 `dt resume dt-alex-serp` 时，系统报告本地 session 更新较晚但不包含
-`tm_andy_home` 的持久化 tail，要求用户先人工修复。
+`tm_a_home` 的持久化 tail，要求用户先人工修复。
 
 ## 现场证据
 
 - session：`ses_f9a125dbdffelXmINuIVU0D7CT`
 - 共同消息：278 条
 - 本机有效独有消息：14 条
-- `tm_andy_home` 有效独有消息：6 条
+- `tm_a_home` 有效独有消息：6 条
 - 本机总计 292 条；无损 union 后为 298 条，两边 tail 均保留。
 - 共同 ID `msg_080b2211f001pmrUZmiI2TSNZX` 在 home 快照为执行中的 pending
   状态，本机版本为其完成态，说明相同 ID 的记录也可能随流式执行自然丰富。

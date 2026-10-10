@@ -240,12 +240,12 @@ def test_remove_remote_payload_survives_remote_shell(tmp_path, monkeypatch):
         return Result()
 
     monkeypatch.setattr(hub, "_run", fake_run)
-    record = hub.write_tombstone("dt-x", "tm_andy_home")
+    record = hub.write_tombstone("dt-x", "tm_a_home")
 
     hub.remove_remote(
         "dt-x",
         "run_x",
-        AppConfig(client="tm_andy_home", server="tom7r", user="andy"),
+        AppConfig(client="tm_a_home", server="tom7r", user="andy"),
         tombstone=record,
     )
 

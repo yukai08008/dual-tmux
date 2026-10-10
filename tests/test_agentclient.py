@@ -413,7 +413,7 @@ def test_freeze_disconnected_shell_does_not_bind_latest_or_mutate_runtime(monkey
     monkeypatch.setattr(
         cli.tmux_ops,
         "pane_info",
-        lambda _name: {"pid": "1", "cmd": "zsh", "cwd": "/Users/andy"},
+        lambda _name: {"pid": "1", "cmd": "zsh", "cwd": "~"},
     )
     monkeypatch.setattr(
         "dual_tmux.agentclient.collect",
@@ -459,20 +459,20 @@ def test_freeze_remote_probe_failure_does_not_commit_candidate_runtime(monkeypat
     }
     point = {
         **_point("docker"),
-        "ssh": "root@10.88.0.20",
+        "ssh": "root@198.51.100.20",
         "container": "cp_gateway_24629",
         "directory": "/workspace",
         "hops": [{"command": "docker exec -it cp_gateway_24629 bash"}],
     }
     monkeypatch.setattr(cli.wp, "discover", lambda _name: point)
-    monkeypatch.setattr(cli.wp, "walk_commands", lambda _pid: ["ssh root@10.88.0.20"])
+    monkeypatch.setattr(cli.wp, "walk_commands", lambda _pid: ["ssh root@198.51.100.20"])
     monkeypatch.setattr(
         cli.wp, "remote_docker_exec_containers", lambda *_args: ["cp_gateway_24629"]
     )
     monkeypatch.setattr(
         cli.tmux_ops,
         "pane_info",
-        lambda _name: {"pid": "1", "cmd": "ssh", "cwd": "/Users/andy"},
+        lambda _name: {"pid": "1", "cmd": "ssh", "cwd": "~"},
     )
     monkeypatch.setattr(
         "dual_tmux.agentclient.collect",
@@ -506,21 +506,21 @@ def test_freeze_commits_verified_live_runtime_and_session(monkeypatch):
     }
     point = {
         **_point("docker"),
-        "ssh": "root@10.88.0.20",
+        "ssh": "root@198.51.100.20",
         "container": "old_box",
         "directory": "/workspace",
         "cwd": "/workspace",
         "hops": [{"command": "docker exec -it cp_gateway_24629 bash"}],
     }
     monkeypatch.setattr(cli.wp, "discover", lambda _name: point)
-    monkeypatch.setattr(cli.wp, "walk_commands", lambda _pid: ["ssh root@10.88.0.20"])
+    monkeypatch.setattr(cli.wp, "walk_commands", lambda _pid: ["ssh root@198.51.100.20"])
     monkeypatch.setattr(
         cli.wp, "remote_docker_exec_containers", lambda *_args: ["cp_gateway_24629"]
     )
     monkeypatch.setattr(
         cli.tmux_ops,
         "pane_info",
-        lambda _name: {"pid": "1", "cmd": "ssh", "cwd": "/Users/andy"},
+        lambda _name: {"pid": "1", "cmd": "ssh", "cwd": "~"},
     )
     monkeypatch.setattr(
         "dual_tmux.agentclient.collect",
@@ -548,12 +548,12 @@ def test_freeze_commits_verified_live_runtime_and_session(monkeypatch):
     monkeypatch.setattr(cli.ev, "emit", lambda *args, **kwargs: None)
 
     assert cli._freeze_one(data, "bullet", "run_test", "auto", False)
-    assert data["runtime"]["server"] == "root@10.88.0.20"
+    assert data["runtime"]["server"] == "root@198.51.100.20"
     assert data["runtime"]["container"] == "cp_gateway_24629"
     assert data["runtime"]["directory"] == "/workspace"
-    assert "root@10.88.0.20" in data["runtime"]["cmd"]
+    assert "root@198.51.100.20" in data["runtime"]["cmd"]
     assert data["bullet"]["session_id"] == "ses_remote"
-    assert data["run_point"]["ssh"] == "root@10.88.0.20"
+    assert data["run_point"]["ssh"] == "root@198.51.100.20"
     assert data["run_point"]["hops"] == []
     assert persisted == [("run_test", data["runtime"]["cmd"])]
 

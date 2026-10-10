@@ -16,7 +16,7 @@ related: []
 
 ## Summary
 
-锁屏的 `tm_ouc` 仍由 cron tick 续租；`tm_andy_home` resume 被判“last 30 ticks still changing”，且拒绝前本地 op/run tmux 已被删除。
+锁屏的 `tm_ouc` 仍由 cron tick 续租；`tm_a_home` resume 被判“last 30 ticks still changing”，且拒绝前本地 op/run tmux 已被删除。
 
 ## Impact
 

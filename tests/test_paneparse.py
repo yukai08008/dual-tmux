@@ -19,7 +19,7 @@ RABBIT = """
      - 密码：andy@2026
      ▣  Build · Grok 4.6 · 1m 8s
   ┃  Build · Grok 4.6 XS CP Gateway
-   /Users/andy/.dual-tmux/ops/op_msg2    235.3K  ctrl+p commands    • OpenCode 1.18.18
+   ~/.dual-tmux/ops/op_msg2    235.3K  ctrl+p commands    • OpenCode 1.18.18
 """
 
 
@@ -71,7 +71,7 @@ def test_completed_turn_has_stable_completion_id_across_tui_redraws():
     redraw = parse_opencode(
         answer
         + "┃\n┃ Build auto · Grok 4.6 XS CP Gateway\n"
-        + "/Users/andy/.dual-tmux/ops/op_portal 50.2K ctrl+p commands\n"
+        + "~/.dual-tmux/ops/op_portal 50.2K ctrl+p commands\n"
     )
     assert first.phase == redraw.phase == "idle"
     assert first.body == redraw.body

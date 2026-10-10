@@ -53,8 +53,8 @@ def test_tenant_paths_not_login_home():
     assert persist_hub_kind("andy", "native") == "~/andy/sessions/native"
     assert persist_rsync_rel("andy", "opencode") == "andy/sessions/opencode"
     assert (
-        persist_source_dir("opencode", "tm_andy_home")
-        == "~/sessions/opencode/tm_andy_home"
+        persist_source_dir("opencode", "tm_a_home")
+        == "~/sessions/opencode/tm_a_home"
     )
     assert (
         persist_source_dir("opencode", "tm_ouc", hub_user="andy")
@@ -108,7 +108,7 @@ def test_snapshot_picks_newest_legal_source(tmp_path: Path):
 
     root = tmp_path / "sessions" / "opencode"
     older = root / "tm_ouc" / "eager-orchid.json"
-    newer = root / "tm_andy_home" / "eager-orchid.json"
+    newer = root / "tm_a_home" / "eager-orchid.json"
     _write_json(older, "ses_fdbe", "eager-orchid")
     _write_json(newer, "ses_fdbe", "eager-orchid")
     os.utime(older, (1, 1))

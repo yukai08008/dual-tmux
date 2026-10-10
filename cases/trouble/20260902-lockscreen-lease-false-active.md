@@ -8,7 +8,7 @@
 
 ## 现象
 
-`tm_ouc` 是已锁屏的另一台笔记本。`tm_andy_home` 执行：
+`tm_ouc` 是已锁屏的另一台笔记本。`tm_a_home` 执行：
 
 ```text
 dt resume dt-company_intro_v2
@@ -27,8 +27,8 @@ dt resume dt-company_intro_v2
 - `require_active()` 捕获 claim 失败后调用 `drop_local()`，因此 preflight 拒绝会先删除本地 pane。
 - 远端容器曾同时存在两个 `opencode --auto -s ses_fb37c…` writer；再次 force resume 可能产生第三个。
 - bullet 远端数据库含 2026-09-02 18:26 的 `hi → 你好…`，但 Home trigger 数据库最后更新仍是 8 月 30 日。
-- Hub `~/andy/sessions/opencode/tm_andy_ouc/` 为空，没有 OUC 当天 trigger snapshot；生成的 persist job 只 rsync 现有目录，不执行 OpenCode export。
-- OUC 的 lease holder 名为 `tm_ouc`，历史 persist source 却名为 `tm_andy_ouc`，存在 Client identity 漂移，当前机制没有把它作为错误暴露。
+- Hub `~/andy/sessions/opencode/tm_a_ouc/` 为空，没有 OUC 当天 trigger snapshot；生成的 persist job 只 rsync 现有目录，不执行 OpenCode export。
+- OUC 的 lease holder 名为 `tm_ouc`，历史 persist source 却名为 `tm_a_ouc`，存在 Client identity 漂移，当前机制没有把它作为错误暴露。
 - `ensure_local()` 在本地查到相同 session ID 后立即返回，不比较远端/本地 revision，因此即使未来 snapshot 上传，本地旧副本仍可能被当作已恢复。
 
 ## 第一性原理根因
