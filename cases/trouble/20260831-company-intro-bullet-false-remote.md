@@ -6,11 +6,11 @@
 
 ## Symptom
 
-Resume replayed `ssh -t tom7r "cd /Users/andy && exec bash"`. `/Users/andy` does not exist on tom7r, SSH exited, and the OpenCode resume command was then typed into the local shell.
+Resume replayed `ssh -t tom7r "cd ~ && exec bash"`. `~` does not exist on tom7r, SSH exited, and the OpenCode resume command was then typed into the local shell.
 
 ## Evidence
 
-- tmux persist records the original inner hop as `ssh -oPort=24500 root@106.75.97.247`.
+- tmux persist records the original inner hop as `ssh -oPort=24500 root@203.0.113.10`.
 - tom7r has no matching OpenCode session.
 - the target business host has no OpenCode executable.
 - the recorded `happy-circuit` session is a one-message smoke session also bound to another tunnel.

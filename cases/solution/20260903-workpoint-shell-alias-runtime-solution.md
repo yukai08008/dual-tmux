@@ -12,7 +12,7 @@
 
 ## 真实验证
 
-- 公网入口 `root@106.75.97.247:24500` 可访问 `alex_serp_24656`，容器 OpenCode 版本 `1.18.27`。
+- 公网入口 `root@203.0.113.10:24500` 可访问 `alex_serp_24656`，容器 OpenCode 版本 `1.18.27`。
 - 源码 legacy freeze 自动绑定 bullet：`ses_f9a099310ffevgu6ktnoIkF7Xy`，slug `calm-garden`，model `xs-grok/grok-4.6`。
 - runtime 保持 `alex_serp_24656:/workspace`，重建命令包含公网 SSH 端口与 `docker exec`。
 - 全量测试：245 passed, 1 warning。

@@ -8,7 +8,7 @@
 
 - tom7r Hub daemon 持续 `connected`、Docker `healthy`，入站消息正常写入 `commands/tm_ouc`。
 - 2026-09-01 15:00 的 `/dt ls` 到 15:04 仍完整积压。
-- 本机 crontab 每分钟运行 `/Users/andy_ouc/.local/bin/dt tick`，该正式安装版本为 `0.4.46.post1`。
+- 本机 crontab 每分钟运行 `~/.local/bin/dt tick`，该正式安装版本为 `0.4.46.post1`。
 - 0.4.46.post1 的 `cmd_tick` 不包含 `sync_client`，因此运行次数再多也不会消费 mailbox。
 - 候选仓库的手工 sync 随即完成 `commands=1, errors=0` 并由 Hub WS 回包。
 

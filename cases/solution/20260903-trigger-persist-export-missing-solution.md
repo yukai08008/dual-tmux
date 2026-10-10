@@ -17,7 +17,7 @@
 ## 验证
 
 - 241 tests 全过（新增 9 条：写入/新鲜跳过/非本地跳过/失败清理/id 校验/租户回退/oc_bin 兜底）。
-- 真实 tick：dt-msg、dt-msg2 等 trigger 快照自动导出到 `~/sessions/opencode/tm_andy_ouc/`；dt-company_intro_v2 的 misty-rocket 因新鲜被跳过（门控正确）；persist cron 推送后 Hub 内容一致。
+- 真实 tick：dt-msg、dt-msg2 等 trigger 快照自动导出到 `~/sessions/opencode/tm_a_ouc/`；dt-company_intro_v2 的 misty-rocket 因新鲜被跳过（门控正确）；persist cron 推送后 Hub 内容一致。
 - 事件日志出现 `persist.export`，失败会记 `persist.export.fail`。
 
 ## 不变量

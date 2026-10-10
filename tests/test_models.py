@@ -84,10 +84,10 @@ def test_apply_model_repairs_runtime_and_lands_jump_before_starting(monkeypatch,
         "op": "op_demo",
         "run": "run_demo",
         "runtime": {
-            "server": "root@10.88.0.20",
+            "server": "root@198.51.100.20",
             "container": "me_andy_browser",
             "directory": "/workspace",
-            "cmd": "ssh -t root@10.88.0.20 docker exec -it me_andy_browser bash",
+            "cmd": "ssh -t root@198.51.100.20 docker exec -it me_andy_browser bash",
         },
         "bullet": {"tool": "opencode", "model": "old/model"},
     }

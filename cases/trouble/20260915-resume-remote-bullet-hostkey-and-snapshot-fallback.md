@@ -7,9 +7,9 @@
 ```text
 · pulling Hub state
 · checking trigger activity across terminals
-· syncing updated session from remote terminal (tm_andy_home)
+· syncing updated session from remote terminal (tm_a_home)
 · session sync complete
-ok  resent run_cp_gate <- ssh -t -o ServerAliveInterval=15 -o ServerAliveCountMax=3 root@10.88.0.20 "docker exec -it me_andy_browser bash -lc 'cd /workspace && exec bash'"
+ok  resent run_cp_gate <- ssh -t -o ServerAliveInterval=15 -o ServerAliveCountMax=3 root@198.51.100.20 "docker exec -it me_andy_browser bash -lc 'cd /workspace && exec bash'"
 [err] bullet session ses_f8a384577ffeb75HokVSq3nf13 missing remotely and no local persist JSON
 ```
 
@@ -22,7 +22,7 @@ ok  resent run_cp_gate <- ssh -t -o ServerAliveInterval=15 -o ServerAliveCountMa
 3. **`ensure_remote_session` 误诊网络不可达为会话丢失**：
    探针失败后，`_remote_probe(data).get("session").get("ok")` 为 `False`。代码未判断 `transport` 是否连通，且在本地无 bullet 快照（远端会话通常无本机快照）时，直接抛出 `missing remotely and no local persist JSON`，误导用户以为远端会话已丢失。
 4. **Trigger 快照选择器未降级至现存快照**：
-   同时暴露出的连锁问题：本地 Client（`tm_andy_ouc`）曾记录过空行 tick，被推选为 `preferred_source`；但本机本地既无 sqlite 会话又无对应快照文件，`_tick_snapshots` 未能自动回退到包含真实快照的来源（`tm_andy_home`），导致报 `trigger session ... has no persist JSON under .../tm_andy_ouc/`。
+   同时暴露出的连锁问题：本地 Client（`tm_a_ouc`）曾记录过空行 tick，被推选为 `preferred_source`；但本机本地既无 sqlite 会话又无对应快照文件，`_tick_snapshots` 未能自动回退到包含真实快照的来源（`tm_a_home`），导致报 `trigger session ... has no persist JSON under .../tm_a_ouc/`。
 
 ## 业务影响
 

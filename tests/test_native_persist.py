@@ -182,11 +182,11 @@ def test_persist_namespace_can_differ_from_client_identity(tmp_path):
     active = native_persist.export_session(
         _info("codex", CODEX_ID),
         "tm_ouc",
-        namespace="tm_andy_ouc",
+        namespace="tm_a_ouc",
         root=tmp_path / "persist",
         home=tmp_path / "home",
     )
-    assert active.relative_to(tmp_path / "persist").parts[0] == "tm_andy_ouc"
+    assert active.relative_to(tmp_path / "persist").parts[0] == "tm_a_ouc"
     assert json.loads(active.read_text())["source_client"] == "tm_ouc"
 
 

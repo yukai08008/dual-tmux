@@ -91,7 +91,7 @@ deployment_checklist:
   - "构建 wheel/sdist 成功"
   - "隔离安装后 CLI 与 metadata 版本一致"
   - "Web 首页和 ownership API 返回 200"
-  - "tm_ouc → tm_andy_home 安全 handoff 成功"
+  - "tm_ouc → tm_a_home 安全 handoff 成功"
   - "dt-portal durable turn 回归通过"
   - "配置、tunnel 和 session binding 哈希升级前后不变"
 

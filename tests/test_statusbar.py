@@ -12,7 +12,7 @@ def _home(monkeypatch, tmp_path: Path) -> Path:
 
 def test_state_roundtrip(monkeypatch, tmp_path: Path):
     home = _home(monkeypatch, tmp_path)
-    statusbar.write_state(True, "tom7r:/root/andy/dual-tmux")
+    statusbar.write_state(True, "tom7r:/root/dt/dual-tmux")
     state = statusbar.read_state()
     assert state["ok"] is True
     assert "tom7r" in state["detail"]

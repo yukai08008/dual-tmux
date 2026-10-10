@@ -214,7 +214,7 @@ server + port + container + directory
 
 ### `ClientNode`
 
-`ClientNode` 是用户能识别和命名的操作端，例如 `tm_ouc`、`tm_andy_home`。它不是一次
+`ClientNode` 是用户能识别和命名的操作端，例如 `tm_ouc`、`tm_a_home`。它不是一次
 daemon 进程，也不是某次 ownership holder 记录。
 
 建议字段：

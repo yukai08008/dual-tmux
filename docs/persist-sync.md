@@ -23,7 +23,7 @@ That path has no tenant and collides with other people.
 
 `~/.config/session-persist/name` (same value as `dt` `client`) names the **writer machine**.
 
-Legal: `tm_` + `[A-Za-z0-9._-]`. Example: `tm_andy_home`, `tm_m7`.
+Legal: `tm_` + `[A-Za-z0-9._-]`. Example: `tm_a_home`, `tm_m7`.
 
 It is **not**:
 

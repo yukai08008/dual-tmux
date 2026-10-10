@@ -6,12 +6,12 @@ services:
     container_name: dual-tmux-feishu-bridge
     restart: unless-stopped
     env_file:
-      - /root/andy/dual-tmux/feishu/bridge.env
+      - /root/dt/dual-tmux/feishu/bridge.env
     environment:
       DUAL_TMUX_HOME: /data
       DT_FEISHU_ROLE: hub
     volumes:
-      - /root/andy/dual-tmux:/data
+      - /root/dt/dual-tmux:/data
     security_opt:
       - no-new-privileges:true
     cap_drop:

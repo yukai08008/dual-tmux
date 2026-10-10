@@ -266,22 +266,22 @@ def test_capture_runtime_clears_stale_remote_target_for_local_bullet():
         data,
         {
             "kind": "local",
-            "cwd": "/Users/andy/project",
-            "directory": "/Users/andy/project",
+            "cwd": "~/project",
+            "directory": "~/project",
         },
     )
     assert data["runtime"] == {
         "server": "",
         "container": "",
-        "directory": "/Users/andy/project",
+        "directory": "~/project",
         "cmd": "",
     }
 
 
 def test_prompt_status_does_not_fabricate_a_host_hop():
     pane = """
- andy_ouc@Mac  ~/.dual-tmux  opencode --auto -s ses_old
- ✘ andy_ouc@Mac  ~/.dual-tmux 
+ user@Mac  ~/.dual-tmux  opencode --auto -s ses_old
+ ✘ user@Mac  ~/.dual-tmux 
 """
     assert wp.parse_hops(pane) == []
 
@@ -547,7 +547,7 @@ def test_require_active_claims_occupancy_when_expired_lease_exists(
 def test_resume_rebinds_trigger_workspace(monkeypatch, tmp_path):
     data = _dst(server="")
     data["runtime"]["cmd"] = ""
-    data["trigger"]["directory"] = "/Users/andy_ouc/.dual-tmux/ops/op_msg"
+    data["trigger"]["directory"] = "~/.dual-tmux/ops/op_msg"
     _patch_resume(monkeypatch, data)
     launch = tmp_path / "ops" / "op_msg"
     launch.mkdir(parents=True)
@@ -557,7 +557,7 @@ def test_resume_rebinds_trigger_workspace(monkeypatch, tmp_path):
         cli.oc_ops,
         "by_id",
         lambda _sid: type(
-            "S", (), {"directory": "/Users/andy_ouc/.dual-tmux/ops/op_msg"}
+            "S", (), {"directory": "~/.dual-tmux/ops/op_msg"}
         )(),
     )
     monkeypatch.setattr(

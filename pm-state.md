@@ -69,7 +69,7 @@
 - `_ssh_argv` 增加 `StrictHostKeyChecking=accept-new`：首次连接新远端主机自动接受 host key，不再卡在交互确认。
 - `ensure_remote_session` 在远端探测 transport 层失败时 fail-closed 报错（如 host key verification failed），不再把 SSH 故障误判为「会话丢失」而继续走 persist_snapshot 路径。
 - 分支同时携带：resume 路径重绑与 transport 命令启动修复（`1250348`）、workpoint 别名与 runtime hops 保留（`9166eed`）、lifecycle 基线测试与真实 session ticks 隔离（`3411a95`）。
-- 全量 pytest 498 passed + 1 skipped；`uv tool install --reinstall .` 后 `dt --version` = 0.4.74；真实 `dt resume dt-company-change --plan` 返回 `safe: true / already_owned`（generation 2，holder `tm_andy_home`）。
+- 全量 pytest 498 passed + 1 skipped；`uv tool install --reinstall .` 后 `dt --version` = 0.4.74；真实 `dt resume dt-company-change --plan` 返回 `safe: true / already_owned`（generation 2，holder `tm_a_home`）。
 - PR #75 已合并至 `main`（merge `2ab0eda`）；GitHub Release `v0.4.74` 已发布（Latest），0.4.74 wheel SHA-256 与本地构建一致，真实 `dt upgrade` 验证发现路径通过。
 - 补发 v0.4.70–73 的 GitHub Release 与累积 wheel 资产（2026-09-15，draft 校验 SHA 后按版本顺序发布）；标签全部指向各自 PR merge commit，其他客户端 `dt upgrade` 可从 v0.4.69 直接发现并升级到 v0.4.74。
 
@@ -210,7 +210,7 @@
 ### v0.4.55.post4 (RELEASED) — 跨 Client 快照自动 Union
 
 - **hotfix/v0.4.55-post4-snapshot-union** (MERGED): PR #44 合并至 `main`（merge `0b575d4`），`v0.4.55.post4` Release、wheel 与 sdist 已发布。本机已升级正式 post4、重启 daemon，并再次成功恢复 `dt-alex-serp` generation 4。350 collected、348 passed、2 skipped；聚焦 Ruff、build 和真实旧库回放通过。
-  - **issue-valid-session-branches-block-resume** (CLOSED): `dt-alex-serp` 的本机 292 条与 `tm_andy_home` 284 条共享 278 条，各有 14/6 条有效独有消息，旧单 tail 判定误报冲突。真实会话已双备份后无损 union 为 298 条；现收集全部 `tm_*` 快照、校验 immutable graph identity、一次备份后 merge import，原本地与各快照 tail 全部验存。
+  - **issue-valid-session-branches-block-resume** (CLOSED): `dt-alex-serp` 的本机 292 条与 `tm_a_home` 284 条共享 278 条，各有 14/6 条有效独有消息，旧单 tail 判定误报冲突。真实会话已双备份后无损 union 为 298 条；现收集全部 `tm_*` 快照、校验 immutable graph identity、一次备份后 merge import，原本地与各快照 tail 全部验存。
 
 ### v0.4.55.post3 (RELEASED) — Lease 误踢 P0 hotfix
 
@@ -219,7 +219,7 @@
 
 ### v0.4.55.post2 (RELEASED) — Resume 快照自动收敛与 Lease 连续性
 
-- `dt-company_intro_v2` 真实故障已恢复：本地仅独有一个无正文、无工具副作用的 SSE timeout assistant 叶节点；导入 `tm_andy_home` 权威快照后保留该失败节点，并将有效主线推进 120 条至 `msg_08215c089001fkjPvMXj9zgdFj`。修复前已保存完整 session JSON 与 OpenCode SQLite 物理备份。
+- `dt-company_intro_v2` 真实故障已恢复：本地仅独有一个无正文、无工具副作用的 SSE timeout assistant 叶节点；导入 `tm_a_home` 权威快照后保留该失败节点，并将有效主线推进 120 条至 `msg_08215c089001fkjPvMXj9zgdFj`。修复前已保存完整 session JSON 与 OpenCode SQLite 物理备份。
 - Resume 在 Ownership claim、远端重连和 tmux drop 之前完成 OpenCode 快照只读预检；真实内容/工具结果分叉继续 fail-closed，不再出现“先破坏运行载体、再报告冲突”。
 - 仅由无用户正文、无工具副作用、无后继的失败 assistant 叶节点造成的伪分叉可自动收敛；导入仍先备份，失败节点不删除。
 - claimant 在完整 restore/verify 期间每秒续租；daemon 以独立 Lease worker 根据 tunnel 持久化 generation 并行续租，不再让慢 cache/SSH 扫描消耗 4 秒 Lease。
@@ -264,14 +264,14 @@
 - **hotfix/v0.4.49-bullet-fencing** (MERGED): PR #22 已合并，随 v0.4.48.post5 发布并真实升级；bullet resume/start 前经 ssh+docker pgrep 检测远端同 session 实例——pane 已附着 TUI 跳过（同时修复 resume 命令被打进 TUI 输入框变 queue 的缺陷）、检查失败拒绝盲启、孤儿实例 TERM→KILL 清理；换模型路径同样 fence。232 tests 全过，真实隧道只读验证通过。
   - **issue-bullet-multiple-instances** (CLOSED): m7 容器 4 个 opencode 进程抢同一 bullet session（已现场清理 3 个孤儿 + 1 条孤儿 ssh 跳点），是 09-02 上午 bullet 卡死 queue 事故的根因。
 - **hotfix/v0.4.49-trigger-snapshot-export** (MERGED): PR #24 已合并，随 v0.4.48.post6 发布并真实升级；tick 每分钟对本 Client 持有的隧道自动导出 trigger（本地模式含 bullet）会话快照到 persist 租户目录——time_updated 新鲜度门控、原子写、id 校验，失败记 `persist.export.fail` 不拖垮 tick。真实 tick 已自动导出 4 个隧道快照并经 persist cron 上 Hub 验证一致。原则落地：单一活动隧道/会话，任何机器 resume 都拿到最新数据。
-  - **issue-trigger-persist-export-missing** (CLOSED): 本机无外部 persist 导出器运行，Hub 快照停留 8/30。租户名（tm_andy_ouc）与 dt client（tm_ouc）不一致经评估不强制改名（保护 tmux-resurrect 路径），导出写入 name 文件指向的租户。
+  - **issue-trigger-persist-export-missing** (CLOSED): 本机无外部 persist 导出器运行，Hub 快照停留 8/30。租户名（tm_a_ouc）与 dt client（tm_ouc）不一致经评估不强制改名（保护 tmux-resurrect 路径），导出写入 name 文件指向的租户。
 - **feature/v0.4.49-session-ownership** (MERGED): PR #26 已合并至 `main`（`cd93eb9`）；本分支实际完成 snapshot freshness 收敛、trigger workdir 和 freeze runtime authority。GitHub Release `v0.4.49` 已发布，本机从 0.4.48.post6 真实升级成功，config/tunnel 哈希不变，daemon、cron、Hub sync 与飞书 mailbox sync 全绿。
   - **issue-lockscreen-lease-false-active** (FOUND, DEFERRED): 保留到 `BL-RUNTIME-001`，不计入 v0.4.49 发布范围。
   - **issue-resume-reject-drops-local-pane** (FOUND, DEFERRED): 保留到 `BL-RUNTIME-001`，不计入 v0.4.49 发布范围。
   - **issue-duplicate-session-writer** (CLOSED by post5): 远端同 session 多进程已由 bullet fencing 修复。
   - **issue-trigger-snapshot-stale-on-cross-client-resume** (CLOSED on feature): `dt pull` 已同步 tunnel + OpenCode/tmux persist 并显式传播传输失败；resolver 按 payload revision 选择快照，同 ID 本地会话也执行 freshness/祖先关系判断，新快照导入前备份并退出 stale TUI，导入后验证 tail；分叉返回 `snapshot_conflict`，本地较新不降级。`dt-company_intro_v2` 真实恢复由 8 月 30 日 revision 更新到 OUC 的 1052 条消息，tail=`msg_06c8ac05f001QkTggK2hk9TFi0`，本地 DB 已验证包含“它回了：你好。需要继续 intro_v2 哪一块？”。
-  - **issue-enter-trigger-workdir-home** (CLOSED, `hotfix/v0.4.49-enter-workdir`): 已回合并 `feature/v0.4.49-session-ownership`。`cmd_enter()` 现于 discover/attach 前创建并校准 trigger tmux；新 pane 固定使用 ops cwd，已有错误 cwd 只在前台为空闲 shell 时清行并纠正，Agent/其他程序不注入命令。全量 pytest 通过；`dt-cp-gate` 实测 pane 与 `op_point.cwd` 均已收敛到 `/Users/andy/.dual-tmux/ops/op_cp_gate`。
-  - **issue-freeze-runtime-authority-corruption** (CLOSED, merged into `feature/v0.4.49-session-ownership`): live SSH 进程现覆盖混合 scrollback，远端交互式 `docker exec` 进程用于解析当前容器；runtime/run_point 只在 Agent session 验证成功后原子提交，partial freeze 返回非零并记录 `freeze.fail`。`dt-cp-gate` 已实测绑定 `root@10.88.0.20 → cp_gateway_24629:/workspace` 的 OpenCode 1.18.29 session `ses_f8a384577ffeb75HokVSq3nf13`，`IS_DST=yes`，错误 hops 已清除。
+  - **issue-enter-trigger-workdir-home** (CLOSED, `hotfix/v0.4.49-enter-workdir`): 已回合并 `feature/v0.4.49-session-ownership`。`cmd_enter()` 现于 discover/attach 前创建并校准 trigger tmux；新 pane 固定使用 ops cwd，已有错误 cwd 只在前台为空闲 shell 时清行并纠正，Agent/其他程序不注入命令。全量 pytest 通过；`dt-cp-gate` 实测 pane 与 `op_point.cwd` 均已收敛到 `~/.dual-tmux/ops/op_cp_gate`。
+  - **issue-freeze-runtime-authority-corruption** (CLOSED, merged into `feature/v0.4.49-session-ownership`): live SSH 进程现覆盖混合 scrollback，远端交互式 `docker exec` 进程用于解析当前容器；runtime/run_point 只在 Agent session 验证成功后原子提交，partial freeze 返回非零并记录 `freeze.fail`。`dt-cp-gate` 已实测绑定 `root@198.51.100.20 → cp_gateway_24629:/workspace` 的 OpenCode 1.18.29 session `ses_f8a384577ffeb75HokVSq3nf13`，`IS_DST=yes`，错误 hops 已清除。
 - 后续 hotfix 待用户口述，每条一个 `hotfix/v0.4.49-*` 分支（L3）。
 
 ### v0.4.50 (ARCHIVED) — 失效的 Ownership Web 草案

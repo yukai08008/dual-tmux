@@ -78,7 +78,7 @@ binding 与 conversation snapshot 是两条独立数据链。`dt pull` 必须先
 
 - 2026-09-05：Home 从 OUC snapshot 恢复 `dt-company_intro_v2` trigger 的 1052 条消息，尾消息校验一致。
 - 2026-09-06：`dt-cp-gate` 普通 enter 后 pane 与 `op_point.cwd` 均落在专属 ops 目录。
-- 2026-09-06：`dt-cp-gate` 从 live `ssh root@10.88.0.20` 与 `cp_gateway_24629` 取证，freeze 到 session `ses_f8a384577ffeb75HokVSq3nf13`。
+- 2026-09-06：`dt-cp-gate` 从 live `ssh root@198.51.100.20` 与 `cp_gateway_24629` 取证，freeze 到 session `ses_f8a384577ffeb75HokVSq3nf13`。
 
 ## 5. 风险登记表
 

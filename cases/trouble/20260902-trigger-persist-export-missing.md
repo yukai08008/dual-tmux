@@ -4,12 +4,12 @@
 
 ## 背景
 
-核对"另一台机器 pull 能否拿到一致会话"时发现：本机（tm_ouc）从未导出过 OpenCode 会话快照——`~/sessions/opencode/tm_ouc/` 与 `tm_andy_ouc/` 均为空，Hub 上 dt-company_intro_v2 的 trigger 快照停留在 8/30 12:25（tm_andy_home 导出）。
+核对"另一台机器 pull 能否拿到一致会话"时发现：本机（tm_ouc）从未导出过 OpenCode 会话快照——`~/sessions/opencode/tm_ouc/` 与 `tm_a_ouc/` 均为空，Hub 上 dt-company_intro_v2 的 trigger 快照停留在 8/30 12:25（tm_a_home 导出）。
 
 ## 两个缺口
 
 1. **导出器缺失**：persist 合同（docs/persist-sync.md）第 1 步"每分钟导出本机 OpenCode 会话"由外部 persist 工具负责，本机没有安装/运行它；dt 自身只读快照、从不导出。
-2. **租户名不一致**：`~/.config/session-persist/name` = `tm_andy_ouc`，dt `client` = `tm_ouc`。文档要求两者相同；`sync_persist_identity` 只修正非法值，合法但不一致的旧值被保留。
+2. **租户名不一致**：`~/.config/session-persist/name` = `tm_a_ouc`，dt `client` = `tm_ouc`。文档要求两者相同；`sync_persist_identity` 只修正非法值，合法但不一致的旧值被保留。
 
 ## 影响
 
@@ -18,7 +18,7 @@
 
 ## 临时缓解（2026-09-02）
 
-- 手工 `opencode export ses_fb3abe74…` 371 条消息 → `~/sessions/opencode/tm_andy_ouc/misty-rocket.json`，persist cron 已推上 Hub 并校验内容一致。
+- 手工 `opencode export ses_fb3abe74…` 371 条消息 → `~/sessions/opencode/tm_a_ouc/misty-rocket.json`，persist cron 已推上 Hub 并校验内容一致。
 
 ## 待决策
 

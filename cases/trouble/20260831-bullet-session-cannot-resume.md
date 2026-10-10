@@ -6,10 +6,10 @@
 
 ## 现场证据
 
-- tunnel 的 `runtime.server=tom7r`，但 `runtime.container` 为空，directory 为 `/Users/andy`。
+- tunnel 的 `runtime.server=tom7r`，但 `runtime.container` 为空，directory 为 `~`。
 - resume 后 `run_msg2` 实际是本机 zsh；`opencode -s` 被发到本机。
-- 2026-08-28 的来源 tmux 快照显示 `run_msg2` 的 foreground command 是本地 `opencode`，cwd `/Users/andy`，不是 ssh/docker。
-- session 快照 `happy-circuit.json` 完整存在于中心服务器 `tm_andy_home` 来源树，本机也已拉取；会话内容未丢失。
+- 2026-08-28 的来源 tmux 快照显示 `run_msg2` 的 foreground command 是本地 `opencode`，cwd `~`，不是 ssh/docker。
+- session 快照 `happy-circuit.json` 完整存在于中心服务器 `tm_a_home` 来源树，本机也已拉取；会话内容未丢失。
 - tom7r 登录宿主机和已检查的容器数据库中均没有该 session ID。
 
 ## 根因

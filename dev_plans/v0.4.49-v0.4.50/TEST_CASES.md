@@ -41,7 +41,7 @@
 | ID | 用例 | → acceptance | 自动化 |
 |---|---|---|---|
 | E-10 | tm_ouc 锁屏但 cron heartbeat：Web 显示 online/detached/idle | 语义准确 | 两台 Client |
-| E-11 | tm_ouc daemon ack handoff，tm_andy_home 安全恢复原 session | 完整闭环 | 两台 Client |
+| E-11 | tm_ouc daemon ack handoff，tm_a_home 安全恢复原 session | 完整闭环 | 两台 Client |
 | E-12 | owner 正在 working 时接管被拒且任务不中断 | 安全拒绝 | 两台 Client |
 | E-13 | 容器已有相同 session writer 时不产生第二/第三进程 | writer 单活 | tom7r |
 | E-14 | Web/CLI/tmux chip 的 holder/generation/phase 一致 | 跨端收敛 | Browser + CLI |
