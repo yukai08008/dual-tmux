@@ -1,5 +1,6 @@
 # dual-tmux ROADMAP
 
+> v0.4.81：abc (andybot_core) 原生客户端。第四个 native session 客户端：journal 文件名即 session id、freeze/resume 走显式 `--journal` 确定性续跑、native persist 快照进出全支持；孤儿巡检与 pane 解析纳入 abc。附带修复 macOS ps 组合列截断（agent_process）与 resume 波浪号引号 bug。二期方向：abc one-shot 派发模型（进程退出即回合完成，backlog BL-ABC-001）。
 > v0.4.78：孤儿进程治理（S13/S14 落地）。新增 orphan 模块：容器 run 点 opencode 扫描/分类（绑定会话最新者为合法写者，其余超宽限 10 分钟即孤儿）；`dt orphans [dt] [--json] [--clean]` 手动列出/清理；tick 低频巡检（默认每小时，`orphan.found` 事件 + 按隧道 `auto_orphan_clean` 开关清理，红线：合法写者永不清理、DST 冻结只扫不清、他机占用跳过）；resume/rebuild 启动前全容器清场（`orphan.sweep`）；`dt drop`/`dt rm --kill` 断链前按绑定会话围栏，杜绝泄漏；事件体系新增 orphan 分类。
 > v0.4.77：自动恢复收敛（S12 补全）。`auto_recover` 默认开启（显式关闭仍生效）；stalled 边沿接入自动重建（`recovery.rebuild.auto`，退避 5/15/30 分钟、每周期最多 3 次、观察到 working 清零、用尽转 attention）；`dt bullet` 输出 `recovery` 字段直接给出恢复动词（trigger 侧 down → `dt resume`，trigger 活 + bullet 病 → `dt rebuild`）。用户心智模型收敛为：**恢复一律 resume，中途故障 dt 自动处理**。
 > v0.4.76：Trigger 受控运维 Bullet（S12）。新增 `dt bullet`（一站式只读诊断：活动状态/健康/管道/远端写者/最近事件 + 事实 hint）与 `dt rebuild`（围栏化重建：路由修复→跳板重连→孤儿 fence→绑定会话重启，span 事件可审计）；技能与 AGENTS.md 改写为事件驱动守则——派发走 `dt send`（占用守卫 + bullet.send 事件）、行动前查 `dt bullet --json`、卡死恢复一条 `dt rebuild` 替代手工 pgrep/kill/--auto 配方。

@@ -1,8 +1,16 @@
 # 项目状态: dual-tmux
 
-> 最近更新: 2026-09-21 15:10 +08:00 | 更新者: ZCode
+> 最近更新: 2026-10-10 18:30 +08:00 | 更新者: ZCode (andy-representative)
 
 ## 状态树
+
+### v0.4.81 (RELEASED) — abc (andybot_core) 原生客户端接入
+
+- abc 成为第四个原生会话客户端（start / session_freeze / resume，与 codex/claude 同级）。会话身份 = journal 文件名主干（`~/.abc/sessions/<YYYYMMDD-HHMMSS>[-N].jsonl`），UUID 门禁改为按工具 `valid_sid()`；freeze 经显式 `--journal` argv 或"启动窗内唯一新 journal"证明（abc journal 不带 cwd，歧义 fail-closed）；native persist 导出/导入/校验全支持（session 行与文件名矛盾 fail-closed）；resume 合成 `abc --resume --journal "$HOME/.abc/sessions/<sid>.jsonl"`（单引号波浪号不展开，$HOME 形式兼容未升级 abc）。paneparse 新增 `abc@1`，孤儿巡检纳入 abc 进程（词边界过滤），能力矩阵/CLI 契约快照再生（freeze/capture `--tool` 增 abc）。
+- 附带修复两个潜在 bug：①`agent_process` 拆开 `ps command=` 与 `etime=` 两次调用——macOS 组合列会把 command 截到 16 字符列宽，codex/claude 在 macOS 的 fresh-start discovery 同样受益；②resume 引号 bug（字面 `~` 传给 abc 会建假目录开空白会话）。配套 andybot_core 修复 `fix/journal-expanduser`（RunJournal/CLI 对显式 journal 路径 expanduser，待 MR）。
+- 真实冒烟（本机，dt-abc-smoke 已清理）：本地 abc REPL 隧道 freeze（bullet 绑定，client abc 0.4.0）→ drop（abc 进程终止、journal 完好）→ resume 确定性重放（已恢复 消息 3 条）→ 跨 drop 上下文连续（正确答出上一轮内容）→ 同一 journal 追加（35084→38790 字节）。
+- PR #99 已合并（merge `712a2ff`）；全量 pytest 634 passed + 1 skipped（新增 tests/test_abc_client.py 11 用例 + 参数化扩展）；ruff 24=24 零新增；delta pub-guard 扫描 PASS。二期 one-shot 派发模型已立项 `dev_plans/_backlog/20261010-abc-client-and-one-shot-dispatch.md`（BL-ABC-001）。
+- 同窗交付：PR #98 公有仓脱敏（pub-guard 立后的清理重推，105 处/43 文件一一映射替换，git 历史未清洗）；pub-guard 两处实现矛盾经 andy「去搞定」授权修订（WARN 记日志放行、新分支条件拦截，~/sync 9d48a92 + patrol 快照回填）。
 
 ### v0.4.80 (RELEASED) — 隧道语义描述字段（BL-LS-001）
 
