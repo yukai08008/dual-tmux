@@ -28,3 +28,5 @@
 - 第一道是写时自律（本表）；第二道是 pub-guard 在 push 时兜底拦截（BLOCK 档），WARN 档记日志放行。
 - 存量内容不回改；新记录从本表。
 - 需要指认"哪台机器"时用假名 + 角色注记（如 `tm_a_home（家中机）`），案例语义必须仍然可读——假名化不是删事实，是换名字。
+
+- **Python 一律走项目 uv 环境**（2026-10-12 andy 定）：脚本/测试用 `uv run` 跑，缺依赖按项目依赖清单（pyproject.toml + uv.lock）正规补入；**禁用 anaconda/conda**，禁止往系统 Python、conda 或临时自建环境散装 pip 装包。
